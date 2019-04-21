@@ -2,8 +2,16 @@ overrides:
   ceph:
     log-ignorelist:
       - Replacing daemon mds
+      - RECENT_CRASH
+      - PG_DEGRADED
+      - PG_AVAILABILITY
 tasks:
 - cephfs_test_runner:
     fail_on_skip: false
     modules:
-      - tasks.cephfs.test_exports
+      - tasks.cephfs.test_exports.TestExports
+      - tasks.cephfs.test_exports.TestExportPin
+      - tasks.cephfs.test_exports.TestEphemeralPins
+      - tasks.cephfs.test_exports.TestKillPointsA
+      - tasks.cephfs.test_exports.TestKillPointsB
+      - tasks.cephfs.test_exports.TestKillPointsC

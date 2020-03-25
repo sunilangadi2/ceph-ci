@@ -4,8 +4,6 @@
 #include <iostream>
 #include <unistd.h>
 
-#include <experimental/filesystem>
-
 #include "gtest/gtest.h"
 #include "include/Context.h"
 #include "include/rados/librados.hpp"
@@ -18,7 +16,13 @@
 
 #include "tools/immutable_object_cache/ObjectCacheStore.h"
 
-namespace efs = std::experimental::filesystem;
+#if __has_include(<filesystem>)
+#include <filesystem>
+namespace fs = std::filesystem;
+#else
+#include <experimental/filesystem>
+namespace fs = std::experimental::filesystem;
+#endif
 using namespace ceph::immutable_obj_cache;
 
 std::string test_cache_path("/tmp/test_ceph_immutable_shared_cache");
@@ -85,7 +89,7 @@ TEST_F(TestObjectStore, test_1) {
 
   std::string cache_path(test_cache_path);
 
-  efs::remove_all(test_cache_path);
+  fs::remove_all(test_cache_path);
 
   init_object_cache_store(m_temp_pool_name, m_temp_volume_name, 1000, true);
 

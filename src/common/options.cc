@@ -8398,6 +8398,11 @@ std::vector<Option> get_mds_options() {
     .set_default(0)
     .set_description(""),
 
+    Option("mds_kill_dirfrag_at", Option::TYPE_INT, Option::LEVEL_DEV)
+    .set_default(0)
+    .set_flag(Option::FLAG_RUNTIME)
+    .set_description(""),
+
     Option("mds_kill_link_at", Option::TYPE_INT, Option::LEVEL_DEV)
     .set_default(0)
     .set_description(""),

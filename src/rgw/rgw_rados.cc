@@ -8510,9 +8510,16 @@ int RGWRados::cls_bucket_list_ordered(const DoutPrefixProvider *dpp,
     if (r >= 0) {
       ldpp_dout(dpp, 10) << "RGWRados::" << __func__ << ": got " <<
 	dirent.key.name << "[" << dirent.key.instance << "]" << dendl;
-      m[name] = std::move(dirent);
-      last_entry_visited = &(m[name]);
-      ++count;
+
+      auto [it, inserted] = m.insert_or_assign(name, std::move(dirent));
+      last_entry_visited = &it->second;
+      if (inserted) {
+	++count;
+      } else {
+	ldpp_dout(dpp, 0) << "WARNING: RGWRados::" << __func__ <<
+	  ": reassigned map value at \"" << name <<
+	  "\", which should not happen" << dendl;
+      }
     } else {
       ldpp_dout(dpp, 10) << "RGWRados::" << __func__ << ": skipping " <<
 	dirent.key.name << "[" << dirent.key.instance << "]" << dendl;

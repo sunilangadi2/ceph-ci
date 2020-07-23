@@ -9,7 +9,6 @@
 #include "common/debug.h"
 #include "common/dout.h"
 #include "common/errno.h"
-#include "common/WorkQueue.h"
 #include "cls/rbd/cls_rbd_client.h"
 #include "journal/Journaler.h"
 #include "journal/Settings.h"
@@ -18,6 +17,7 @@
 #include "librbd/internal.h"
 #include "librbd/Journal.h"
 #include "librbd/Utils.h"
+#include "librbd/asio/ContextWQ.h"
 #include "librbd/journal/Types.h"
 #include "tools/rbd_mirror/BaseRequest.h"
 #include "tools/rbd_mirror/ImageSync.h"
@@ -113,8 +113,12 @@ void BootstrapRequest<I>::prepare_local_image() {
   dout(10) << dendl;
   update_progress("PREPARE_LOCAL_IMAGE");
 
+  {
+    std::unique_lock locker{m_lock};
+    m_local_image_name = m_global_image_id;
+  }
+
   ceph_assert(*m_state_builder == nullptr);
-  m_local_image_name = m_global_image_id;
   auto ctx = create_context_callback<
     BootstrapRequest, &BootstrapRequest<I>::handle_prepare_local_image>(this);
   auto req = image_replayer::PrepareLocalImageRequest<I>::create(
@@ -139,7 +143,7 @@ void BootstrapRequest<I>::handle_prepare_local_image(int r) {
 
   // image replayer will detect the name change (if any) at next
   // status update
-  {
+  if (r >= 0 && !m_prepare_local_image_name.empty()) {
     std::unique_lock locker{m_lock};
     m_local_image_name = m_prepare_local_image_name;
   }
@@ -178,7 +182,14 @@ void BootstrapRequest<I>::handle_prepare_remote_image(int r) {
     finish(r);
     return;
   } else if (r == -ENOENT || state_builder == nullptr) {
-    dout(10) << "remote image does not exist" << dendl;
+    dout(10) << "remote image does not exist";
+    if (state_builder != nullptr) {
+      *_dout << ": "
+             << "local_image_id=" << state_builder->local_image_id  << ", "
+             << "remote_image_id=" << state_builder->remote_image_id << ", "
+             << "is_linked=" << state_builder->is_linked();
+    }
+    *_dout << dendl;
 
     // TODO need to support multiple remote images
     if (state_builder != nullptr &&

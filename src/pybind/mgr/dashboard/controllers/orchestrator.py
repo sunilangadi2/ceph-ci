@@ -3,11 +3,7 @@ from __future__ import absolute_import
 import os.path
 
 import time
-
-try:
-    from ceph.deployment.drive_group import DriveGroupSpec, DriveGroupValidationError
-except ImportError:
-    pass
+from functools import wraps
 
 from . import ApiController, Endpoint, ReadPermission, UpdatePermission
 from . import RESTController, Task
@@ -16,7 +12,7 @@ from ..exceptions import DashboardException
 from ..security import Scope
 from ..services.exception import handle_orchestrator_error
 from ..services.orchestrator import OrchClient
-from ..tools import TaskManager, wraps
+from ..tools import TaskManager
 
 
 def get_device_osd_map():
@@ -36,7 +32,7 @@ def get_device_osd_map():
              }
     :rtype: dict
     """
-    result = {}
+    result: dict = {}
     for osd_id, osd_metadata in mgr.get('osd_metadata').items():
         hostname = osd_metadata.get('hostname')
         devices = osd_metadata.get('devices')
@@ -62,7 +58,7 @@ def raise_if_no_orchestrator(method):
     def inner(self, *args, **kwargs):
         orch = OrchClient.instance()
         if not orch.available():
-            raise DashboardException(code='orchestrator_status_unavailable',
+            raise DashboardException(code='orchestrator_status_unavailable',  # pragma: no cover
                                      msg='Orchestrator is unavailable',
                                      component='orchestrator',
                                      http_status_code=503)
@@ -83,12 +79,13 @@ class Orchestrator(RESTController):
     @raise_if_no_orchestrator
     @handle_orchestrator_error('osd')
     @orchestrator_task('identify_device', ['{hostname}', '{device}'])
-    def identify_device(self, hostname, device, duration):
+    def identify_device(self, hostname, device, duration):  # pragma: no cover
         # type: (str, str, int) -> None
         """
         Identify a device by switching on the device light for N seconds.
         :param hostname: The hostname of the device to process.
-        :param device: The device identifier to process, e.g. ``ABC1234DEF567-1R1234_ABC8DE0Q``.
+        :param device: The device identifier to process, e.g. ``/dev/dm-0`` or
+          ``ABC1234DEF567-1R1234_ABC8DE0Q``.
         :param duration: The duration in seconds how long the LED should flash.
         """
         orch = OrchClient.instance()
@@ -114,30 +111,9 @@ class OrchestratorInventory(RESTController):
         for inventory_host in inventory_hosts:
             host_osds = device_osd_map.get(inventory_host['name'])
             for device in inventory_host['devices']:
-                if host_osds:
+                if host_osds:  # pragma: no cover
                     dev_name = os.path.basename(device['path'])
                     device['osd_ids'] = sorted(host_osds.get(dev_name, []))
                 else:
                     device['osd_ids'] = []
         return inventory_hosts
-
-
-@ApiController('/orchestrator/service', Scope.HOSTS)
-class OrchestratorService(RESTController):
-
-    @raise_if_no_orchestrator
-    def list(self, hostname=None):
-        orch = OrchClient.instance()
-        return [service.to_json() for service in orch.services.list(None, None, hostname)]
-
-
-@ApiController('/orchestrator/osd', Scope.OSD)
-class OrchestratorOsd(RESTController):
-
-    @raise_if_no_orchestrator
-    def create(self, drive_group):
-        orch = OrchClient.instance()
-        try:
-            orch.osds.create(DriveGroupSpec.from_json(drive_group))
-        except (ValueError, TypeError, DriveGroupValidationError) as e:
-            raise DashboardException(e, component='osd')

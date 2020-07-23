@@ -9,10 +9,9 @@ import errno
 import fnmatch
 import mgr_util
 import prettytable
-import six
 import json
 
-from mgr_module import MgrModule
+from mgr_module import MgrModule, HandleCommandResult
 
 
 class Module(MgrModule):
@@ -64,9 +63,11 @@ class Module(MgrModule):
                 continue
 
             rank_table = PrettyTable(
-                ("Rank", "State", "MDS", "Activity", "dns", "inos"),
-                hrules=prettytable.FRAME
+                ("RANK", "STATE", "MDS", "ACTIVITY", "DNS", "INOS", "DIRS", "CAPS"),
+                border=False,
             )
+            rank_table.left_padding_width = 0
+            rank_table.right_padding_width = 2
 
             mdsmap = filesystem['mdsmap']
 
@@ -79,6 +80,8 @@ class Module(MgrModule):
                     info = mdsmap['info']['gid_{0}'.format(gid)]
                     dns = self.get_latest("mds", info['name'], "mds_mem.dn")
                     inos = self.get_latest("mds", info['name'], "mds_mem.ino")
+                    dirs = self.get_latest("mds", info['name'], "mds_mem.dir")
+                    caps = self.get_latest("mds", info['name'], "mds_mem.cap")
 
                     if rank == 0:
                         client_count = self.get_latest("mds", info['name'],
@@ -118,14 +121,18 @@ class Module(MgrModule):
                             'state': state,
                             'rate': rate if state == "active" else "0",
                             'dns': dns,
-                            'inos': inos
+                            'inos': inos,
+                            'dirs': dirs,
+                            'caps': caps
                         })
                     else:
                         rank_table.add_row([
                             mgr_util.bold(rank.__str__()), c_state, info['name'],
                             activity,
                             mgr_util.format_dimless(dns, 5),
-                            mgr_util.format_dimless(inos, 5)
+                            mgr_util.format_dimless(inos, 5),
+                            mgr_util.format_dimless(dirs, 5),
+                            mgr_util.format_dimless(caps, 5)
                         ])
                 else:
                     if output_format in ('json', 'json-pretty'):
@@ -135,16 +142,18 @@ class Module(MgrModule):
                         })
                     else:
                         rank_table.add_row([
-                            rank, "failed", "", "", "", ""
+                            rank, "failed", "", "", "", "", "", ""
                         ])
 
             # Find the standby replays
-            for gid_str, daemon_info in six.iteritems(mdsmap['info']):
+            for gid_str, daemon_info in mdsmap['info'].items():
                 if daemon_info['state'] != "up:standby-replay":
                     continue
 
                 inos = self.get_latest("mds", daemon_info['name'], "mds_mem.ino")
                 dns = self.get_latest("mds", daemon_info['name'], "mds_mem.dn")
+                dirs = self.get_latest("mds", daemon_info['name'], "mds_mem.dir")
+                caps = self.get_latest("mds", daemon_info['name'], "mds_mem.cap")
 
                 events = self.get_rate("mds", daemon_info['name'], "mds_log.replayed")
                 if output_format not in ('json', 'json-pretty'):
@@ -160,14 +169,18 @@ class Module(MgrModule):
                         'state': 'standby-replay',
                         'events': events,
                         'dns': 5,
-                        'inos': 5
+                        'inos': 5,
+                        'dirs': 5,
+                        'caps': 5
                     })
                 else:
                     rank_table.add_row([
                         "{0}-s".format(daemon_info['rank']), "standby-replay",
                         daemon_info['name'], activity,
                         mgr_util.format_dimless(dns, 5),
-                        mgr_util.format_dimless(inos, 5)
+                        mgr_util.format_dimless(inos, 5),
+                        mgr_util.format_dimless(dirs, 5),
+                        mgr_util.format_dimless(caps, 5)
                     ])
 
             df = self.get("df")
@@ -177,7 +190,10 @@ class Module(MgrModule):
             metadata_pool_id = mdsmap['metadata_pool']
             data_pool_ids = mdsmap['data_pools']
 
-            pools_table = PrettyTable(["Pool", "type", "used", "avail"])
+            pools_table = PrettyTable(["POOL", "TYPE", "USED", "AVAIL"],
+                                      border=False)
+            pools_table.left_padding_width = 0
+            pools_table.right_padding_width = 2
             for pool_id in [metadata_pool_id] + data_pool_ids:
                 pool_type = "metadata" if pool_id == metadata_pool_id else "data"
                 stats = pool_stats[pool_id]
@@ -212,7 +228,9 @@ class Module(MgrModule):
         if not output and not json_output and fs_filter is not None:
             return errno.EINVAL, "", "Invalid filesystem: " + fs_filter
 
-        standby_table = PrettyTable(["Standby MDS"])
+        standby_table = PrettyTable(["STANDBY MDS"], border=False)
+        standby_table.left_padding_width = 0
+        standby_table.right_padding_width = 2
         for standby in fsmap['standbys']:
             metadata = self.get_metadata('mds', standby['name'])
             mds_versions[metadata.get('ceph_version', "unknown")].append(standby['name'])
@@ -234,8 +252,11 @@ class Module(MgrModule):
             else:
                 output += "MDS version: {0}".format(list(mds_versions)[0])
         else:
-            version_table = PrettyTable(["version", "daemons"])
-            for version, daemons in six.iteritems(mds_versions):
+            version_table = PrettyTable(["VERSION", "DAEMONS"],
+                                        border=False)
+            version_table.left_padding_width = 0
+            version_table.right_padding_width = 2
+            for version, daemons in mds_versions.items():
                 if output_format in ('json', 'json-pretty'):
                     json_output['mds_version'].append({
                         'version': version,
@@ -250,14 +271,27 @@ class Module(MgrModule):
                 output += version_table.get_string() + "\n"
 
         if output_format == "json":
-            return 0, "", json.dumps(json_output, sort_keys=True)
+            return HandleCommandResult(stdout=json.dumps(json_output, sort_keys=True))
         elif output_format == "json-pretty":
-            return 0, "", json.dumps(json_output, sort_keys=True, indent=4, separators=(',', ': '))
+            return HandleCommandResult(stdout=json.dumps(json_output, sort_keys=True, indent=4, separators=(',', ': ')))
         else:
-            return 0, output, ""
+            return HandleCommandResult(stdout=output)
 
     def handle_osd_status(self, cmd):
-        osd_table = PrettyTable(['id', 'host', 'used', 'avail', 'wr ops', 'wr data', 'rd ops', 'rd data', 'state'])
+        osd_table = PrettyTable(['ID', 'HOST', 'USED', 'AVAIL', 'WR OPS',
+                                 'WR DATA', 'RD OPS', 'RD DATA', 'STATE'],
+                                border=False)
+        osd_table.align['ID'] = 'r'
+        osd_table.align['HOST'] = 'l'
+        osd_table.align['USED'] = 'r'
+        osd_table.align['AVAIL'] = 'r'
+        osd_table.align['WR OPS'] = 'r'
+        osd_table.align['WR DATA'] = 'r'
+        osd_table.align['RD OPS'] = 'r'
+        osd_table.align['RD DATA'] = 'r'
+        osd_table.align['STATE'] = 'l'
+        osd_table.left_padding_width = 0
+        osd_table.right_padding_width = 2
         osdmap = self.get("osd_map")
 
         filter_osds = set()

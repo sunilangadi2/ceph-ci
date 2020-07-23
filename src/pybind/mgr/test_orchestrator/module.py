@@ -4,13 +4,15 @@ import re
 import os
 import threading
 import functools
+import itertools
 from subprocess import check_output, CalledProcessError
+
+from ceph.deployment.service_spec import ServiceSpec, NFSServiceSpec, IscsiServiceSpec
+
 try:
-    from typing import Callable, List, Tuple
+    from typing import Callable, List, Sequence, Tuple
 except ImportError:
     pass  # type checking
-
-import six
 
 from ceph.deployment import inventory
 from ceph.deployment.drive_group import DriveGroupSpec
@@ -117,8 +119,10 @@ class TestOrchestrator(MgrModule, orchestrator.Orchestrator):
     def _init_data(self, data=None):
         self._inventory = [orchestrator.InventoryHost.from_json(inventory_host)
                            for inventory_host in data.get('inventory', [])]
-        self._daemons = [orchestrator.DaemonDescription.from_json(service)
-                          for service in data.get('daemons', [])]
+        self._services = [orchestrator.ServiceDescription.from_json(service)
+                           for service in data.get('services', [])]
+        self._daemons = [orchestrator.DaemonDescription.from_json(daemon)
+                          for daemon in data.get('daemons', [])]
 
     @deferred_read
     def get_inventory(self, host_filter=None, refresh=False):
@@ -153,65 +157,142 @@ class TestOrchestrator(MgrModule, orchestrator.Orchestrator):
         self.log.error('c-v failed: ' + str(c_v_out))
         raise Exception('c-v failed')
 
+    def _get_ceph_daemons(self):
+        # type: () -> List[orchestrator.DaemonDescription]
+        """ Return ceph daemons on the running host."""
+        types = ("mds", "osd", "mon", "rgw", "mgr", "nfs", "iscsi")
+        out = map(str, check_output(['ps', 'aux']).splitlines())
+        processes = [p for p in out if any(
+            [('ceph-{} '.format(t) in p) for t in types])]
+
+        daemons = []
+        for p in processes:
+            # parse daemon type
+            m = re.search('ceph-([^ ]+)', p)
+            if m:
+                _daemon_type = m.group(1)
+            else:
+                raise AssertionError('Fail to determine daemon type from {}'.format(p))
+
+            # parse daemon ID. Possible options: `-i <id>`, `--id=<id>`, `--id <id>`
+            patterns = [r'-i\s(\w+)', r'--id[\s=](\w+)']
+            for pattern in patterns:
+                m = re.search(pattern, p)
+                if m:
+                    daemon_id = m.group(1)
+                    break
+            else:
+                raise AssertionError('Fail to determine daemon ID from {}'.format(p))
+            daemon = orchestrator.DaemonDescription(
+                daemon_type=_daemon_type, daemon_id=daemon_id, hostname='localhost')
+            daemons.append(daemon)
+        return daemons
+
     @deferred_read
-    def list_daemons(self, daemon_type=None, daemon_id=None, host_name=None, refresh=False):
+    def describe_service(self, service_type=None, service_name=None, refresh=False):
+        if self._services:
+            # Dummy data
+            services = self._services
+            if service_type is not None:
+                services = list(filter(lambda s: s.spec.service_type == service_type, services))
+        else:
+            # Deduce services from daemons running on localhost
+            all_daemons = self._get_ceph_daemons()
+            services = []
+            for daemon_type, daemons in itertools.groupby(all_daemons, key=lambda d: d.daemon_type):
+                if service_type is not None and service_type != daemon_type:
+                    continue
+                daemon_size = len(list(daemons))
+                services.append(orchestrator.ServiceDescription(
+                    spec=ServiceSpec(
+                        service_type=daemon_type,
+                    ),
+                    size=daemon_size, running=daemon_size))
+        
+        def _filter_func(svc):
+            if service_name is not None and service_name != svc.spec.service_name():
+                return False
+            return True
+
+        return list(filter(_filter_func, services))
+
+    @deferred_read
+    def list_daemons(self, service_name=None, daemon_type=None, daemon_id=None, host=None, refresh=False):
         """
         There is no guarantee which daemons are returned by describe_service, except that
         it returns the mgr we're running in.
         """
         if daemon_type:
-            daemon_types = ("mds", "osd", "mon", "rgw", "mgr", "iscsi")
+            daemon_types = ("mds", "osd", "mon", "rgw", "mgr", "iscsi", "crash", "nfs")
             assert daemon_type in daemon_types, daemon_type + " unsupported"
 
-        if self._daemons:
-            if host_name:
-                return list(filter(lambda svc: svc.hostname == host_name, self._daemons))
-            return self._daemons
+        daemons = self._daemons if self._daemons else self._get_ceph_daemons()
 
-        out = map(str, check_output(['ps', 'aux']).splitlines())
-        types = (daemon_type, ) if daemon_type else ("mds", "osd", "mon", "rgw", "mgr")
-        assert isinstance(types, tuple)
-        processes = [p for p in out if any([('ceph-' + t in p) for t in types])]
+        def _filter_func(d):
+            if service_name is not None and service_name != d.service_name():
+                return False
+            if daemon_type is not None and daemon_type != d.daemon_type:
+                return False
+            if daemon_id is not None and daemon_id != d.daemon_id:
+                return False
+            if host is not None and host != d.hostname:
+                return False
+            return True
 
-        result = []
-        for p in processes:
-            sd = orchestrator.DaemonDescription()
-            sd.hostname = 'localhost'
-            res = re.search('ceph-[^ ]+', p)
-            assert res
-            sd.daemon_id = res.group()
-            result.append(sd)
+        return list(filter(_filter_func, daemons))
 
-        return result
+    def preview_drivegroups(self, drive_group_name=None, dg_specs=None):
+        return [{}]
 
-    def create_osds(self, drive_groups):
-        # type: (List[DriveGroupSpec]) -> TestCompletion
+    def create_osds(self, drive_group):
+        # type: (DriveGroupSpec) -> TestCompletion
         """ Creates OSDs from a drive group specification.
-
-        Caveat: Currently limited to a single DriveGroup.
-        The orchestrator_cli expects a single completion which
-        ideally represents a set of operations. This orchestrator
-        doesn't support this notion, yet. Hence it's only accepting
-        a single DriveGroup for now.
-        You can work around it by invoking:
 
         $: ceph orch osd create -i <dg.file>
 
-        multiple times. The drivegroup file must only contain one spec at a time.
+        The drivegroup file must only contain one spec at a time.
         """
-        drive_group = drive_groups[0]
 
         def run(all_hosts):
             # type: (List[orchestrator.HostSpec]) -> None
-            drive_group.validate([h.hostname for h in all_hosts])
+            drive_group.validate()
+
+            def get_hosts_func(label=None, as_hostspec=False):
+                if as_hostspec:
+                    return all_hosts
+                return [h.hostname for h in all_hosts]
+
+            if not drive_group.placement.filter_matching_hosts(get_hosts_func):
+                raise orchestrator.OrchestratorValidationError('failed to match')
+
         return self.get_hosts().then(run).then(
             on_complete=orchestrator.ProgressReference(
                 message='create_osds',
                 mgr=self,
             )
-
         )
 
+    def apply_drivegroups(self, specs):
+        # type: (List[DriveGroupSpec]) -> TestCompletion
+        drive_group = specs[0]
+
+        def run(all_hosts):
+            # type: (List[orchestrator.HostSpec]) -> None
+            drive_group.validate()
+
+            def get_hosts_func(label=None, as_hostspec=False):
+                if as_hostspec:
+                    return all_hosts
+                return [h.hostname for h in all_hosts]
+
+            if not drive_group.placement.filter_matching_hosts(get_hosts_func):
+                raise orchestrator.OrchestratorValidationError('failed to match')
+        return self.get_hosts().then(run).then(
+            on_complete=orchestrator.ProgressReference(
+                message='apply_drivesgroups',
+                mgr=self,
+            )
+        )
 
     @deferred_write("remove_daemons")
     def remove_daemons(self, names):
@@ -231,13 +312,27 @@ class TestOrchestrator(MgrModule, orchestrator.Orchestrator):
     def service_action(self, action, service_name):
         pass
 
+    @deferred_write("daemon_action")
+    def daemon_action(self, action, daemon_type, daemon_id):
+        pass
+
     @deferred_write("Adding NFS service")
     def add_nfs(self, spec):
-        # type: (orchestrator.NFSServiceSpec) -> None
+        # type: (NFSServiceSpec) -> None
         assert isinstance(spec.pool, str)
 
-    @deferred_write("update_nfs")
-    def update_nfs(self, spec):
+    @deferred_write("apply_nfs")
+    def apply_nfs(self, spec):
+        pass
+
+    @deferred_write("add_iscsi")
+    def add_iscsi(self, spec):
+        # type: (IscsiServiceSpec) -> None
+        pass
+
+    @deferred_write("apply_iscsi")
+    def apply_iscsi(self, spec):
+        # type: (IscsiServiceSpec) -> None
         pass
 
     @deferred_write("add_mds")
@@ -268,22 +363,22 @@ class TestOrchestrator(MgrModule, orchestrator.Orchestrator):
             raise orchestrator.NoOrchestrator()
         if host == 'raise_import_error':
             raise ImportError("test_orchestrator not enabled")
-        assert isinstance(host, six.string_types)
+        assert isinstance(host, str)
 
     @deferred_write("remove_host")
     def remove_host(self, host):
-        assert isinstance(host, six.string_types)
+        assert isinstance(host, str)
 
-    @deferred_write("update_mgrs")
-    def update_mgrs(self, spec):
-        # type: (orchestrator.ServiceSpec) -> None
+    @deferred_write("apply_mgr")
+    def apply_mgr(self, spec):
+        # type: (ServiceSpec) -> None
 
         assert not spec.placement.hosts or len(spec.placement.hosts) == spec.placement.count
         assert all([isinstance(h, str) for h in spec.placement.hosts])
 
-    @deferred_write("update_mons")
-    def update_mons(self, spec):
-        # type: (orchestrator.ServiceSpec) -> None
+    @deferred_write("apply_mon")
+    def apply_mon(self, spec):
+        # type: (ServiceSpec) -> None
 
         assert not spec.placement.hosts or len(spec.placement.hosts) == spec.placement.count
         assert all([isinstance(h[0], str) for h in spec.placement.hosts])

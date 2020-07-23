@@ -31,6 +31,9 @@ using std::stringstream;
 using std::vector;
 
 using ceph::bufferlist;
+using ceph::fixed_u_to_string;
+
+using TOPNSPC::common::cmd_getval;
 
 MEMPOOL_DEFINE_OBJECT_FACTORY(PGMapDigest, pgmap_digest, pgmap);
 MEMPOOL_DEFINE_OBJECT_FACTORY(PGMap, pgmap, pgmap);
@@ -957,6 +960,7 @@ void PGMapDigest::dump_object_stat_sum(
       f->dump_int("compress_under_bytes", statfs.data_compressed_original);
       // Stored by user amplified by replication
       f->dump_int("stored_raw", stored_raw);
+      f->dump_unsigned("avail_raw", avail);
     }
   } else {
     tbl << stringify(byte_u_t(stored_normalized));
@@ -1175,7 +1179,7 @@ void PGMap::apply_incremental(CephContext *cct, const Incremental& inc)
 
     auto pool_statfs_iter =
       pool_statfs.find(std::make_pair(update_pool, update_osd));
-    if (pg_pool_sum.count(update_pool)) { 
+    if (pg_pool_sum.count(update_pool)) {
       pool_stat_t &pool_sum_ref = pg_pool_sum[update_pool];
       if (pool_statfs_iter == pool_statfs.end()) {
         pool_statfs.emplace(std::make_pair(update_pool, update_osd), statfs_inc);
@@ -1527,12 +1531,12 @@ void PGMap::decode(bufferlist::const_iterator &bl)
   calc_stats();
 }
 
-void PGMap::dump(ceph::Formatter *f) const
+void PGMap::dump(ceph::Formatter *f, bool with_net) const
 {
   dump_basic(f);
   dump_pg_stats(f, false);
   dump_pool_stats(f);
-  dump_osd_stats(f);
+  dump_osd_stats(f, with_net);
 }
 
 void PGMap::dump_basic(ceph::Formatter *f) const
@@ -1604,6 +1608,18 @@ void PGMap::dump_osd_stats(ceph::Formatter *f, bool with_net) const
     f->open_object_section("osd_stat");
     f->dump_int("osd", q->first);
     q->second.dump(f, with_net);
+    f->close_section();
+  }
+  f->close_section();
+}
+
+void PGMap::dump_osd_ping_times(ceph::Formatter *f) const
+{
+  f->open_array_section("osd_ping_times");
+  for (auto& [osd, stat] : osd_stat) {
+    f->open_object_section("osd_ping_time");
+    f->dump_int("osd", osd);
+    stat.dump_ping_time(f);
     f->close_section();
   }
   f->close_section();
@@ -2363,6 +2379,23 @@ void PGMap::dump_pool_stats_and_io_rate(int64_t poolid, const OSDMap &osd_map,
   }
 }
 
+// Get crush parentage for an osd (skip root)
+set<std::string> PGMap::osd_parentage(const OSDMap& osdmap, int id) const
+{
+  set<std::string> reporters_by_subtree;
+  auto reporter_subtree_level = g_conf().get_val<string>("mon_osd_reporter_subtree_level");
+
+  auto loc = osdmap.crush->get_full_location(id);
+  for (auto& [parent_bucket_type, parent_id] : loc) {
+    // Should we show the root?  Might not be too informative like "default"
+    if (parent_bucket_type != "root" &&
+        parent_bucket_type != reporter_subtree_level) {
+      reporters_by_subtree.insert(parent_id);
+    }
+  }
+  return reporters_by_subtree;
+}
+
 void PGMap::get_health_checks(
   CephContext *cct,
   const OSDMap& osdmap,
@@ -2495,7 +2528,11 @@ void PGMap::get_health_checks(
         if (pg_response.stuck_since) {
           // Delayed response, check for stuckness
           utime_t last_whatever = pg_response.stuck_since(pg_info);
-          if (last_whatever >= cutoff) {
+          if (last_whatever.is_zero() &&
+            pg_info.last_change >= cutoff) {
+            // still moving, ignore
+            continue;
+          } else if (last_whatever >= cutoff) {
             // Not stuck enough, ignore.
             continue;
           } else {
@@ -2793,6 +2830,7 @@ void PGMap::get_health_checks(
 
     list<string> detail_back;
     list<string> detail_front;
+    list<string> detail;
     set<mon_ping_item_t> back_sorted, front_sorted;
     for (auto i : osd_stat) {
       for (auto j : i.second.hb_pingtime) {
@@ -2823,6 +2861,19 @@ void PGMap::get_health_checks(
 	  front_sorted.emplace(front);
 	}
       }
+      if (i.second.num_shards_repaired >
+		      cct->_conf.get_val<uint64_t>("mon_osd_warn_num_repaired")) {
+        ostringstream ss;
+	ss << "osd." << i.first << " had " << i.second.num_shards_repaired << " reads repaired";
+        detail.push_back(ss.str());
+      }
+    }
+    if (!detail.empty()) {
+      ostringstream ss;
+      ss << "Too many repaired reads on " << detail.size() << " OSDs";
+      auto& d = checks->add("OSD_TOO_MANY_REPAIRS", HEALTH_WARN, ss.str(),
+		      detail.size());
+      d.detail.swap(detail);
     }
     int max_detail = 10;
     for (auto &sback : boost::adaptors::reverse(back_sorted)) {
@@ -2833,9 +2884,11 @@ void PGMap::get_health_checks(
         break;
       }
       max_detail--;
-      ss << "Slow heartbeat ping on back interface from osd." << sback.from
+      ss << "Slow OSD heartbeats on back from osd." << sback.from
+	 << " [" << osd_parentage(osdmap, sback.from) << "]"
          << (osdmap.is_down(sback.from) ? " (down)" : "")
 	 << " to osd." << sback.to
+	 << " [" << osd_parentage(osdmap, sback.to) << "]"
          << (osdmap.is_down(sback.to) ? " (down)" : "")
 	 << " " << fixed_u_to_string(sback.pingtime, 3) << " msec"
 	 << (sback.improving ? " possibly improving" : "");
@@ -2850,9 +2903,12 @@ void PGMap::get_health_checks(
         break;
       }
       max_detail--;
-      ss << "Slow heartbeat ping on front interface from osd." << sfront.from
+      // Get crush parentage for each osd
+      ss << "Slow OSD heartbeats on front from osd." << sfront.from
+	 << " [" << osd_parentage(osdmap, sfront.from) << "]"
          << (osdmap.is_down(sfront.from) ? " (down)" : "")
          << " to osd." << sfront.to
+	 << " [" << osd_parentage(osdmap, sfront.to) << "]"
          << (osdmap.is_down(sfront.to) ? " (down)" : "")
 	 << " " << fixed_u_to_string(sfront.pingtime, 3) << " msec"
 	 << (sfront.improving ? " possibly improving" : "");
@@ -2860,16 +2916,16 @@ void PGMap::get_health_checks(
     }
     if (detail_back.size() != 0) {
       ostringstream ss;
-      ss << "Long heartbeat ping times on back interface seen, longest is "
-	 << fixed_u_to_string(back_sorted.rbegin()->pingtime, 3) << " msec";
+      ss << "Slow OSD heartbeats on back (longest "
+	 << fixed_u_to_string(back_sorted.rbegin()->pingtime, 3) << "ms)";
       auto& d = checks->add("OSD_SLOW_PING_TIME_BACK", HEALTH_WARN, ss.str(),
 		      back_sorted.size());
       d.detail.swap(detail_back);
     }
     if (detail_front.size() != 0) {
       ostringstream ss;
-      ss << "Long heartbeat ping times on front interface seen, longest is "
-	 << fixed_u_to_string(front_sorted.rbegin()->pingtime, 3) << " msec";
+      ss << "Slow OSD heartbeats on front (longest "
+	 << fixed_u_to_string(front_sorted.rbegin()->pingtime, 3) << "ms)";
       auto& d = checks->add("OSD_SLOW_PING_TIME_FRONT", HEALTH_WARN, ss.str(),
 		      front_sorted.size());
       d.detail.swap(detail_front);
@@ -3197,7 +3253,10 @@ void PGMap::get_health_checks(
 	summary += " have dangerous mismatch between BlueStore block device and free list sizes";
       } else if (asum.first == "BLUESTORE_NO_PER_POOL_OMAP") {
 	summary += " reporting legacy (not per-pool) BlueStore omap usage stats";
+      } else if (asum.first == "BLUESTORE_SPURIOUS_READ_ERRORS") {
+        summary += " have spurious read errors";
       }
+
       auto& d = checks->add(asum.first, HEALTH_WARN, summary, asum.second.first);
       for (auto& s : asum.second.second) {
         d.detail.push_back(s);

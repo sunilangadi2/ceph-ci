@@ -4,13 +4,13 @@ import { Injectable } from '@angular/core';
 import { Observable } from 'rxjs';
 import { map } from 'rxjs/operators';
 
+import { Daemon } from '../models/daemon.interface';
 import { CdDevice } from '../models/devices';
 import { SmartDataResponseV1 } from '../models/smart';
 import { DeviceService } from '../services/device.service';
-import { ApiModule } from './api.module';
 
 @Injectable({
-  providedIn: ApiModule
+  providedIn: 'root'
 })
 export class HostService {
   baseURL = 'api/host';
@@ -21,11 +21,11 @@ export class HostService {
     return this.http.get(this.baseURL);
   }
 
-  add(hostname: string) {
+  create(hostname: string) {
     return this.http.post(this.baseURL, { hostname: hostname }, { observe: 'response' });
   }
 
-  remove(hostname: string) {
+  delete(hostname: string) {
     return this.http.delete(`${this.baseURL}/${hostname}`, { observe: 'response' });
   }
 
@@ -37,5 +37,17 @@ export class HostService {
 
   getSmartData(hostname: string) {
     return this.http.get<SmartDataResponseV1>(`${this.baseURL}/${hostname}/smart`);
+  }
+
+  getDaemons(hostname: string): Observable<Daemon[]> {
+    return this.http.get<Daemon[]>(`${this.baseURL}/${hostname}/daemons`);
+  }
+
+  getLabels(): Observable<string[]> {
+    return this.http.get<string[]>('ui-api/host/labels');
+  }
+
+  update(hostname: string, labels: string[]) {
+    return this.http.put(`${this.baseURL}/${hostname}`, { labels: labels });
   }
 }

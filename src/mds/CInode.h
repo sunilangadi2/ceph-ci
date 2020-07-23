@@ -35,7 +35,7 @@
 #include "CDentry.h"
 #include "SimpleLock.h"
 #include "ScatterLock.h"
-#include "LocalLock.h"
+#include "LocalLockC.h"
 #include "Capability.h"
 #include "SnapRealm.h"
 #include "Mutation.h"
@@ -81,16 +81,20 @@ public:
   static object_t get_object_name(inodeno_t ino, frag_t fg, std::string_view suffix);
 
   /* Full serialization for use in ".inode" root inode objects */
-  void encode(bufferlist &bl, uint64_t features, const bufferlist *snap_blob=NULL) const;
-  void decode(bufferlist::const_iterator &bl, bufferlist& snap_blob);
+  void encode(ceph::buffer::list &bl, uint64_t features, const ceph::buffer::list *snap_blob=NULL) const;
+  void decode(ceph::buffer::list::const_iterator &bl, ceph::buffer::list& snap_blob);
 
   /* Serialization without ENCODE_START/FINISH blocks for use embedded in dentry */
-  void encode_bare(bufferlist &bl, uint64_t features, const bufferlist *snap_blob=NULL) const;
-  void decode_bare(bufferlist::const_iterator &bl, bufferlist &snap_blob, __u8 struct_v=5);
+  void encode_bare(ceph::buffer::list &bl, uint64_t features, const ceph::buffer::list *snap_blob=NULL) const;
+  void decode_bare(ceph::buffer::list::const_iterator &bl, ceph::buffer::list &snap_blob, __u8 struct_v=5);
 
   /* For test/debug output */
-  void dump(Formatter *f) const;
+  void dump(ceph::Formatter *f) const;
 
+  void decode_json(JSONObj *obj);
+  static void xattrs_cb(InodeStoreBase::mempool_xattr_map& c, JSONObj *obj);
+  static void old_indoes_cb(InodeStoreBase::mempool_old_inode_map& c, JSONObj *obj);
+  
   /* For use by offline tools */
   __u32 hash_dentry_name(std::string_view dn);
   frag_t pick_dirfrag(std::string_view dn);
@@ -104,25 +108,31 @@ public:
   damage_flags_t damage_flags = 0;
 };
 
+inline void decode_noshare(InodeStoreBase::mempool_xattr_map& xattrs,
+                          ceph::buffer::list::const_iterator &p)
+{
+  decode_noshare<mempool::mds_co::pool_allocator>(xattrs, p);
+}
+
 class InodeStore : public InodeStoreBase {
 public:
-  void encode(bufferlist &bl, uint64_t features) const {
+  void encode(ceph::buffer::list &bl, uint64_t features) const {
     InodeStoreBase::encode(bl, features, &snap_blob);
   }
-  void decode(bufferlist::const_iterator &bl) {
+  void decode(ceph::buffer::list::const_iterator &bl) {
     InodeStoreBase::decode(bl, snap_blob);
   }
-  void encode_bare(bufferlist &bl, uint64_t features) const {
+  void encode_bare(ceph::buffer::list &bl, uint64_t features) const {
     InodeStoreBase::encode_bare(bl, features, &snap_blob);
   }
-  void decode_bare(bufferlist::const_iterator &bl) {
+  void decode_bare(ceph::buffer::list::const_iterator &bl) {
     InodeStoreBase::decode_bare(bl, snap_blob);
   }
 
   static void generate_test_instances(std::list<InodeStore*>& ls);
 
-  // FIXME bufferlist not part of mempool
-  bufferlist snap_blob;  // Encoded copy of SnapRealm, because we can't
+  // FIXME ceph::buffer::list not part of mempool
+  ceph::buffer::list snap_blob;  // Encoded copy of SnapRealm, because we can't
 			 // rehydrate it without full MDCache
 };
 WRITE_CLASS_ENCODER_FEATURES(InodeStore)
@@ -130,10 +140,10 @@ WRITE_CLASS_ENCODER_FEATURES(InodeStore)
 // just for ceph-dencoder
 class InodeStoreBare : public InodeStore {
 public:
-  void encode(bufferlist &bl, uint64_t features) const {
+  void encode(ceph::buffer::list &bl, uint64_t features) const {
     InodeStore::encode_bare(bl, features);
   }
-  void decode(bufferlist::const_iterator &bl) {
+  void decode(ceph::buffer::list::const_iterator &bl) {
     InodeStore::decode_bare(bl);
   }
   static void generate_test_instances(std::list<InodeStoreBare*>& ls);
@@ -178,7 +188,7 @@ class CInode : public MDSCacheObject, public InodeStoreBase, public Counter<CIno
 
     validated_data() {}
 
-    void dump(Formatter *f) const;
+    void dump(ceph::Formatter *f) const;
 
     bool all_damage_repaired() const;
 
@@ -197,7 +207,7 @@ class CInode : public MDSCacheObject, public InodeStoreBase, public Counter<CIno
   friend class MDCache;
   friend class StrayManager;
   friend class CDir;
-  friend ostream& operator<<(ostream&, const CInode&);
+  friend std::ostream& operator<<(std::ostream&, const CInode&);
 
   class scrub_stamp_info_t {
   public:
@@ -315,14 +325,30 @@ class CInode : public MDSCacheObject, public InodeStoreBase, public Counter<CIno
   static const int STATE_QUEUEDEXPORTPIN	= (1<<17);
   static const int STATE_TRACKEDBYOFT		= (1<<18);  // tracked by open file table
   static const int STATE_DELAYEDEXPORTPIN	= (1<<19);
+  static const int STATE_DISTEPHEMERALPIN       = (1<<20);
+  static const int STATE_RANDEPHEMERALPIN       = (1<<21);
   // orphan inode needs notification of releasing reference
   static const int STATE_ORPHAN =	STATE_NOTIFYREF;
 
   static const int MASK_STATE_EXPORTED =
-    (STATE_DIRTY|STATE_NEEDSRECOVER|STATE_DIRTYPARENT|STATE_DIRTYPOOL);
+    (STATE_DIRTY|STATE_NEEDSRECOVER|STATE_DIRTYPARENT|STATE_DIRTYPOOL|
+    STATE_DISTEPHEMERALPIN|STATE_RANDEPHEMERALPIN);
   static const int MASK_STATE_EXPORT_KEPT =
     (STATE_FROZEN|STATE_AMBIGUOUSAUTH|STATE_EXPORTINGCAPS|
-     STATE_QUEUEDEXPORTPIN|STATE_TRACKEDBYOFT|STATE_DELAYEDEXPORTPIN);
+     STATE_QUEUEDEXPORTPIN|STATE_TRACKEDBYOFT|STATE_DELAYEDEXPORTPIN|
+     STATE_DISTEPHEMERALPIN|STATE_RANDEPHEMERALPIN);
+
+  /* These are for "permanent" state markers that are passed around between
+   * MDS. Nothing protects/updates it like a typical MDS lock.
+   *
+   * Currently, we just use this for REPLICATED inodes. The reason we need to
+   * replicate the random epin state is because the directory inode is still
+   * under the authority of the parent subtree. So it's not exported normally
+   * and we can't pass around the state that way. The importer of the dirfrags
+   * still needs to know that the inode is random pinned though otherwise it
+   * doesn't know that the dirfrags are pinned.
+   */
+  static const int MASK_STATE_REPLICATED = STATE_RANDEPHEMERALPIN;
 
   // -- waiters --
   static const uint64_t WAIT_DIR         = (1<<0);
@@ -354,7 +380,7 @@ class CInode : public MDSCacheObject, public InodeStoreBase, public Counter<CIno
 
   std::string_view pin_name(int p) const override;
 
-  ostream& print_db_line_prefix(ostream& out) override;
+  std::ostream& print_db_line_prefix(std::ostream& out) override;
 
   const scrub_info_t *scrub_info() const{
     if (!scrub_infop)
@@ -565,11 +591,11 @@ class CInode : public MDSCacheObject, public InodeStoreBase, public Counter<CIno
   void verify_dirfrags();
 
   void get_stickydirs();
-  void put_stickydirs();  
+  void put_stickydirs();
 
   void add_need_snapflush(CInode *snapin, snapid_t snapid, client_t client);
   void remove_need_snapflush(CInode *snapin, snapid_t snapid, client_t client);
-  pair<bool,bool> split_need_snapflush(CInode *cowin, CInode *in);
+  std::pair<bool,bool> split_need_snapflush(CInode *cowin, CInode *in);
 
   // -- accessors --
   bool is_root() const { return inode.ino == MDS_INO_ROOT; }
@@ -648,23 +674,23 @@ class CInode : public MDSCacheObject, public InodeStoreBase, public Counter<CIno
    */
   void flush(MDSContext *fin);
   void fetch(MDSContext *fin);
-  void _fetched(bufferlist& bl, bufferlist& bl2, Context *fin);  
+  void _fetched(ceph::buffer::list& bl, ceph::buffer::list& bl2, Context *fin);  
 
   void build_backtrace(int64_t pool, inode_backtrace_t& bt);
   void store_backtrace(MDSContext *fin, int op_prio=-1);
   void _stored_backtrace(int r, version_t v, Context *fin);
-  void fetch_backtrace(Context *fin, bufferlist *backtrace);
+  void fetch_backtrace(Context *fin, ceph::buffer::list *backtrace);
 
   void mark_dirty_parent(LogSegment *ls, bool dirty_pool=false);
   void clear_dirty_parent();
-  void verify_diri_backtrace(bufferlist &bl, int err);
+  void verify_diri_backtrace(ceph::buffer::list &bl, int err);
   bool is_dirty_parent() { return state_test(STATE_DIRTYPARENT); }
   bool is_dirty_pool() { return state_test(STATE_DIRTYPOOL); }
 
-  void encode_snap_blob(bufferlist &bl);
-  void decode_snap_blob(const bufferlist &bl);
-  void encode_store(bufferlist& bl, uint64_t features);
-  void decode_store(bufferlist::const_iterator& bl);
+  void encode_snap_blob(ceph::buffer::list &bl);
+  void decode_snap_blob(const ceph::buffer::list &bl);
+  void encode_store(ceph::buffer::list& bl, uint64_t features);
+  void decode_store(ceph::buffer::list::const_iterator& bl);
 
   void add_dir_waiter(frag_t fg, MDSContext *c);
   void take_dir_waiting(frag_t fg, MDSContext::vec& ls);
@@ -675,18 +701,18 @@ class CInode : public MDSCacheObject, public InodeStoreBase, public Counter<CIno
   void take_waiting(uint64_t tag, MDSContext::vec& ls) override;
 
   // -- encode/decode helpers --
-  void _encode_base(bufferlist& bl, uint64_t features);
-  void _decode_base(bufferlist::const_iterator& p);
-  void _encode_locks_full(bufferlist& bl);
-  void _decode_locks_full(bufferlist::const_iterator& p);
-  void _encode_locks_state_for_replica(bufferlist& bl, bool need_recover);
-  void _encode_locks_state_for_rejoin(bufferlist& bl, int rep);
-  void _decode_locks_state_for_replica(bufferlist::const_iterator& p, bool is_new);
-  void _decode_locks_rejoin(bufferlist::const_iterator& p, MDSContext::vec& waiters,
+  void _encode_base(ceph::buffer::list& bl, uint64_t features);
+  void _decode_base(ceph::buffer::list::const_iterator& p);
+  void _encode_locks_full(ceph::buffer::list& bl);
+  void _decode_locks_full(ceph::buffer::list::const_iterator& p);
+  void _encode_locks_state_for_replica(ceph::buffer::list& bl, bool need_recover);
+  void _encode_locks_state_for_rejoin(ceph::buffer::list& bl, int rep);
+  void _decode_locks_state_for_replica(ceph::buffer::list::const_iterator& p, bool is_new);
+  void _decode_locks_rejoin(ceph::buffer::list::const_iterator& p, MDSContext::vec& waiters,
 			    std::list<SimpleLock*>& eval_locks, bool survivor);
 
   // -- import/export --
-  void encode_export(bufferlist& bl);
+  void encode_export(ceph::buffer::list& bl);
   void finish_export();
   void abort_export() {
     put(PIN_TEMPEXPORTING);
@@ -694,38 +720,38 @@ class CInode : public MDSCacheObject, public InodeStoreBase, public Counter<CIno
     state_clear(STATE_EXPORTINGCAPS);
     put(PIN_EXPORTINGCAPS);
   }
-  void decode_import(bufferlist::const_iterator& p, LogSegment *ls);
+  void decode_import(ceph::buffer::list::const_iterator& p, LogSegment *ls);
   
   // for giving to clients
-  int encode_inodestat(bufferlist& bl, Session *session, SnapRealm *realm,
+  int encode_inodestat(ceph::buffer::list& bl, Session *session, SnapRealm *realm,
 		       snapid_t snapid=CEPH_NOSNAP, unsigned max_bytes=0,
 		       int getattr_wants=0);
-  void encode_cap_message(const ref_t<MClientCaps> &m, Capability *cap);
+  void encode_cap_message(const ceph::ref_t<MClientCaps> &m, Capability *cap);
 
   SimpleLock* get_lock(int type) override;
 
   void set_object_info(MDSCacheObjectInfo &info) override;
 
-  void encode_lock_state(int type, bufferlist& bl) override;
-  void decode_lock_state(int type, const bufferlist& bl) override;
-  void encode_lock_iauth(bufferlist& bl);
-  void decode_lock_iauth(bufferlist::const_iterator& p);
-  void encode_lock_ilink(bufferlist& bl);
-  void decode_lock_ilink(bufferlist::const_iterator& p);
-  void encode_lock_idft(bufferlist& bl);
-  void decode_lock_idft(bufferlist::const_iterator& p);
-  void encode_lock_ifile(bufferlist& bl);
-  void decode_lock_ifile(bufferlist::const_iterator& p);
-  void encode_lock_inest(bufferlist& bl);
-  void decode_lock_inest(bufferlist::const_iterator& p);
-  void encode_lock_ixattr(bufferlist& bl);
-  void decode_lock_ixattr(bufferlist::const_iterator& p);
-  void encode_lock_isnap(bufferlist& bl);
-  void decode_lock_isnap(bufferlist::const_iterator& p);
-  void encode_lock_iflock(bufferlist& bl);
-  void decode_lock_iflock(bufferlist::const_iterator& p);
-  void encode_lock_ipolicy(bufferlist& bl);
-  void decode_lock_ipolicy(bufferlist::const_iterator& p);
+  void encode_lock_state(int type, ceph::buffer::list& bl) override;
+  void decode_lock_state(int type, const ceph::buffer::list& bl) override;
+  void encode_lock_iauth(ceph::buffer::list& bl);
+  void decode_lock_iauth(ceph::buffer::list::const_iterator& p);
+  void encode_lock_ilink(ceph::buffer::list& bl);
+  void decode_lock_ilink(ceph::buffer::list::const_iterator& p);
+  void encode_lock_idft(ceph::buffer::list& bl);
+  void decode_lock_idft(ceph::buffer::list::const_iterator& p);
+  void encode_lock_ifile(ceph::buffer::list& bl);
+  void decode_lock_ifile(ceph::buffer::list::const_iterator& p);
+  void encode_lock_inest(ceph::buffer::list& bl);
+  void decode_lock_inest(ceph::buffer::list::const_iterator& p);
+  void encode_lock_ixattr(ceph::buffer::list& bl);
+  void decode_lock_ixattr(ceph::buffer::list::const_iterator& p);
+  void encode_lock_isnap(ceph::buffer::list& bl);
+  void decode_lock_isnap(ceph::buffer::list::const_iterator& p);
+  void encode_lock_iflock(ceph::buffer::list& bl);
+  void decode_lock_iflock(ceph::buffer::list::const_iterator& p);
+  void encode_lock_ipolicy(ceph::buffer::list& bl);
+  void decode_lock_ipolicy(ceph::buffer::list::const_iterator& p);
 
   void _finish_frag_update(CDir *dir, MutationRef& mut);
 
@@ -743,8 +769,8 @@ class CInode : public MDSCacheObject, public InodeStoreBase, public Counter<CIno
   void open_snaprealm(bool no_split=false);
   void close_snaprealm(bool no_join=false);
   SnapRealm *find_snaprealm() const;
-  void encode_snap(bufferlist& bl);
-  void decode_snap(bufferlist::const_iterator& p);
+  void encode_snap(ceph::buffer::list& bl);
+  void decode_snap(ceph::buffer::list::const_iterator& p);
 
   client_t get_loner() const { return loner_cap; }
   client_t get_wanted_loner() const { return want_loner_cap; }
@@ -899,13 +925,47 @@ class CInode : public MDSCacheObject, public InodeStoreBase, public Counter<CIno
     return !projected_parent.empty();
   }
 
-  void maybe_export_pin(bool update=false);
+  mds_rank_t get_export_pin(bool inherit=true, bool ephemeral=true) const;
   void set_export_pin(mds_rank_t rank);
-  mds_rank_t get_export_pin(bool inherit=true) const;
+  void queue_export_pin(mds_rank_t target);
+  void maybe_export_pin(bool update=false);
+
+  void check_pin_policy();
+
+  void set_ephemeral_dist(bool yes);
+  void maybe_ephemeral_dist(bool update=false);
+  void maybe_ephemeral_dist_children(bool update=false);
+  void setxattr_ephemeral_dist(bool val=false);
+  bool is_ephemeral_dist() const {
+    return state_test(STATE_DISTEPHEMERALPIN);
+  }
+
+  double get_ephemeral_rand(bool inherit=true) const;
+  void set_ephemeral_rand(bool yes);
+  void maybe_ephemeral_rand(bool fresh=false, double threshold=-1.0);
+  void setxattr_ephemeral_rand(double prob=0.0);
+  bool is_ephemeral_rand() const {
+    return state_test(STATE_RANDEPHEMERALPIN);
+  }
+
+  bool has_ephemeral_policy() const {
+    return get_inode().export_ephemeral_random_pin > 0.0 ||
+           get_inode().export_ephemeral_distributed_pin;
+  }
+  bool is_ephemerally_pinned() const {
+    return state_test(STATE_DISTEPHEMERALPIN) ||
+           state_test(STATE_RANDEPHEMERALPIN);
+  }
   bool is_exportable(mds_rank_t dest) const;
 
-  void print(ostream& out) override;
-  void dump(Formatter *f, int flags = DUMP_DEFAULT) const;
+  void maybe_pin() {
+    maybe_export_pin();
+    maybe_ephemeral_dist();
+    maybe_ephemeral_rand();
+  }
+
+  void print(std::ostream& out) override;
+  void dump(ceph::Formatter *f, int flags = DUMP_DEFAULT) const;
 
   /**
    * Validate that the on-disk state of an inode matches what
@@ -923,7 +983,7 @@ class CInode : public MDSCacheObject, public InodeStoreBase, public Counter<CIno
   void validate_disk_state(validated_data *results,
                            MDSContext *fin);
   static void dump_validation_results(const validated_data& results,
-                                      Formatter *f);
+                                      ceph::Formatter *f);
 
   //bool hack_accessed = false;
   //utime_t hack_load_stamp;
@@ -975,7 +1035,7 @@ class CInode : public MDSCacheObject, public InodeStoreBase, public Counter<CIno
   static LockType policylock_type;
 
   // FIXME not part of mempool
-  LocalLock  versionlock;
+  LocalLockC  versionlock;
   SimpleLock authlock;
   SimpleLock linklock;
   ScatterLock dirfragtreelock;
@@ -1013,7 +1073,7 @@ protected:
     clear_fcntl_lock_state();
     clear_flock_lock_state();
   }
-  void _encode_file_locks(bufferlist& bl) const {
+  void _encode_file_locks(ceph::buffer::list& bl) const {
     using ceph::encode;
     bool has_fcntl_locks = fcntl_locks && !fcntl_locks->empty();
     encode(has_fcntl_locks, bl);
@@ -1024,7 +1084,7 @@ protected:
     if (has_flock_locks)
       encode(*flock_locks, bl);
   }
-  void _decode_file_locks(bufferlist::const_iterator& p) {
+  void _decode_file_locks(ceph::buffer::list::const_iterator& p) {
     using ceph::decode;
     bool has_fcntl_locks;
     decode(has_fcntl_locks, p);
@@ -1108,8 +1168,8 @@ private:
   /** @} Scrubbing and fsck */
 };
 
-ostream& operator<<(ostream& out, const CInode& in);
-ostream& operator<<(ostream& out, const CInode::scrub_stamp_info_t& si);
+std::ostream& operator<<(std::ostream& out, const CInode& in);
+std::ostream& operator<<(std::ostream& out, const CInode::scrub_stamp_info_t& si);
 
 extern cinode_lock_info_t cinode_lock_info[];
 extern int num_cinode_locks;

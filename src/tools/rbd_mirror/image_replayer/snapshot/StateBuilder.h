@@ -9,7 +9,18 @@
 
 struct Context;
 
-namespace librbd { struct ImageCtx; }
+namespace librbd {
+
+struct ImageCtx;
+
+namespace mirror {
+namespace snapshot {
+
+template <typename> class ImageMeta;
+
+} // namespace snapshot
+} // namespace mirror
+} // namespace librbd
 
 namespace rbd {
 namespace mirror {
@@ -58,6 +69,7 @@ public:
 
   image_replayer::Replayer* create_replayer(
       Threads<ImageCtxT>* threads,
+      InstanceWatcher<ImageCtxT>* instance_watcher,
       const std::string& local_mirror_uuid,
       PoolMetaCache* pool_meta_cache,
       ReplayerListener* replayer_listener) override;
@@ -66,6 +78,7 @@ public:
 
   std::string remote_mirror_peer_uuid;
 
+  librbd::mirror::snapshot::ImageMeta<ImageCtxT>* local_image_meta = nullptr;
 };
 
 } // namespace snapshot

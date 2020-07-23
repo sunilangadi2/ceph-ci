@@ -83,7 +83,8 @@ seastar::future<> CyanStore::umount()
 
 seastar::future<> CyanStore::mkfs(uuid_d new_osd_fsid)
 {
-  return read_meta("fsid").then([=](auto r, auto fsid_str) {
+  return read_meta("fsid").then([=](auto&& ret) {
+    auto& [r, fsid_str] = ret;
     if (r == -ENOENT) {
       if (new_osd_fsid.is_zero()) {
         osd_fsid.generate_random();
@@ -115,16 +116,16 @@ seastar::future<> CyanStore::mkfs(uuid_d new_osd_fsid)
   });
 }
 
-store_statfs_t CyanStore::stat() const
+seastar::future<store_statfs_t> CyanStore::stat() const
 {
   logger().debug("{}", __func__);
   store_statfs_t st;
   st.total = crimson::common::local_conf().get_val<Option::size_t>("memstore_device_bytes");
   st.available = st.total - used_bytes;
-  return st;
+  return seastar::make_ready_future<store_statfs_t>(std::move(st));
 }
 
-seastar::future<std::vector<ghobject_t>, ghobject_t>
+seastar::future<std::tuple<std::vector<ghobject_t>, ghobject_t>>
 CyanStore::list_objects(CollectionRef ch,
                         const ghobject_t& start,
                         const ghobject_t& end,
@@ -146,8 +147,8 @@ CyanStore::list_objects(CollectionRef ch,
     }
     objects.push_back(oid);
   }
-  return seastar::make_ready_future<std::vector<ghobject_t>, ghobject_t>(
-    std::move(objects), next);
+  return seastar::make_ready_future<std::tuple<std::vector<ghobject_t>, ghobject_t>>(
+    std::make_tuple(std::move(objects), next));
 }
 
 seastar::future<CollectionRef> CyanStore::create_new_collection(const coll_t& cid)
@@ -197,6 +198,27 @@ CyanStore::read_errorator::future<ceph::bufferlist> CyanStore::read(
     l = o->get_size() - offset;
   return read_errorator::make_ready_future<ceph::bufferlist>(o->read(offset, l));
 }
+
+CyanStore::read_errorator::future<ceph::bufferlist> CyanStore::readv(
+  CollectionRef ch,
+  const ghobject_t& oid,
+  interval_set<uint64_t>& m,
+  uint32_t op_flags)
+{
+  return seastar::do_with(ceph::bufferlist{},
+    [this, ch, oid, &m, op_flags](auto& bl) {
+    return crimson::do_for_each(m,
+      [this, ch, oid, op_flags, &bl](auto& p) {
+      return read(ch, oid, p.first, p.second, op_flags)
+      .safe_then([&bl](auto ret) {
+	bl.claim_append(ret);
+      });
+    }).safe_then([&bl] {
+      return read_errorator::make_ready_future<ceph::bufferlist>(std::move(bl));
+    });
+  });
+}
+
 
 CyanStore::get_attr_errorator::future<ceph::bufferptr> CyanStore::get_attr(
   CollectionRef ch,
@@ -252,7 +274,7 @@ CyanStore::omap_get_values(CollectionRef ch,
   return seastar::make_ready_future<omap_values_t>(std::move(values));
 }
 
-seastar::future<bool, CyanStore::omap_values_t>
+seastar::future<std::tuple<bool, CyanStore::omap_values_t>>
 CyanStore::omap_get_values(
     CollectionRef ch,
     const ghobject_t &oid,
@@ -272,8 +294,22 @@ CyanStore::omap_get_values(
        ++i) {
     values.insert(*i);
   }
-  return seastar::make_ready_future<bool, omap_values_t>(
-    true, values);
+  return seastar::make_ready_future<std::tuple<bool, omap_values_t>>(
+    std::make_tuple(true, std::move(values)));
+}
+
+seastar::future<ceph::bufferlist>
+CyanStore::omap_get_header(
+    CollectionRef ch,
+    const ghobject_t& oid
+  ) {
+  auto c = static_cast<Collection*>(ch.get());
+  auto o = c->get_object(oid);
+  if (!o) {
+    throw std::runtime_error(fmt::format("object does not exist: {}", oid));
+  }
+
+  return seastar::make_ready_future<ceph::bufferlist>(o->omap_header);
 }
 
 seastar::future<> CyanStore::do_transaction(CollectionRef ch,
@@ -622,7 +658,8 @@ seastar::future<> CyanStore::write_meta(const std::string& key,
   return seastar::make_ready_future<>();
 }
 
-seastar::future<int, std::string> CyanStore::read_meta(const std::string& key)
+seastar::future<std::tuple<int, std::string>>
+CyanStore::read_meta(const std::string& key)
 {
   std::string fsid(4096, '\0');
   int r = safe_read_file(path.c_str(), key.c_str(), fsid.data(), fsid.size());
@@ -634,7 +671,8 @@ seastar::future<int, std::string> CyanStore::read_meta(const std::string& key)
   } else {
     fsid.clear();
   }
-  return seastar::make_ready_future<int, std::string>(r, fsid);
+  return seastar::make_ready_future<std::tuple<int, std::string>>(
+    std::make_tuple(r, fsid));
 }
 
 uuid_d CyanStore::get_fsid() const
@@ -647,4 +685,79 @@ unsigned CyanStore::get_max_attr_name_length() const
   // arbitrary limitation exactly like in the case of MemStore.
   return 256;
 }
+
+seastar::future<FuturizedStore::OmapIteratorRef> CyanStore::get_omap_iterator(
+    CollectionRef ch,
+    const ghobject_t& oid)
+{
+  auto c = static_cast<Collection*>(ch.get());
+  auto o = c->get_object(oid);
+  if (!o) {
+    throw std::runtime_error(fmt::format("object does not exist: {}", oid));
+  }
+  return seastar::make_ready_future<FuturizedStore::OmapIteratorRef>(
+	    new CyanStore::CyanOmapIterator(o));
+}
+
+seastar::future<std::map<uint64_t, uint64_t>>
+CyanStore::fiemap(
+    CollectionRef ch,
+    const ghobject_t& oid,
+    uint64_t off,
+    uint64_t len)
+{
+  auto c = static_cast<Collection*>(ch.get());
+
+  ObjectRef o = c->get_object(oid);
+  if (!o) {
+    throw std::runtime_error(fmt::format("object does not exist: {}", oid));
+  }
+  std::map<uint64_t, uint64_t> m{{0, o->get_size()}};
+  return seastar::make_ready_future<std::map<uint64_t, uint64_t>>(std::move(m));
+}
+
+seastar::future<struct stat>
+CyanStore::stat(
+  CollectionRef ch,
+  const ghobject_t& oid)
+{
+  auto c = static_cast<Collection*>(ch.get());
+  auto o = c->get_object(oid);
+  if (!o) {
+    throw std::runtime_error(fmt::format("object does not exist: {}", oid));
+  }
+  struct stat st;
+  st.st_size = o->get_size();
+  return seastar::make_ready_future<struct stat>(std::move(st));
+}
+
+seastar::future<int> CyanStore::CyanOmapIterator::seek_to_first()
+{
+  iter = obj->omap.begin();
+  return seastar::make_ready_future<int>(0);
+}
+
+seastar::future<int> CyanStore::CyanOmapIterator::upper_bound(const std::string& after)
+{
+  iter = obj->omap.upper_bound(after);
+  return seastar::make_ready_future<int>(0);
+}
+
+seastar::future<int> CyanStore::CyanOmapIterator::lower_bound(const std::string &to)
+{
+  iter = obj->omap.lower_bound(to);
+  return seastar::make_ready_future<int>(0);
+}
+
+bool CyanStore::CyanOmapIterator::valid() const
+{
+  return iter != obj->omap.end();
+}
+
+seastar::future<int> CyanStore::CyanOmapIterator::next()
+{
+  ++iter;
+  return seastar::make_ready_future<int>(0);
+}
+
 }

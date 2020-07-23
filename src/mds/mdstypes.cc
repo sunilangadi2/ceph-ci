@@ -8,6 +8,14 @@
 
 const mds_gid_t MDS_GID_NONE = mds_gid_t(0);
 
+using std::list;
+using std::make_pair;
+using std::ostream;
+using std::set;
+using std::vector;
+
+using ceph::bufferlist;
+using ceph::Formatter;
 
 /*
  * frag_info_t
@@ -45,6 +53,15 @@ void frag_info_t::dump(Formatter *f) const
   f->dump_unsigned("num_files", nfiles);
   f->dump_unsigned("num_subdirs", nsubdirs);
   f->dump_unsigned("change_attr", change_attr);
+}
+
+void frag_info_t::decode_json(JSONObj *obj){
+
+  JSONDecoder::decode_json("version", version, obj, true);
+  JSONDecoder::decode_json("mtime", mtime, obj, true);
+  JSONDecoder::decode_json("num_files", nfiles, obj, true);
+  JSONDecoder::decode_json("num_subdirs", nsubdirs, obj, true);
+  JSONDecoder::decode_json("change_attr", change_attr, obj, true);
 }
 
 void frag_info_t::generate_test_instances(std::list<frag_info_t*>& ls)
@@ -118,6 +135,16 @@ void nest_info_t::dump(Formatter *f) const
   f->dump_stream("rctime") << rctime;
 }
 
+void nest_info_t::decode_json(JSONObj *obj){
+
+  JSONDecoder::decode_json("version", version, obj, true);
+  JSONDecoder::decode_json("rbytes", rbytes, obj, true);
+  JSONDecoder::decode_json("rfiles", rfiles, obj, true);
+  JSONDecoder::decode_json("rsubdirs", rsubdirs, obj, true);
+  JSONDecoder::decode_json("rsnaps", rsnaps, obj, true);
+  JSONDecoder::decode_json("rctime", rctime, obj, true);
+}
+
 void nest_info_t::generate_test_instances(std::list<nest_info_t*>& ls)
 {
   ls.push_back(new nest_info_t);
@@ -154,6 +181,12 @@ void quota_info_t::dump(Formatter *f) const
 {
   f->dump_int("max_bytes", max_bytes);
   f->dump_int("max_files", max_files);
+}
+
+void  quota_info_t::decode_json(JSONObj *obj){
+
+  JSONDecoder::decode_json("max_bytes", max_bytes, obj, true);
+  JSONDecoder::decode_json("max_files", max_files, obj, true);
 }
 
 void quota_info_t::generate_test_instances(std::list<quota_info_t *>& ls)
@@ -204,6 +237,12 @@ void client_writeable_range_t::dump(Formatter *f) const
   f->dump_unsigned("follows", follows);
 }
 
+void client_writeable_range_t::byte_range_t::decode_json(JSONObj *obj){
+
+  JSONDecoder::decode_json("first", first, obj, true);
+  JSONDecoder::decode_json("last", last, obj, true);
+}
+
 void client_writeable_range_t::generate_test_instances(std::list<client_writeable_range_t*>& ls)
 {
   ls.push_back(new client_writeable_range_t);
@@ -237,7 +276,7 @@ void inline_data_t::decode(bufferlist::const_iterator &p)
   uint32_t inline_len;
   decode(inline_len, p);
   if (inline_len > 0)
-    decode_nohead(inline_len, get_data(), p);
+    ceph::decode_nohead(inline_len, get_data(), p);
   else
     free_data();
 }
@@ -305,7 +344,16 @@ void fnode_t::dump(Formatter *f) const
   accounted_rstat.dump(f);
   f->close_section();
 }
-
+void fnode_t::decode_json(JSONObj *obj){
+  JSONDecoder::decode_json("version", version, obj, true);
+  uint64_t tmp;
+  JSONDecoder::decode_json("snap_purged_thru", tmp, obj, true);
+  snap_purged_thru.val = tmp;
+  JSONDecoder::decode_json("fragstat", fragstat, obj, true);
+  JSONDecoder::decode_json("accounted_fragstat", accounted_fragstat, obj, true);
+  JSONDecoder::decode_json("rstat", rstat, obj, true);
+  JSONDecoder::decode_json("accounted_rstat", accounted_rstat, obj, true);
+}
 void fnode_t::generate_test_instances(std::list<fnode_t*>& ls)
 {
   ls.push_back(new fnode_t);
@@ -849,7 +897,7 @@ void cap_reconnect_t::encode_old(bufferlist& bl) const {
   encode(path, bl);
   capinfo.flock_len = flockbl.length();
   encode(capinfo, bl);
-  encode_nohead(flockbl, bl);
+  ceph::encode_nohead(flockbl, bl);
 }
 
 void cap_reconnect_t::decode(bufferlist::const_iterator& bl) {
@@ -864,7 +912,7 @@ void cap_reconnect_t::decode_old(bufferlist::const_iterator& bl) {
   using ceph::decode;
   decode(path, bl);
   decode(capinfo, bl);
-  decode_nohead(capinfo.flock_len, flockbl, bl);
+  ceph::decode_nohead(capinfo.flock_len, flockbl, bl);
 }
 
 void cap_reconnect_t::dump(Formatter *f) const
@@ -924,11 +972,3 @@ void snaprealm_reconnect_t::generate_test_instances(std::list<snaprealm_reconnec
   ls.back()->realm.seq = 2;
   ls.back()->realm.parent = 1;
 }
-
-
-ostream& operator<<(ostream &out, const mds_role_t &role)
-{
-  out << role.fscid << ":" << role.rank;
-  return out;
-}
-

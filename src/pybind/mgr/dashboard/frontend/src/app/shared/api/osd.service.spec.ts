@@ -1,7 +1,7 @@
 import { HttpClientTestingModule, HttpTestingController } from '@angular/common/http/testing';
 import { TestBed } from '@angular/core/testing';
 
-import { configureTestBed, i18nProviders } from '../../../testing/unit-test-helper';
+import { configureTestBed } from '../../../testing/unit-test-helper';
 import { OsdService } from './osd.service';
 
 describe('OsdService', () => {
@@ -9,13 +9,13 @@ describe('OsdService', () => {
   let httpTesting: HttpTestingController;
 
   configureTestBed({
-    providers: [OsdService, i18nProviders],
+    providers: [OsdService],
     imports: [HttpClientTestingModule]
   });
 
   beforeEach(() => {
-    service = TestBed.get(OsdService);
-    httpTesting = TestBed.get(HttpTestingController);
+    service = TestBed.inject(OsdService);
+    httpTesting = TestBed.inject(HttpTestingController);
   });
 
   afterEach(() => {
@@ -24,6 +24,42 @@ describe('OsdService', () => {
 
   it('should be created', () => {
     expect(service).toBeTruthy();
+  });
+
+  it('should call create', () => {
+    const post_data = {
+      method: 'drive_groups',
+      data: [
+        {
+          service_name: 'osd',
+          service_id: 'all_hdd',
+          host_pattern: '*',
+          data_devices: {
+            rotational: true
+          }
+        },
+        {
+          service_name: 'osd',
+          service_id: 'host1_ssd',
+          host_pattern: 'host1',
+          data_devices: {
+            rotational: false
+          }
+        }
+      ],
+      tracking_id: 'all_hdd, host1_ssd'
+    };
+    service.create(post_data.data).subscribe();
+    const req = httpTesting.expectOne('api/osd');
+    expect(req.request.method).toBe('POST');
+    expect(req.request.body).toEqual(post_data);
+  });
+
+  it('should call delete', () => {
+    const id = 1;
+    service.delete(id, true, true).subscribe();
+    const req = httpTesting.expectOne(`api/osd/${id}?preserve_id=true&force=true`);
+    expect(req.request.method).toBe('DELETE');
   });
 
   it('should call getList', () => {

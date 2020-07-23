@@ -10,6 +10,7 @@
 
 #include "common/Formatter.h"
 
+#include "crimson/common/exception.h"
 #include "crimson/osd/pg.h"
 #include "crimson/osd/osd.h"
 #include "crimson/osd/osd_operations/compound_peering_request.h"
@@ -160,17 +161,19 @@ seastar::future<> CompoundPeeringRequest::start()
 	boost::static_pointer_cast<MOSDPGCreate2>(m));
     }());
 
-  add_blocker(blocker.get());
   IRef ref = this;
   logger().info("{}: about to fork future", *this);
-  return state->promise.get_future().then(
-    [this, blocker=std::move(blocker)](auto &&ctx) {
-      clear_blocker(blocker.get());
+  return crimson::common::handle_system_shutdown(
+    [this, ref, blocker=std::move(blocker), state]() mutable {
+    return with_blocking_future(
+      blocker->make_blocking_future(state->promise.get_future())
+    ).then([this, blocker=std::move(blocker)](auto &&ctx) {
       logger().info("{}: sub events complete", *this);
       return osd.get_shard_services().dispatch_context_messages(std::move(ctx));
     }).then([this, ref=std::move(ref)] {
       logger().info("{}: complete", *this);
     });
+  });
 }
 
 } // namespace crimson::osd

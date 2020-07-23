@@ -1,4 +1,5 @@
-#!/bin/bash -e
+#!/usr/bin/env bash 
+set -e
 #
 # ceph-backport.sh - Ceph backporting script
 #
@@ -21,7 +22,7 @@
 
 full_path="$0"
 
-SCRIPT_VERSION="15.1.0.437"
+SCRIPT_VERSION="15.1.1.389"
 active_milestones=""
 backport_pr_labels=""
 backport_pr_number=""
@@ -600,12 +601,7 @@ function interactive_setup_routine {
     [ "$github_token" ] && echo "(default: ${default_val})"
     github_token="$(get_user_input "$default_val")"
     if [ "$github_token" ] ; then
-        if [ "$setup_ok" ] ; then
-            true
-        else
-            info "You must provide a valid GitHub personal access token"
-            abort_due_to_setup_problem
-        fi
+        true
     else
         error "You must provide a valid GitHub personal access token"
         abort_due_to_setup_problem
@@ -900,7 +896,6 @@ function milestone_number_from_remote_api {
     local mtt="$1"  # milestone to try
     local mn=""     # milestone number
     local milestones
-    warning "Milestone ->$mtt<- unknown to script - falling back to GitHub API"
     remote_api_output=$(curl -u ${github_user}:${github_token} --silent -X GET "https://api.github.com/repos/ceph/ceph/milestones")
     mn=$(echo "$remote_api_output" | jq --arg milestone "$mtt" '.[] | select(.title==$milestone) | .number')
     if [ "$mn" -gt "0" ] >/dev/null 2>&1 ; then
@@ -1087,7 +1082,8 @@ function try_known_milestones {
         luminous) mn="10" ;;
         mimic) mn="11" ;;
         nautilus) mn="12" ;;
-        octopus) echo "Octopus milestone number is unknown! Update the script now." ; exit 1 ;;
+        octopus) mn="13" ;;
+        pacific) mn="TBD" ;;
     esac
     echo "$mn"
 }
@@ -1624,10 +1620,12 @@ fi
 
 milestone_number=$(try_known_milestones "$milestone")
 if [ "$milestone_number" -gt "0" ] >/dev/null 2>&1 ; then
-    target_branch="$milestone"
+    debug "Milestone ->$milestone<- is known to have number ->$milestone_number<-: skipping remote API call"
 else
+    warning "Milestone ->$milestone<- is unknown to the script: falling back to GitHub API"
     milestone_number=$(milestone_number_from_remote_api "$milestone")
 fi
+target_branch="$milestone"
 info "milestone/release is $milestone"
 debug "milestone number is $milestone_number"
 

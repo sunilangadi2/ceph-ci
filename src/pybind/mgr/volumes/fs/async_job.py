@@ -25,9 +25,11 @@ class JobThread(threading.Thread):
     def run(self):
         retries = 0
         thread_id = threading.currentThread()
+        assert isinstance(thread_id, JobThread)
         thread_name = thread_id.getName()
 
         while retries < JobThread.MAX_RETRIES_ON_EXCEPTION:
+            vol_job = None
             try:
                 # fetch next job to execute
                 with self.async_job.lock:
@@ -40,10 +42,6 @@ class JobThread(threading.Thread):
 
                 # execute the job (outside lock)
                 self.async_job.execute_job(vol_job[0], vol_job[1], should_cancel=lambda: thread_id.should_cancel())
-
-                # when done, unregister the job
-                with self.async_job.lock:
-                    self.async_job.unregister_async_job(vol_job[0], vol_job[1], thread_id)
                 retries = 0
             except NotImplementedException:
                 raise
@@ -56,7 +54,12 @@ class JobThread(threading.Thread):
                 exc_type, exc_value, exc_traceback = sys.exc_info()
                 log.warning("traceback: {0}".format("".join(
                     traceback.format_exception(exc_type, exc_value, exc_traceback))))
-            time.sleep(1)
+            finally:
+                # when done, unregister the job
+                if vol_job:
+                    with self.async_job.lock:
+                        self.async_job.unregister_async_job(vol_job[0], vol_job[1], thread_id)
+                time.sleep(1)
         log.error("thread [{0}] reached exception limit, bailing out...".format(thread_name))
         self.vc.cluster_log("thread {0} bailing out due to exception".format(thread_name))
 
@@ -64,7 +67,7 @@ class JobThread(threading.Thread):
         self.cancel_event.set()
 
     def should_cancel(self):
-        return self.cancel_event.isSet()
+        return self.cancel_event.is_set()
 
     def reset_cancel(self):
         self.cancel_event.clear()
@@ -91,7 +94,7 @@ class AsyncJobs(object):
     def __init__(self, volume_client, name_pfx, nr_concurrent_jobs):
         self.vc = volume_client
         # queue of volumes for starting async jobs
-        self.q = deque()
+        self.q = deque() # type: deque
         # volume => job tracking
         self.jobs = {}
         # lock, cv for kickstarting jobs
@@ -153,7 +156,7 @@ class AsyncJobs(object):
         thread_id.reset_cancel()
 
         # wake up cancellation waiters if needed
-        if not self.jobs[volname] and cancelled:
+        if cancelled:
             logging.info("waking up cancellation waiters")
             self.cancel_cv.notifyAll()
 
@@ -190,6 +193,32 @@ class AsyncJobs(object):
             self.jobs.pop(volname)
         except (KeyError, ValueError):
             pass
+
+    def _cancel_job(self, volname, job):
+        """
+        cancel a executing job for a given volume. return True if canceled, False
+        otherwise (volume/job not found).
+        """
+        canceled = False
+        log.info("canceling job {0} for volume {1}".format(job, volname))
+        try:
+            if not volname in self.q and not volname in self.jobs and not job in self.jobs[volname]:
+                return canceled
+            for j in self.jobs[volname]:
+                if j[0] == job:
+                    j[1].cancel_job()
+                    # be safe against _cancel_jobs() running concurrently
+                    while j in self.jobs.get(volname, []):
+                        self.cancel_cv.wait()
+                    canceled = True
+                    break
+        except (KeyError, ValueError):
+            pass
+        return canceled
+
+    def cancel_job(self, volname, job):
+        with self.lock:
+            return self._cancel_job(volname, job)
 
     def cancel_jobs(self, volname):
         """

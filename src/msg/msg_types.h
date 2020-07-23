@@ -193,9 +193,9 @@ static inline void encode(const sockaddr_storage& a, ceph::buffer::list& bl) {
   ::memcpy(dst, src, copy_size);
   encode(ss, bl);
 #else
-  ceph_sockaddr_storage ss{};
+  ceph_sockaddr_storage ss;
   ::memset(&ss, '\0', sizeof(ss));
-  ::memcpy(&wireaddr, &ss, std::min(sizeof(ss), sizeof(a)));
+  ::memcpy(&ss, &a, std::min(sizeof(ss), sizeof(a)));
   encode(ss, bl);
 #endif
 }
@@ -523,13 +523,13 @@ struct entity_addr_t {
 #endif
       uint16_t ss_family;
       if (elen < sizeof(ss_family)) {
-	throw buffer::malformed_input("elen smaller than family len");
+	throw ceph::buffer::malformed_input("elen smaller than family len");
       }
       decode(ss_family, bl);
       u.sa.sa_family = ss_family;
       elen -= sizeof(ss_family);
       if (elen > get_sockaddr_len() - sizeof(u.sa.sa_family)) {
-	throw buffer::malformed_input("elen exceeds sockaddr len");
+	throw ceph::buffer::malformed_input("elen exceeds sockaddr len");
       }
       bl.copy(elen, u.sa.sa_data);
     }

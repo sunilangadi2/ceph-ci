@@ -6,6 +6,7 @@ from contextlib import contextmanager
 import cephfs
 
 from .snapshot_util import mksnap, rmsnap
+from .pin_util import pin
 from .template import GroupTemplate
 from ..fs_util import listdir, get_ancestor_xattr
 from ..exception import VolumeException
@@ -37,13 +38,13 @@ class Group(GroupTemplate):
     def uid(self):
         return self.user_id
 
-    @property
-    def gid(self):
-        return self.group_id
-
     @uid.setter
     def uid(self, val):
         self.user_id = val
+
+    @property
+    def gid(self):
+        return self.group_id
 
     @gid.setter
     def gid(self, val):
@@ -60,6 +61,9 @@ class Group(GroupTemplate):
             if ve.errno == -errno.ENOENT and self.is_default_group():
                 return []
             raise
+
+    def pin(self, pin_type, pin_setting):
+        return pin(self.fs, self.path, pin_type, pin_setting)
 
     def create_snapshot(self, snapname):
         snappath = os.path.join(self.path,
@@ -132,7 +136,7 @@ def create_group(fs, vol_spec, groupname, pool, mode, uid, gid):
             log.debug("cleaning up subvolume group path: {0}".format(path))
             fs.rmdir(path)
         except cephfs.Error as ce:
-            log.debug("failed to clean up subvolume group {0} with path: {0} ({1})".format(groupname, path, ce))
+            log.debug("failed to clean up subvolume group {0} with path: {1} ({2})".format(groupname, path, ce))
         if isinstance(e, cephfs.Error):
             e = VolumeException(-e.args[0], e.args[1])
         raise e

@@ -37,6 +37,7 @@ public:
   void close(Context* on_finish) override;
 
   bool is_disconnected() const override;
+  bool is_linked() const override;
 
   cls::rbd::MirrorImageMode get_mirror_image_mode() const override;
 
@@ -59,9 +60,12 @@ public:
 
   image_replayer::Replayer* create_replayer(
       Threads<ImageCtxT>* threads,
+      InstanceWatcher<ImageCtxT>* instance_watcher,
       const std::string& local_mirror_uuid,
       PoolMetaCache* pool_meta_cache,
       ReplayerListener* replayer_listener) override;
+
+  std::string local_primary_mirror_uuid;
 
   Journaler* remote_journaler = nullptr;
   cls::journal::ClientState remote_client_state =

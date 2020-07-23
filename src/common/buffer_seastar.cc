@@ -13,6 +13,7 @@
  */
 
 #include <seastar/core/sharded.hh>
+#include <seastar/net/packet.hh>
 
 #include "include/buffer_raw.h"
 #include "buffer_seastar.h"
@@ -41,7 +42,7 @@ class raw_seastar_local_ptr : public raw {
   }
 };
 
-inline namespace v14_2_0 {
+inline namespace v15_2_0 {
 
 ceph::unique_leakable_ptr<buffer::raw> create_foreign(temporary_buffer&& buf) {
   return ceph::unique_leakable_ptr<buffer::raw>(
@@ -53,7 +54,7 @@ ceph::unique_leakable_ptr<buffer::raw> create(temporary_buffer&& buf) {
     new raw_seastar_local_ptr(std::move(buf)));
 }
 
-} // inline namespace v14_2_0
+} // inline namespace v15_2_0
 
 // buffer::ptr conversions
 

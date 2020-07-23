@@ -16,8 +16,8 @@ describe('PrometheusService', () => {
   });
 
   beforeEach(() => {
-    service = TestBed.get(PrometheusService);
-    httpTesting = TestBed.get(HttpTestingController);
+    service = TestBed.inject(PrometheusService);
+    httpTesting = TestBed.inject(HttpTestingController);
   });
 
   afterEach(() => {
@@ -128,7 +128,10 @@ describe('PrometheusService', () => {
     it('should get rewrite rules only', () => {
       service.getRules('rewrites').subscribe((rules) => {
         expect(rules).toEqual({
-          groups: [{ name: 'test', rules: [] }, { name: 'recording_rule', rules: [] }]
+          groups: [
+            { name: 'test', rules: [] },
+            { name: 'recording_rule', rules: [] }
+          ]
         });
       });
 
@@ -172,8 +175,11 @@ describe('PrometheusService', () => {
 
     beforeEach(() => {
       x = false;
-      TestBed.get(SettingsService)['settings'] = {};
-      service.ifAlertmanagerConfigured((v) => (x = v), () => (x = []));
+      TestBed.inject(SettingsService)['settings'] = {};
+      service.ifAlertmanagerConfigured(
+        (v) => (x = v),
+        () => (x = [])
+      );
       host = 'http://localhost:9093';
     });
 
@@ -210,8 +216,11 @@ describe('PrometheusService', () => {
 
     beforeEach(() => {
       x = false;
-      TestBed.get(SettingsService)['settings'] = {};
-      service.ifPrometheusConfigured((v) => (x = v), () => (x = []));
+      TestBed.inject(SettingsService)['settings'] = {};
+      service.ifPrometheusConfigured(
+        (v) => (x = v),
+        () => (x = [])
+      );
       host = 'http://localhost:9090';
     });
 

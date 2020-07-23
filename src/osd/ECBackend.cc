@@ -31,6 +31,25 @@
 #define DOUT_PREFIX_ARGS this
 #undef dout_prefix
 #define dout_prefix _prefix(_dout, this)
+
+using std::dec;
+using std::hex;
+using std::list;
+using std::make_pair;
+using std::map;
+using std::pair;
+using std::ostream;
+using std::set;
+using std::string;
+using std::unique_ptr;
+using std::vector;
+
+using ceph::bufferhash;
+using ceph::bufferlist;
+using ceph::bufferptr;
+using ceph::ErasureCodeInterfaceRef;
+using ceph::Formatter;
+
 static ostream& _prefix(std::ostream *_dout, ECBackend *pgb) {
   return pgb->get_parent()->gen_dbg_prefix(*_dout);
 }
@@ -436,7 +455,7 @@ void ECBackend::handle_recovery_read_complete(
   for(map<pg_shard_t, bufferlist>::iterator i = to_read.get<2>().begin();
       i != to_read.get<2>().end();
       ++i) {
-    from[i->first.shard].claim(i->second);
+    from[i->first.shard] = std::move(i->second);
   }
   dout(10) << __func__ << ": " << from << dendl;
   int r;
@@ -956,7 +975,7 @@ void ECBackend::handle_sub_write(
     }
   }
   get_parent()->log_operation(
-    op.log_entries,
+    std::move(op.log_entries),
     op.updated_hit_set_history,
     op.trim_to,
     op.roll_forward_to,
@@ -1195,7 +1214,7 @@ void ECBackend::handle_sub_read_reply(
 	sinfo.aligned_offset_len_to_chunk(
 	  make_pair(req_iter->get<0>(), req_iter->get<1>()));
       ceph_assert(adjusted.first == j->first);
-      riter->get<2>()[from].claim(j->second);
+      riter->get<2>()[from] = std::move(j->second);
     }
   }
   for (auto i = op.attrs_read.begin();
@@ -1487,7 +1506,7 @@ void ECBackend::submit_transaction(
   PGTransactionUPtr &&t,
   const eversion_t &trim_to,
   const eversion_t &min_last_complete_ondisk,
-  const vector<pg_log_entry_t> &log_entries,
+  vector<pg_log_entry_t>&& log_entries,
   std::optional<pg_hit_set_history_t> &hset_history,
   Context *on_all_commit,
   ceph_tid_t tid,
@@ -2315,7 +2334,7 @@ struct CallClientContexts :
 	     res.returned.front().get<2>().begin();
 	   j != res.returned.front().get<2>().end();
 	   ++j) {
-	to_decode[j->first.shard].claim(j->second);
+	to_decode[j->first.shard] = std::move(j->second);
       }
       int r = ECUtil::decode(
 	ec->sinfo,

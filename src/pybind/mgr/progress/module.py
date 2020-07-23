@@ -5,6 +5,8 @@ except ImportError:
     TYPE_CHECKING = False
 
 from mgr_module import MgrModule, OSDMap
+from mgr_util import to_pretty_timedelta
+from datetime import timedelta
 import os
 import threading
 import datetime
@@ -19,9 +21,6 @@ ENCODING_VERSION = 2
 # keep a global reference to the module so we can use it from Event methods
 _module = None  # type: Optional["Module"]
 
-# if unit test we want MgrModule to be blank
-if 'UNITTEST' in os.environ:
-    MgrModule = object  # type: ignore
 
 class Event(object):
     """
@@ -36,16 +35,12 @@ class Event(object):
         self._refs = refs
         self.started_at = started_at if started_at else time.time()
         self.id = None  # type: Optional[str]
-        self.update_duration_event()
-        self._time_remaining_str = "(time remaining: N/A)"
 
     def _refresh(self):
         global _module
         assert _module
         _module.log.debug('refreshing mgr for %s (%s) at %f' % (self.id, self._message,
                                                                 self.progress))
-        self.update_duration_event()
-        self.update_time_remaining()
         _module.update_progress_event(
             self.id, self.twoline_progress(6), self.progress)
 
@@ -66,7 +61,9 @@ class Event(object):
 
     @property
     def duration_str(self):
-        return self._duration_str
+        duration = time.time() - self.started_at
+        return "(%s)" % (
+            to_pretty_timedelta(timedelta(seconds=duration)))
 
     @property
     def failed(self):
@@ -78,7 +75,8 @@ class Event(object):
 
     def summary(self):
         # type: () -> str
-        return "{0} {1} {2}".format(self.progress, self.message, self.duration_str)
+        return "{0} {1} {2}".format(self.progress, self.message,
+                                    self.duration_str)
 
     def _progress_str(self, width):
         inner_width = width - 2
@@ -94,15 +92,21 @@ class Event(object):
         """
         e.g.
 
-        - Eating my delicious strudel (since: 00h 00m 30s)
-            [===============..............] (time remaining: 00h 03m 57s)
+        - Eating my delicious strudel (since: 30s)
+            [===============..............] (remaining: 04m)
 
         """
+        time_remaining = self.estimated_time_remaining()
+        if time_remaining:
+            remaining = "(remaining: %s)" % (
+                to_pretty_timedelta(timedelta(seconds=time_remaining)))
+        else:
+            remaining = ''
         return "{0} {1}\n{2}{3} {4}".format(self._message,
-                                            self._duration_str,
+                                            self.duration_str,
                                             " " * indent,
                                             self._progress_str(30),
-                                            self._time_remaining_str)
+                                            remaining)
 
     def to_json(self):
         # type: () -> Dict[str, Any]
@@ -116,27 +120,12 @@ class Event(object):
             "time_remaining": self.estimated_time_remaining()
         }
 
-    def update_duration_event(self):
-        # Update duration of event in seconds/minutes/hours
-
-        duration = time.time() - self.started_at
-        self._duration_str = time.strftime("(%Hh %Mm %Ss)", time.gmtime(duration))
-
-
     def estimated_time_remaining(self):
         elapsed = time.time() - self.started_at
         progress = self.progress
         if progress == 0.0:
             return None
         return int(elapsed * (1 - progress) / progress)
-
-    def update_time_remaining(self):
-        time_remaining = self.estimated_time_remaining()
-        if time_remaining:
-            self._time_remaining_str = time.strftime(
-                "(time remaining: %Hh %Mm %Ss)", time.gmtime(time_remaining))
-        else:
-            self._time_remaining_str = "(time remaining: N/A)"
 
 class GhostEvent(Event):
     """
@@ -257,13 +246,13 @@ class PgRecoveryEvent(Event):
     def which_osds(self):
         return self. _which_osds
 
-    def pg_update(self, pg_dump, log):
-        # type: (Dict, Any) -> None
+    def pg_update(self, raw_pg_stats, pg_ready, log):
+        # type: (Dict, bool, Any) -> None
         # FIXME: O(pg_num) in python
         # FIXME: far more fields getting pythonized than we really care about
         # Sanity check to see if there are any missing PGs and to assign
         # empty array and dictionary if there hasn't been any recovery
-        pg_to_state = dict([(p['pgid'], p) for p in pg_dump['pg_stats']]) # type: Dict[str, Any]
+        pg_to_state = dict([(p['pgid'], p) for p in raw_pg_stats['pg_stats']]) # type: Dict[str, Any]
         if self._original_bytes_recovered is None:
             self._original_bytes_recovered = {}
             missing_pgs = []
@@ -274,7 +263,7 @@ class PgRecoveryEvent(Event):
                         pg_to_state[pg_str]['stat_sum']['num_bytes_recovered']
                 else:
                     missing_pgs.append(pg)
-            if pg_dump.get('pg_ready', False):
+            if pg_ready:
                 for pg in missing_pgs:
                     self._pgs.remove(pg)
 
@@ -475,10 +464,10 @@ class Module(MgrModule):
         # In the case that we ignored some PGs, log the reason why (we may
         # not end up creating a progress event)
         if len(unmoved_pgs):
-            self.log.warn("{0} PGs were on osd.{1}, but didn't get new locations".format(
+            self.log.warning("{0} PGs were on osd.{1}, but didn't get new locations".format(
                 len(unmoved_pgs), osd_id))
 
-        self.log.warn("{0} PGs affected by osd.{1} being marked {2}".format(
+        self.log.warning("{0} PGs affected by osd.{1} being marked {2}".format(
             len(affected_pgs), osd_id, marked))
 
 
@@ -501,7 +490,7 @@ class Module(MgrModule):
                     which_osds=[osd_id],
                     start_epoch=self.get_osdmap().get_epoch()
                     )
-            r_ev.pg_update(self.get("pg_dump"), self.log)
+            r_ev.pg_update(self.get("pg_stats"), self.get("pg_ready"), self.log)
             self._events[r_ev.id] = r_ev
 
     def _osdmap_changed(self, old_osdmap, new_osdmap):
@@ -518,13 +507,13 @@ class Module(MgrModule):
                 old_weight = old_osds[osd_id]['in']
 
                 if new_weight == 0.0 and old_weight > new_weight:
-                    self.log.warn("osd.{0} marked out".format(osd_id))
+                    self.log.warning("osd.{0} marked out".format(osd_id))
                     self._osd_in_out(old_osdmap, old_dump, new_osdmap, osd_id, "out")
                 elif new_weight >= 1.0 and old_weight == 0.0:
                     # Only consider weight>=1.0 as "in" to avoid spawning
                     # individual recovery events on every adjustment
                     # in a gradual weight-in
-                    self.log.warn("osd.{0} marked in".format(osd_id))
+                    self.log.warning("osd.{0} marked in".format(osd_id))
                     self._osd_in_out(old_osdmap, old_dump, new_osdmap, osd_id, "in")
 
     def notify(self, notify_type, notify_data):
@@ -541,11 +530,16 @@ class Module(MgrModule):
             ))
             self._osdmap_changed(old_osdmap, self._latest_osdmap)
         elif notify_type == "pg_summary":
-            data = self.get("pg_dump")
+            # if there are no events we will skip this here to avoid 
+            # expensive get calls
+            if len(self._events) == 0:
+                return
+            data = self.get("pg_stats")
+            ready = self.get("pg_ready")
             for ev_id in list(self._events):
                 ev = self._events[ev_id]
                 if isinstance(ev, PgRecoveryEvent):
-                    ev.pg_update(data, self.log)
+                    ev.pg_update(data, ready, self.log)
                     self.maybe_complete(ev)
 
     def maybe_complete(self, event):
@@ -676,7 +670,7 @@ class Module(MgrModule):
                                                                    ev.message))
             self._complete(ev)
         except KeyError:
-            self.log.warn("complete: ev {0} does not exist".format(ev_id))
+            self.log.warning("complete: ev {0} does not exist".format(ev_id))
             pass
 
     def fail(self, ev_id, message):
@@ -693,7 +687,7 @@ class Module(MgrModule):
                                                                     message))
             self._complete(ev)
         except KeyError:
-            self.log.warn("fail: ev {0} does not exist".format(ev_id))
+            self.log.warning("fail: ev {0} does not exist".format(ev_id))
 
     def _handle_ls(self):
         if len(self._events) or len(self._completed_events):

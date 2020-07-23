@@ -37,11 +37,22 @@
 // set set_mon_vals()
 #define dout_subsys ceph_subsys_monc
 
+using std::cerr;
+using std::cout;
 using std::map;
+using std::less;
 using std::list;
+using std::ostream;
 using std::ostringstream;
 using std::pair;
 using std::string;
+using std::string_view;
+using std::vector;
+
+using ceph::bufferlist;
+using ceph::decode;
+using ceph::encode;
+using ceph::Formatter;
 
 static const char *CEPH_CONF_FILE_DEFAULT = "$data_dir/config, /etc/ceph/$cluster.conf, $home/.ceph/$cluster.conf, $cluster.conf"
 #if defined(__FreeBSD__)
@@ -659,6 +670,7 @@ int md_config_t::parse_argv(ConfigValues& values,
       set_val_or_die(values, tracker, "daemonize", "false");
     }
     else if (ceph_argparse_flag(args, i, "-d", (char*)NULL)) {
+      set_val_or_die(values, tracker, "fuse_debug", "true");
       set_val_or_die(values, tracker, "daemonize", "false");
       set_val_or_die(values, tracker, "log_file", "");
       set_val_or_die(values, tracker, "log_to_stderr", "true");
@@ -1047,7 +1059,7 @@ Option::value_t md_config_t::_get_val(
   // In key names, leading and trailing whitespace are not significant.
   string k(ConfFile::normalize_key_name(key));
 
-  const Option *o = find_option(key);
+  const Option *o = find_option(k);
   if (!o) {
     // not a valid config option
     return Option::value_t(boost::blank());
@@ -1308,7 +1320,7 @@ void md_config_t::_get_my_sections(const ConfigValues& values,
 {
   sections.push_back(values.name.to_str());
 
-  sections.push_back(values.name.get_type_name());
+  sections.push_back(values.name.get_type_name().data());
 
   sections.push_back("global");
 }

@@ -1,14 +1,15 @@
 import json
 import errno
 import logging
-from threading import Event
 
 import cephfs
 
+from mgr_util import CephfsClient
+
 from .fs_util import listdir
 
-from .operations.volume import ConnectionPool, open_volume, create_volume, \
-    delete_volume, list_volumes
+from .operations.volume import create_volume, \
+    delete_volume, list_volumes, open_volume, get_pool_names
 from .operations.group import open_group, create_group, remove_group
 from .operations.subvolume import open_subvol, create_subvol, remove_subvol, \
     create_clone
@@ -20,11 +21,13 @@ from .purge_queue import ThreadPoolPurgeQueueMixin
 
 log = logging.getLogger(__name__)
 
+
 def octal_str_to_decimal_int(mode):
     try:
         return int(mode, 8)
     except ValueError:
         raise VolumeException(-errno.EINVAL, "Invalid mode '{0}'".format(mode))
+
 
 def name_to_json(names):
     """
@@ -35,13 +38,12 @@ def name_to_json(names):
         namedict.append({'name': names[i].decode('utf-8')})
     return json.dumps(namedict, indent=4, sort_keys=True)
 
-class VolumeClient(object):
+
+class VolumeClient(CephfsClient):
     def __init__(self, mgr):
-        self.mgr = mgr
-        self.stopping = Event()
+        super().__init__(mgr)
         # volume specification
         self.volspec = VolSpec(mgr.rados.conf_get('client_snapdir'))
-        self.connection_pool = ConnectionPool(self.mgr)
         # TODO: make thread pool size configurable
         self.cloner = Cloner(self, 4)
         self.purge_queue = ThreadPoolPurgeQueueMixin(self, 4)
@@ -55,10 +57,8 @@ class VolumeClient(object):
             self.cloner.queue_job(fs['mdsmap']['fs_name'])
             self.purge_queue.queue_job(fs['mdsmap']['fs_name'])
 
-    def is_stopping(self):
-        return self.stopping.isSet()
-
     def shutdown(self):
+        # Overrides CephfsClient.shutdown()
         log.info("shutting down")
         # first, note that we're shutting down
         self.stopping.set()
@@ -98,12 +98,27 @@ class VolumeClient(object):
                 "that is what you want, re-issue the command followed by " \
                 "--yes-i-really-mean-it.".format(volname)
 
+        ret, out, err = self.mgr.check_mon_command({
+            'prefix': 'config get',
+            'key': 'mon_allow_pool_delete',
+            'who': 'mon',
+            'format': 'json',
+        })
+        mon_allow_pool_delete = json.loads(out)
+        if not mon_allow_pool_delete:
+            return -errno.EPERM, "", "pool deletion is disabled; you must first " \
+                "set the mon_allow_pool_delete config option to true before volumes " \
+                "can be deleted"
+
+        metadata_pool, data_pools = get_pool_names(self.mgr, volname)
+        if not metadata_pool:
+            return -errno.ENOENT, "", "volume {0} doesn't exist".format(volname)
         self.purge_queue.cancel_jobs(volname)
         self.connection_pool.del_fs_handle(volname, wait=True)
-        return delete_volume(self.mgr, volname)
+        return delete_volume(self.mgr, volname, metadata_pool, data_pools)
 
     def list_fs_volumes(self):
-        if self.stopping.isSet():
+        if self.stopping.is_set():
             return -errno.ESHUTDOWN, "", "shutdown in progress"
         volumes = list_volumes(self.mgr)
         return 0, json.dumps(volumes, indent=4, sort_keys=True), ""
@@ -116,11 +131,12 @@ class VolumeClient(object):
         uid        = kwargs['uid']
         gid        = kwargs['gid']
         mode       = kwargs['mode']
+        isolate_nspace = kwargs['namespace_isolated']
 
         oct_mode = octal_str_to_decimal_int(mode)
         try:
             create_subvol(
-                fs_handle, self.volspec, group, subvolname, size, False, pool, oct_mode, uid, gid)
+                fs_handle, self.volspec, group, subvolname, size, isolate_nspace, pool, oct_mode, uid, gid)
         except VolumeException as ve:
             # kick the purge threads for async removal -- note that this
             # assumes that the subvolume is moved to trashcan for cleanup on error.
@@ -132,14 +148,21 @@ class VolumeClient(object):
         volname    = kwargs['vol_name']
         subvolname = kwargs['sub_name']
         groupname  = kwargs['group_name']
+        size       = kwargs['size']
+        pool       = kwargs['pool_layout']
+        uid        = kwargs['uid']
+        gid        = kwargs['gid']
+        isolate_nspace = kwargs['namespace_isolated']
 
         try:
             with open_volume(self, volname) as fs_handle:
                 with open_group(fs_handle, self.volspec, groupname) as group:
                     try:
-                        with open_subvol(fs_handle, self.volspec, group, subvolname):
-                            # idempotent creation -- valid.
-                            pass
+                        with open_subvol(fs_handle, self.volspec, group, subvolname) as subvolume:
+                            # idempotent creation -- valid. Attributes set is supported.
+                            uid = uid if uid else subvolume.uid
+                            gid = gid if gid else subvolume.gid
+                            subvolume.set_attrs(subvolume.path, size, isolate_nspace, pool, uid, gid)
                     except VolumeException as ve:
                         if ve.errno == -errno.ENOENT:
                             self._create_subvolume(fs_handle, volname, group, subvolname, **kwargs)
@@ -195,6 +218,24 @@ class VolumeClient(object):
             ret = self.volume_exception_to_retval(ve)
         return ret
 
+    def subvolume_pin(self, **kwargs):
+        ret         = 0, "", ""
+        volname     = kwargs['vol_name']
+        subvolname  = kwargs['sub_name']
+        pin_type    = kwargs['pin_type']
+        pin_setting = kwargs['pin_setting']
+        groupname   = kwargs['group_name']
+
+        try:
+            with open_volume(self, volname) as fs_handle:
+                with open_group(fs_handle, self.volspec, groupname) as group:
+                    with open_subvol(fs_handle, self.volspec, group, subvolname) as subvolume:
+                        subvolume.pin(pin_type, pin_setting)
+                        ret = 0, json.dumps({}), ""
+        except VolumeException as ve:
+            ret = self.volume_exception_to_retval(ve)
+        return ret
+
     def subvolume_getpath(self, **kwargs):
         ret        = None
         volname    = kwargs['vol_name']
@@ -207,6 +248,29 @@ class VolumeClient(object):
                     with open_subvol(fs_handle, self.volspec, group, subvolname) as subvolume:
                         subvolpath = subvolume.path
                         ret = 0, subvolpath.decode("utf-8"), ""
+        except VolumeException as ve:
+            ret = self.volume_exception_to_retval(ve)
+        return ret
+
+    def subvolume_info(self, **kwargs):
+        ret        = None
+        volname    = kwargs['vol_name']
+        subvolname = kwargs['sub_name']
+        groupname  = kwargs['group_name']
+
+        try:
+            with open_volume(self, volname) as fs_handle:
+                with open_group(fs_handle, self.volspec, groupname) as group:
+                    with open_subvol(fs_handle, self.volspec, group, subvolname) as subvolume:
+                        mon_addr_lst = []
+                        mon_map_mons = self.mgr.get('mon_map')['mons']
+                        for mon in mon_map_mons:
+                            ip_port = mon['addr'].split("/")[0]
+                            mon_addr_lst.append(ip_port)
+
+                        subvol_info_dict = subvolume.info()
+                        subvol_info_dict["mon_addrs"] = mon_addr_lst
+                        ret = 0, json.dumps(subvol_info_dict, indent=4, sort_keys=True), ""
         except VolumeException as ve:
             ret = self.volume_exception_to_retval(ve)
         return ret
@@ -261,6 +325,23 @@ class VolumeClient(object):
                 ret = self.volume_exception_to_retval(ve)
         return ret
 
+    def subvolume_snapshot_info(self, **kwargs):
+        ret        = 0, "", ""
+        volname    = kwargs['vol_name']
+        subvolname = kwargs['sub_name']
+        snapname   = kwargs['snap_name']
+        groupname  = kwargs['group_name']
+
+        try:
+            with open_volume(self, volname) as fs_handle:
+                with open_group(fs_handle, self.volspec, groupname) as group:
+                    with open_subvol(fs_handle, self.volspec, group, subvolname) as subvolume:
+                        snap_info_dict = subvolume.snapshot_info(snapname)
+                        ret = 0, json.dumps(snap_info_dict, indent=4, sort_keys=True), ""
+        except VolumeException as ve:
+                ret = self.volume_exception_to_retval(ve)
+        return ret
+
     def list_subvolume_snapshots(self, **kwargs):
         ret        = 0, "", ""
         volname    = kwargs['vol_name']
@@ -278,33 +359,31 @@ class VolumeClient(object):
         return ret
 
     def protect_subvolume_snapshot(self, **kwargs):
-        ret        = 0, "", ""
+        ret        = 0, "", "Deprecation warning: 'snapshot protect' call is deprecated and will be removed in a future release"
         volname    = kwargs['vol_name']
         subvolname = kwargs['sub_name']
-        snapname   = kwargs['snap_name']
         groupname  = kwargs['group_name']
 
         try:
             with open_volume(self, volname) as fs_handle:
                 with open_group(fs_handle, self.volspec, groupname) as group:
                     with open_subvol(fs_handle, self.volspec, group, subvolname) as subvolume:
-                        subvolume.protect_snapshot(snapname)
+                        log.warning("snapshot protect call is deprecated and will be removed in a future release")
         except VolumeException as ve:
             ret = self.volume_exception_to_retval(ve)
         return ret
 
     def unprotect_subvolume_snapshot(self, **kwargs):
-        ret        = 0, "", ""
+        ret        = 0, "", "Deprecation warning: 'snapshot unprotect' call is deprecated and will be removed in a future release"
         volname    = kwargs['vol_name']
         subvolname = kwargs['sub_name']
-        snapname   = kwargs['snap_name']
         groupname  = kwargs['group_name']
 
         try:
             with open_volume(self, volname) as fs_handle:
                 with open_group(fs_handle, self.volspec, groupname) as group:
                     with open_subvol(fs_handle, self.volspec, group, subvolname) as subvolume:
-                        subvolume.unprotect_snapshot(snapname)
+                        log.warning("snapshot unprotect call is deprecated and will be removed in a future release")
         except VolumeException as ve:
             ret = self.volume_exception_to_retval(ve)
         return ret
@@ -320,7 +399,7 @@ class VolumeClient(object):
                     target_subvolume.remove()
                     self.purge_queue.queue_job(volname)
                 except Exception as e:
-                    log.warn("failed to cleanup clone subvolume '{0}' ({1})".format(target_subvolname, e))
+                    log.warning("failed to cleanup clone subvolume '{0}' ({1})".format(target_subvolname, e))
                 raise ve
 
     def _clone_subvolume_snapshot(self, fs_handle, volname, subvolume, **kwargs):
@@ -331,8 +410,6 @@ class VolumeClient(object):
 
         if not snapname.encode('utf-8') in subvolume.list_snapshots():
             raise VolumeException(-errno.ENOENT, "snapshot '{0}' does not exist".format(snapname))
-        if not subvolume.is_snapshot_protected(snapname):
-            raise VolumeException(-errno.EINVAL, "snapshot '{0}' is not protected".format(snapname))
 
         # TODO: when the target group is same as source, reuse group object.
         with open_group(fs_handle, self.volspec, target_groupname) as target_group:
@@ -373,6 +450,18 @@ class VolumeClient(object):
                     with open_subvol(fs_handle, self.volspec, group, clonename,
                                      need_complete=False, expected_types=["clone"]) as subvolume:
                         ret = 0, json.dumps({'status' : subvolume.status}, indent=2), ""
+        except VolumeException as ve:
+            ret = self.volume_exception_to_retval(ve)
+        return ret
+
+    def clone_cancel(self, **kwargs):
+        ret       = 0, "", ""
+        volname   = kwargs['vol_name']
+        clonename = kwargs['clone_name']
+        groupname = kwargs['group_name']
+
+        try:
+            self.cloner.cancel_job(volname, (clonename, groupname))
         except VolumeException as ve:
             ret = self.volume_exception_to_retval(ve)
         return ret
@@ -440,6 +529,22 @@ class VolumeClient(object):
         except VolumeException as ve:
             if not ve.errno == -errno.ENOENT:
                 ret = self.volume_exception_to_retval(ve)
+        return ret
+
+    def pin_subvolume_group(self, **kwargs):
+        ret           = 0, "", ""
+        volname       = kwargs['vol_name']
+        groupname     = kwargs['group_name']
+        pin_type      = kwargs['pin_type']
+        pin_setting   = kwargs['pin_setting']
+
+        try:
+            with open_volume(self, volname) as fs_handle:
+                with open_group(fs_handle, self.volspec, groupname) as group:
+                    group.pin(pin_type, pin_setting)
+                    ret = 0, json.dumps({}), ""
+        except VolumeException as ve:
+            ret = self.volume_exception_to_retval(ve)
         return ret
 
     ### group snapshot

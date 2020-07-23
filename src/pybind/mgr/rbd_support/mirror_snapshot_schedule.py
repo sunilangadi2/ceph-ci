@@ -5,299 +5,149 @@ import rbd
 import re
 import traceback
 
-from datetime import datetime, timedelta, time
+from datetime import datetime
 from threading import Condition, Lock, Thread
 
 from .common import get_rbd_pools
+from .schedule import LevelSpec, Interval, StartTime, Schedule, Schedules
 
-SCHEDULE_OID = "rbd_mirror_snapshot_schedule"
+MIRRORING_OID = "rbd_mirroring"
 
-SCHEDULE_INTERVAL = "interval"
-SCHEDULE_START_TIME = "start_time"
+def namespace_validator(ioctx):
+    mode = rbd.RBD().mirror_mode_get(ioctx)
+    if mode != rbd.RBD_MIRROR_MODE_IMAGE:
+        raise ValueError("namespace {} is not in mirror image mode".format(
+            ioctx.get_namespace()))
 
+def image_validator(image):
+    mode = image.mirror_image_get_mode()
+    if mode != rbd.RBD_MIRROR_IMAGE_MODE_SNAPSHOT:
+        raise rbd.InvalidArgument("Invalid mirror image mode")
 
-class Interval:
+class Watchers:
 
-    def __init__(self, minutes):
-        self.minutes = minutes
+    lock = Lock()
 
-    def __eq__(self, interval):
-        return self.minutes == interval.minutes
+    def __init__(self, handler):
+        self.rados = handler.module.rados
+        self.log = handler.log
+        self.watchers = {}
+        self.updated = {}
+        self.error = {}
+        self.epoch = {}
 
-    def __hash__(self):
-        return hash(self.minutes)
+    def __del__(self):
+        self.unregister_all()
 
-    def to_string(self):
-        if self.minutes % (60 * 24) == 0:
-            interval = int(self.minutes / (60 * 24))
-            units = 'd'
-        elif self.minutes % 60 == 0:
-            interval = int(self.minutes / 60)
-            units = 'h'
+    def _clean_watcher(self, pool_id, namespace, watch_id):
+        assert self.lock.locked()
+
+        del self.watchers[pool_id, namespace]
+        self.updated.pop(watch_id, None)
+        self.error.pop(watch_id, None)
+        self.epoch.pop(watch_id, None)
+
+    def check(self, pool_id, namespace, epoch):
+        error = None
+        with self.lock:
+            watch = self.watchers.get((pool_id, namespace))
+            if watch is not None:
+                error = self.error.get(watch.get_id())
+                if not error:
+                    updated = self.updated[watch.get_id()]
+                    self.updated[watch.get_id()] = False
+                    self.epoch[watch.get_id()] = epoch
+                    return updated
+        if error:
+            self.unregister(pool_id, namespace)
+
+        if self.register(pool_id, namespace):
+            return self.check(pool_id, namespace, epoch)
         else:
-            interval = int(self.minutes)
-            units = 'm'
+            return True
 
-        return "{}{}".format(interval, units)
+    def register(self, pool_id, namespace):
 
-    @classmethod
-    def from_string(cls, interval):
-        match = re.match(r'^(\d+)(d|h|m)?$', interval)
-        if not match:
-            raise ValueError("Invalid interval ({})".format(interval))
+        def callback(notify_id, notifier_id, watch_id, data):
+            self.log.debug("watcher {}: got notify {} from {}".format(
+                watch_id, notify_id, notifier_id))
 
-        minutes = int(match.group(1))
-        if match.group(2) == 'd':
-            minutes *= 60 * 24
-        elif match.group(2) == 'h':
-            minutes *= 60
+            with self.lock:
+                self.updated[watch_id] = True
 
-        return Interval(minutes)
+        def error_callback(watch_id, error):
+            self.log.debug("watcher {}: got errror {}".format(
+                watch_id, error))
 
-
-class StartTime:
-
-    def __init__(self, hour, minute, tzinfo):
-        self.time = time(hour, minute, tzinfo=tzinfo)
-        self.minutes = self.time.hour * 60 + self.time.minute
-        if self.time.tzinfo:
-            self.minutes += int(self.time.utcoffset().seconds / 60)
-
-    def __eq__(self, start_time):
-        return self.minutes == start_time.minutes
-
-    def __hash__(self):
-        return hash(self.minutes)
-
-    def to_string(self):
-        return self.time.isoformat()
-
-    @classmethod
-    def from_string(cls, start_time):
-        if not start_time:
-            return None
+            with self.lock:
+                self.error[watch_id] = error
 
         try:
-            t = time.fromisoformat(start_time)
-        except ValueError as e:
-            raise ValueError("Invalid start time {}: {}".format(start_time, e))
-
-        return StartTime(t.hour, t.minute, tzinfo=t.tzinfo)
-
-class LevelSpec:
-
-    def __init__(self, name, id, pool_id, namespace, image_id):
-        self.name = name
-        self.id = id
-        self.pool_id = pool_id
-        self.namespace = namespace
-        self.image_id = image_id
-
-    def __eq__(self, level_spec):
-        return self.id == level_spec.id
-
-    def is_child_of(self, level_spec):
-        if level_spec.is_global():
-            return not self.is_global()
-        if level_spec.pool_id != self.pool_id:
+            ioctx = self.rados.open_ioctx2(int(pool_id))
+            ioctx.set_namespace(namespace)
+            watch = ioctx.watch(MIRRORING_OID, callback, error_callback)
+        except rados.ObjectNotFound:
+            self.log.debug(
+                "{}/{}/{} watcher not registered: object not found".format(
+                    pool_id, namespace, MIRRORING_OID))
             return False
-        if level_spec.namespace is None:
-            return self.namespace is not None
-        if level_spec.namespace != self.namespace:
-            return False
-        if level_spec.image_id is None:
-            return self.image_id is not None
-        return False
 
-    def is_global(self):
-        return self.pool_id is None
+        self.log.debug("{}/{}/{} watcher {} registered".format(
+            pool_id, namespace, MIRRORING_OID, watch.get_id()))
 
-    def get_pool_id(self):
-        return self.pool_id
-
-    def matches(self, pool_id, namespace, image_id):
-        if self.pool_id and self.pool_id != pool_id:
-            return False
-        if self.namespace and self.namespace != namespace:
-            return False
-        if self.image_id and self.image_id != image_id:
-            return False
+        with self.lock:
+            self.watchers[pool_id, namespace] = watch
+            self.updated[watch.get_id()] = True
         return True
 
-    @classmethod
-    def from_name(cls, handler, name):
-        # parse names like:
-        # '', 'rbd/', 'rbd/ns/', 'rbd//image', 'rbd/image', 'rbd/ns/image'
-        match = re.match(r'^(?:([^/]+)/(?:(?:([^/]*)/|)(?:([^/@]+))?)?)?$',
-                         name)
-        if not match:
-            raise ValueError("failed to parse {}".format(name))
+    def unregister(self, pool_id, namespace):
 
-        id = ""
-        pool_id = None
-        namespace = None
-        image_name = None
-        image_id = None
-        if match.group(1):
-            pool_name = match.group(1)
-            try:
-                pool_id = handler.module.rados.pool_lookup(pool_name)
-                if pool_id is None:
-                    raise ValueError("pool {} does not exist".format(pool_name))
-                pool_id = str(pool_id)
-                id += pool_id
-                if match.group(2) is not None or match.group(3):
-                    id += "/"
-                    with handler.module.rados.open_ioctx(pool_name) as ioctx:
-                        namespace = match.group(2) or ""
-                        if namespace:
-                            namespaces = rbd.RBD().namespace_list(ioctx)
-                            if namespace not in namespaces:
-                                raise ValueError(
-                                    "namespace {} does not exist".format(
-                                        namespace))
-                            id += namespace
-                            ioctx.set_namespace(namespace)
-                            pool_mode = rbd.RBD().mirror_mode_get(ioctx)
-                            if pool_mode != rbd.RBD_MIRROR_MODE_IMAGE:
-                                raise ValueError(
-                                    "namespace {} is not in mirror image mode".format(
-                                        namespace))
-                        if match.group(3):
-                            image_name = match.group(3)
-                            try:
-                                with rbd.Image(ioctx, image_name,
-                                               read_only=True) as image:
-                                    image_id = image.id()
-                                    id += "/" + image_id
-                                    mode = image.mirror_image_get_mode()
-                                    if mode != rbd.RBD_MIRROR_IMAGE_MODE_SNAPSHOT:
-                                        raise rbd.InvalidArgument(
-                                            "Invalid mirror mode")
-                            except rbd.ImageNotFound:
-                                raise ValueError("image {} does not exist".format(
-                                    image_name))
-                            except rbd.InvalidArgument:
-                                raise ValueError(
-                                    "image {} is not in snapshot mirror mode".format(
-                                        image_name))
+        with self.lock:
+            watch = self.watchers[pool_id, namespace]
 
-            except rados.ObjectNotFound:
-                raise ValueError("pool {} does not exist".format(pool_name))
+        watch_id = watch.get_id()
 
-        # normalize possible input name like 'rbd//image'
-        if not namespace and image_name:
-            name = "{}/{}".format(pool_name, image_name)
-
-        return LevelSpec(name, id, pool_id, namespace, image_id)
-
-    @classmethod
-    def from_id(cls, handler, id):
-        # parse ids like:
-        # '', '123', '123/', '123/ns', '123//image_id', '123/ns/image_id'
-        match = re.match(r'^(?:(\d+)(?:/([^/]*)(?:/([^/@]+))?)?)?$', id)
-        if not match:
-            raise ValueError("failed to parse: {}".format(id))
-
-        name = ""
-        pool_id = None
-        namespace = None
-        image_id = None
-        if match.group(1):
-            pool_id = match.group(1)
-            try:
-                pool_name = handler.module.rados.pool_reverse_lookup(
-                    int(pool_id))
-                if pool_name is None:
-                    raise ValueError("pool {} does not exist".format(pool_name))
-                name += pool_name + "/"
-                if match.group(2) is not None or match.group(3):
-                    with handler.module.rados.open_ioctx(pool_name) as ioctx:
-                        namespace = match.group(2) or ""
-                        if namespace:
-                            namespaces = rbd.RBD().namespace_list(ioctx)
-                            if namespace not in namespaces:
-                                raise ValueError(
-                                    "namespace {} does not exist".format(
-                                        namespace))
-                            name += namespace + "/"
-                            ioctx.set_namespace(namespace)
-                            pool_mode = rbd.RBD().mirror_mode_get(ioctx)
-                            if pool_mode != rbd.RBD_MIRROR_MODE_IMAGE:
-                                raise ValueError(
-                                    "namespace {} is not in mirror image mode".format(
-                                        namespace))
-                        elif not match.group(3):
-                            name += "/"
-                        if match.group(3):
-                            image_id = match.group(3)
-                            try:
-                                with rbd.Image(ioctx, image_id=image_id,
-                                               read_only=True) as image:
-                                    image_name = image.get_name()
-                                    name += image_name
-                                    mode = image.mirror_image_get_mode()
-                                    if mode != rbd.RBD_MIRROR_IMAGE_MODE_SNAPSHOT:
-                                        raise rbd.InvalidArgument(
-                                            "Invalid mirror mode")
-                            except rbd.ImageNotFound:
-                                raise ValueError("image {} does not exist".format(
-                                    image_id))
-                            except rbd.InvalidArgument:
-                                raise ValueError(
-                                    "image {} is not in snapshot mirror mode".format(
-                                        image_id))
-
-            except rados.ObjectNotFound:
-                raise ValueError("pool {} does not exist".format(pool_id))
-
-        return LevelSpec(name, id, pool_id, namespace, image_id)
-
-
-class Schedule:
-
-    def __init__(self, name):
-        self.name = name
-        self.items = set()
-
-    def __len__(self):
-        return len(self.items)
-
-    def add(self, interval, start_time=None):
-        self.items.add((interval, start_time))
-
-    def remove(self, interval, start_time=None):
-        self.items.discard((interval, start_time))
-
-    def to_list(self):
-        return [{SCHEDULE_INTERVAL: i[0].to_string(),
-                 SCHEDULE_START_TIME: i[1] and i[1].to_string() or None}
-                for i in self.items]
-
-    def to_json(self):
-        return json.dumps(self.to_list(), indent=4, sort_keys=True)
-
-    @classmethod
-    def from_json(cls, name, val):
         try:
-            items = json.loads(val)
-            schedule = Schedule(name)
-            for item in items:
-                interval = Interval.from_string(item[SCHEDULE_INTERVAL])
-                start_time = item[SCHEDULE_START_TIME] and \
-                    StartTime.from_string(item[SCHEDULE_START_TIME]) or None
-                schedule.add(interval, start_time)
-            return schedule
-        except json.JSONDecodeError as e:
-            raise ValueError("Invalid JSON ({})".format(str(e)))
-        except KeyError as e:
-            raise ValueError(
-                "Invalid schedule format (missing key {})".format(str(e)))
-        except TypeError as e:
-            raise ValueError("Invalid schedule format ({})".format(str(e)))
+            watch.close()
+
+            self.log.debug("{}/{}/{} watcher {} unregistered".format(
+                pool_id, namespace, MIRRORING_OID, watch_id))
+
+        except rados.Error as e:
+            self.log.debug(
+                "exception when unregistering {}/{} watcher: {}".format(
+                    pool_id, namespace, e))
+
+        with self.lock:
+            self._clean_watcher(pool_id, namespace, watch_id)
+
+    def unregister_all(self):
+        with self.lock:
+            watchers = list(self.watchers)
+
+        for pool_id, namespace in watchers:
+            self.unregister(pool_id, namespace)
+
+    def unregister_stale(self, current_epoch):
+        with self.lock:
+            watchers = list(self.watchers)
+
+        for pool_id, namespace in watchers:
+            with self.lock:
+                watch = self.watchers[pool_id, namespace]
+                if self.epoch.get(watch.get_id()) == current_epoch:
+                    continue
+
+            self.log.debug("{}/{}/{} watcher {} stale".format(
+                pool_id, namespace, MIRRORING_OID, watch_id))
+
+            self.unregister(pool_id, namespace)
 
 
 class MirrorSnapshotScheduleHandler:
+    MODULE_OPTION_NAME = "mirror_snapshot_schedule"
+    SCHEDULE_OID = "rbd_mirror_snapshot_schedule"
+
     lock = Lock()
     condition = Condition(lock)
     thread = None
@@ -311,6 +161,9 @@ class MirrorSnapshotScheduleHandler:
 
         self.thread = Thread(target=self.run)
         self.thread.start()
+
+    def _cleanup(self):
+        self.watchers.unregister_all()
 
     def run(self):
         try:
@@ -354,91 +207,20 @@ class MirrorSnapshotScheduleHandler:
                     pool_id, namespace, image_id, e))
 
 
-    @classmethod
-    def format_image_spec(cls, image_spec):
-        image = image_spec[2]
-        if image_spec[1]:
-            image = "{}/{}".format(image_spec[1], image)
-        if image_spec[0]:
-            image = "{}/{}".format(image_spec[0], image)
-        return image
-
     def init_schedule_queue(self):
         self.queue = {}
         self.images = {}
+        self.watchers = Watchers(self)
         self.refresh_images()
         self.log.debug("scheduler queue is initialized")
 
     def load_schedules(self):
         self.log.info("MirrorSnapshotScheduleHandler: load_schedules")
 
-        schedules = {}
-        schedule_cfg = self.module.get_localized_module_option(
-            'mirror_snapshot_schedule', '')
-        if schedule_cfg:
-            try:
-                schedule = Schedule.from_json('', schedule_cfg)
-                schedules[''] = schedule
-            except ValueError:
-                self.log.error("Failed to decode configured schedule {}".format(
-                    schedule_cfg))
-
-        for pool_id, pool_name in get_rbd_pools(self.module).items():
-            with self.module.rados.open_ioctx2(int(pool_id)) as ioctx:
-                self.load_pool_schedules(ioctx, schedules)
-
+        schedules = Schedules(self)
+        schedules.load(namespace_validator, image_validator)
         with self.lock:
             self.schedules = schedules
-
-    def load_pool_schedules(self, ioctx, schedules):
-        pool_id = ioctx.get_pool_id()
-        pool_name = ioctx.get_pool_name()
-        stale_keys = ()
-        start_after = ''
-        try:
-            while True:
-                with rados.ReadOpCtx() as read_op:
-                    self.log.info("load_schedules: {}, start_after={}".format(
-                        pool_name, start_after))
-                    it, ret = ioctx.get_omap_vals(read_op, start_after, "", 128)
-                    ioctx.operate_read_op(read_op, SCHEDULE_OID)
-
-                    it = list(it)
-                    for k, v in it:
-                        start_after = k
-                        v = v.decode()
-                        self.log.info("load_schedule: {} {}".format(k, v))
-
-                        try:
-                            try:
-                                level_spec = LevelSpec.from_id(self, k)
-                            except ValueError:
-                                self.log.debug(
-                                    "Stail schedule key {} in pool".format(
-                                        k, pool_name))
-                                stale_keys += (k,)
-                                continue
-
-                            schedule = Schedule.from_json(level_spec.name, v)
-                            schedules[k] = schedule
-                        except ValueError:
-                            self.log.error(
-                                "Failed to decode schedule: pool={}, {} {}".format(
-                                    pool_name, k, v))
-
-                    if not it:
-                        break
-
-        except StopIteration:
-            pass
-        except rados.ObjectNotFound:
-            # rbd_mirror_snapshot_schedule DNE
-            pass
-
-        if stale_keys:
-            with rados.WriteOpCtx() as write_op:
-                ioctx.remove_omap_keys(write_op, stale_keys)
-                ioctx.operate_write_op(write_op, SCHEDULE_OID)
 
     def refresh_images(self):
         if (datetime.now() - self.last_refresh_images).seconds < 60:
@@ -450,33 +232,54 @@ class MirrorSnapshotScheduleHandler:
 
         with self.lock:
             if not self.schedules:
+                self.watchers.unregister_all()
                 self.images = {}
                 self.queue = {}
                 self.last_refresh_images = datetime.now()
                 return
 
+        epoch = int(datetime.now().strftime('%s'))
         images = {}
 
         for pool_id, pool_name in get_rbd_pools(self.module).items():
+            if not self.schedules.intersects(
+                    LevelSpec.from_pool_spec(pool_id, pool_name)):
+                continue
             with self.module.rados.open_ioctx2(int(pool_id)) as ioctx:
-                self.load_pool_images(ioctx, images)
+                self.load_pool_images(ioctx, epoch, images)
 
         with self.lock:
             self.refresh_queue(images)
             self.images = images
 
+        self.watchers.unregister_stale(epoch)
         self.last_refresh_images = datetime.now()
 
-    def load_pool_images(self, ioctx, images):
+    def load_pool_images(self, ioctx, epoch, images):
         pool_id = str(ioctx.get_pool_id())
         pool_name = ioctx.get_pool_name()
         images[pool_id] = {}
 
+        self.log.debug("load_pool_images: pool={}".format(pool_name))
+
         try:
             namespaces = [''] + rbd.RBD().namespace_list(ioctx)
             for namespace in namespaces:
+                if not self.schedules.intersects(
+                        LevelSpec.from_pool_spec(pool_id, pool_name, namespace)):
+                    continue
+                self.log.debug("load_pool_images: pool={}, namespace={}".format(
+                    pool_name, namespace))
                 images[pool_id][namespace] = {}
                 ioctx.set_namespace(namespace)
+                updated = self.watchers.check(pool_id, namespace, epoch)
+                if not updated:
+                    self.log.debug("load_pool_images: {}/{} not updated".format(
+                        pool_name, namespace))
+                    with self.lock:
+                        images[pool_id][namespace] = \
+                            self.images[pool_id][namespace]
+                    continue
                 mirror_images = dict(rbd.RBD().mirror_image_info_list(
                     ioctx, rbd.RBD_MIRROR_IMAGE_MODE_SNAPSHOT))
                 if not mirror_images:
@@ -494,34 +297,13 @@ class MirrorSnapshotScheduleHandler:
                                                  image_name)
                     else:
                         name = "{}/{}".format(pool_name, image_name)
-                    self.log.debug("Adding image {}".format(name))
+                    self.log.debug(
+                        "load_pool_images: adding image {}".format(name))
                     images[pool_id][namespace][image_id] = name
         except Exception as e:
-            self.log.error("exception when scanning pool {}: {}".format(
-                pool_name, e))
-            pass
-
-    def find_schedule(self, pool_id, namespace, image_id):
-        levels = [None, pool_id, namespace, image_id]
-        while levels:
-            level_spec_id = "/".join(levels[1:])
-            if level_spec_id in self.schedules:
-                return self.schedules[level_spec_id]
-            del levels[-1]
-        return None
-
-    def calc_schedule_time(self, schedule, now):
-        schedule_time = None
-        for item in schedule.items:
-            period = timedelta(minutes=item[0].minutes)
-            start_time = datetime(1970, 1, 1)
-            if item[1]:
-                start_time += timedelta(minutes=item[1].minutes)
-            time = start_time + \
-                (int((now - start_time) / period) + 1) * period
-            if schedule_time is None or time < schedule_time:
-                schedule_time = time
-        return datetime.strftime(schedule_time, "%Y-%m-%d %H:%M:00")
+            self.log.error(
+                "load_pool_images: exception when scanning pool {}: {}".format(
+                    pool_name, e))
 
     def rebuild_queue(self):
         with self.lock:
@@ -567,11 +349,11 @@ class MirrorSnapshotScheduleHandler:
 
     def enqueue(self, now, pool_id, namespace, image_id):
 
-        schedule = self.find_schedule(pool_id, namespace, image_id)
+        schedule = self.schedules.find(pool_id, namespace, image_id)
         if not schedule:
             return
 
-        schedule_time = self.calc_schedule_time(schedule, now)
+        schedule_time = schedule.next_run(now)
         if schedule_time not in self.queue:
             self.queue[schedule_time] = []
         self.log.debug("schedule image {}/{}/{} at {}".format(
@@ -593,7 +375,6 @@ class MirrorSnapshotScheduleHandler:
             return None, wait_time.total_seconds()
 
         images = self.queue[schedule_time]
-        image = images[0]
         image = images.pop(0)
         if not images:
             del self.queue[schedule_time]
@@ -609,113 +390,40 @@ class MirrorSnapshotScheduleHandler:
         for schedule_time in empty_slots:
             del self.queue[schedule_time]
 
-    def save_schedule(self, level_spec, schedule):
-        if level_spec.is_global():
-            schedule_cfg = schedule and schedule.to_json() or ''
-            self.module.set_localized_module_option('mirror_snapshot_schedule',
-                                                    schedule_cfg)
-            return
-
-        pool_id = level_spec.get_pool_id()
-        with self.module.rados.open_ioctx2(int(pool_id)) as ioctx:
-            with rados.WriteOpCtx() as write_op:
-                if schedule:
-                    ioctx.set_omap(write_op, (level_spec.id, ),
-                                   (schedule.to_json(), ))
-                else:
-                    ioctx.remove_omap_keys(write_op, (level_spec.id, ))
-                ioctx.operate_write_op(write_op, SCHEDULE_OID)
-
-
-    def add_schedule(self, level_spec_name, interval, start_time):
+    def add_schedule(self, level_spec, interval, start_time):
         self.log.debug(
             "add_schedule: level_spec={}, interval={}, start_time={}".format(
-                level_spec_name, interval, start_time))
-        try:
-            level_spec = LevelSpec.from_name(self, level_spec_name)
-        except ValueError as e:
-            return -errno.EINVAL, '', "Invalid level spec {}: {}".format(
-                level_spec_name, e)
+                level_spec.name, interval, start_time))
 
         with self.lock:
-            schedule = self.schedules.get(level_spec.id, Schedule(level_spec_name))
-            schedule.add(Interval.from_string(interval),
-                         StartTime.from_string(start_time))
-            self.save_schedule(level_spec, schedule)
-            self.schedules[level_spec.id] = schedule
+            self.schedules.add(level_spec, interval, start_time)
 
         # TODO: optimize to rebuild only affected part of the queue
         self.rebuild_queue()
         return 0, "", ""
 
-    def remove_schedule(self, level_spec_name, interval, start_time):
-        try:
-            level_spec = LevelSpec.from_name(self, level_spec_name)
-        except ValueError as e:
-            return -errno.EINVAL, '', "Invalid level spec {}: {}".format(
-                level_spec_name, e)
+    def remove_schedule(self, level_spec, interval, start_time):
+        self.log.debug(
+            "remove_schedule: level_spec={}, interval={}, start_time={}".format(
+                level_spec.name, interval, start_time))
 
         with self.lock:
-            schedule = self.schedules.pop(level_spec.id, None)
-            if not schedule:
-                return -errno.ENOENT, '', "No schedule for {}".format(level_spec_name)
-
-            if interval is None:
-                schedule = None
-            else:
-                schedule.remove(Interval.from_string(interval),
-                                StartTime.from_string(start_time))
-            if schedule:
-                self.schedules[level_spec.id] = schedule
-            self.save_schedule(level_spec, schedule)
+            self.schedules.remove(level_spec, interval, start_time)
 
         # TODO: optimize to rebuild only affected part of the queue
         self.rebuild_queue()
         return 0, "", ""
 
-    def list(self, level_spec_name):
-        self.log.debug("list: level_spec={}".format(level_spec_name))
+    def list(self, level_spec):
+        self.log.debug("list: level_spec={}".format(level_spec.name))
 
-        if not level_spec_name:
-            level_spec_name = ""
-
-        try:
-            level_spec = LevelSpec.from_name(self, level_spec_name)
-        except ValueError as e:
-            return -errno.EINVAL, '', "Invalid level spec {}: {}".format(
-                level_spec_name, e)
-
-        result = {}
         with self.lock:
-            parent = LevelSpec.from_id(self, "")
-            if not level_spec.is_global():
-                for level_spec_id in self.schedules:
-                    ls = LevelSpec.from_id(self, level_spec_id)
-                    if ls == level_spec:
-                        parent = ls
-                        break
-                    if level_spec.is_child_of(ls) and ls.is_child_of(parent):
-                        parent = ls
-            for level_spec_id, schedule in self.schedules.items():
-                ls = LevelSpec.from_id(self, level_spec_id)
-                if ls == parent or ls.is_child_of(parent):
-                    result[level_spec_id] = {
-                        'name' : schedule.name,
-                        'schedule' : schedule.to_list(),
-                    }
+            result = self.schedules.to_list(level_spec)
+
         return 0, json.dumps(result, indent=4, sort_keys=True), ""
 
-    def status(self, level_spec_name):
-        self.log.debug("status: level_spec={}".format(level_spec_name))
-
-        if not level_spec_name:
-            level_spec_name = ""
-
-        try:
-            level_spec = LevelSpec.from_name(self, level_spec_name)
-        except ValueError as e:
-            return -errno.EINVAL, '', "Invalid level spec {}: {}".format(
-                level_spec_name, e)
+    def status(self, level_spec):
+        self.log.debug("status: level_spec={}".format(level_spec.name))
 
         scheduled_images = []
         with self.lock:
@@ -732,15 +440,25 @@ class MirrorSnapshotScheduleHandler:
                              indent=4, sort_keys=True), ""
 
     def handle_command(self, inbuf, prefix, cmd):
+        level_spec_name = cmd.get('level_spec', "")
+
+        try:
+            level_spec = LevelSpec.from_name(self, level_spec_name,
+                                             namespace_validator,
+                                             image_validator)
+        except ValueError as e:
+            return -errno.EINVAL, '', "Invalid level spec {}: {}".format(
+                level_spec_name, e)
+
         if prefix == 'add':
-            return self.add_schedule(cmd['level_spec'], cmd['interval'],
+            return self.add_schedule(level_spec, cmd['interval'],
                                      cmd.get('start_time'))
         elif prefix == 'remove':
-            return self.remove_schedule(cmd['level_spec'], cmd.get('interval'),
+            return self.remove_schedule(level_spec, cmd.get('interval'),
                                         cmd.get('start_time'))
         elif prefix == 'list':
-            return self.list(cmd.get('level_spec', None))
+            return self.list(level_spec)
         elif prefix == 'status':
-            return self.status(cmd.get('level_spec', None))
+            return self.status(level_spec)
 
         raise NotImplementedError(cmd['prefix'])

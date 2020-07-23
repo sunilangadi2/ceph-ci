@@ -8,6 +8,7 @@
 #include "include/rados/librados.hpp"
 #include "include/rbd/librbd.hpp"
 #include "tools/rbd/ArgumentTypes.h"
+#include <map>
 #include <string>
 #include <boost/program_options.hpp>
 
@@ -149,6 +150,9 @@ int get_path(const boost::program_options::variables_map &vm,
 int get_formatter(const boost::program_options::variables_map &vm,
                   argument_types::Format::Formatter *formatter);
 
+int get_snap_create_flags(const boost::program_options::variables_map &vm,
+                          uint32_t *flags);
+
 void init_context();
 
 int init_rados(librados::Rados *rados);
@@ -218,6 +222,10 @@ void get_mirror_peer_mirror_uuids_to_names(
 void populate_unknown_mirror_image_site_statuses(
     const std::vector<librbd::mirror_peer_site_t>& mirror_peers,
     librbd::mirror_image_global_status_t* global_status);
+
+int mgr_command(librados::Rados& rados, const std::string& cmd,
+                const std::map<std::string, std::string> &args,
+                std::ostream *out_os, std::ostream *err_os);
 
 } // namespace utils
 } // namespace rbd

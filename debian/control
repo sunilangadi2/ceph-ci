@@ -7,7 +7,7 @@ Vcs-Browser: https://github.com/ceph/ceph
 Maintainer: Ceph Maintainers <ceph-maintainers@lists.ceph.com>
 Uploaders: Ken Dreyer <kdreyer@redhat.com>,
            Alfredo Deza <adeza@redhat.com>,
-Build-Depends: cmake (>= 3.5),
+Build-Depends: cmake (>= 3.10.2),
                cpio,
                cryptsetup-bin | cryptsetup,
                cython,
@@ -75,9 +75,9 @@ Build-Depends: cmake (>= 3.5),
 # Make-Check   python3-nose,
 # Make-Check   python3-pecan,
 # Make-Check   python3-bcrypt,
-# Make-Check   python3-six,
 # Make-Check   tox,
 # Make-Check   python3-coverage,
+# Make-Check   python3-dateutil,
 # Make-Check   python3-openssl,
 # Make-Check   python3-prettytable,
 # Make-Check   python3-requests,
@@ -98,7 +98,7 @@ Build-Depends: cmake (>= 3.5),
 # Make-Check   xmlstarlet,
                yasm [amd64],
                zlib1g-dev,
-Standards-Version: 3.9.3
+Standards-Version: 4.4.0
 
 Package: ceph
 Architecture: linux-any
@@ -244,7 +244,6 @@ Architecture: all
 Depends: ceph-mgr (= ${binary:Version}),
          python3-cherrypy3,
          python3-jwt,
-         python3-openssl,
          python3-bcrypt,
          python3-werkzeug,
          python3-routes,
@@ -299,6 +298,10 @@ Architecture: all
 Depends: ${misc:Depends},
          ${python:Depends},
          ${shlibs:Depends},
+         python3-dateutil,
+         python3-openssl,
+Replaces: ceph-mgr (<< 15.1.0)
+Breaks: ceph-mgr (<< 15.1.0)
 Recommends: ceph-mgr-rook
 Description: ceph manager modules which are always enabled
  Ceph is a massively scalable, open-source, distributed
@@ -311,7 +314,6 @@ Description: ceph manager modules which are always enabled
 Package: ceph-mgr-rook
 Architecture: all
 Depends: ceph-mgr (= ${binary:Version}),
-         python3-six,
          python3-jsonpatch
          ${misc:Depends},
          ${python:Depends},
@@ -344,10 +346,10 @@ Package: ceph-mgr-cephadm
 Architecture: all
 Depends: ceph-mgr (= ${binary:Version}),
 	 cephadm,
-	 python3-six,
          ${misc:Depends},
          ${python:Depends},
-         openssh-client
+         openssh-client,
+         python3-jinja2
 Description: cephadm orchestrator module for ceph-mgr
  Ceph is a massively scalable, open-source, distributed
  storage system that runs on commodity hardware and delivers object,
@@ -1148,3 +1150,23 @@ Description: interactive shell for the Ceph distributed file system
  a nice pseudo-shell which works like an FTP client.
  .
  This package contains a CLI for interacting with the CephFS.
+
+Package: ceph-grafana-dashboards
+Architecture: all
+Description: grafana dashboards for the ceph dashboard
+ Ceph is a massively scalable, open-source, distributed
+ storage system that runs on commodity hardware and delivers object,
+ block and file system storage.
+ .
+ This package contains Grafana dashboards that are used by the Ceph Dashboard
+ for monitoring.
+
+Package: ceph-prometheus-alerts
+Architecture: all
+Description: prometheus alerts for the ceph dashboard
+ Ceph is a massively scalable, open-source, distributed
+ storage system that runs on commodity hardware and delivers object,
+ block and file system storage.
+ .
+ This package contains alerts used for prometheus to interact with the
+ Ceph Dashboard.

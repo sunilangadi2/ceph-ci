@@ -134,19 +134,6 @@ becomes *effective*, meaning that the operation has really happened
 .. autoclass:: ProgressReference
    :members:
 
-
-Placement
----------
-
-In general, stateless services do not require any specific placement
-rules, as they can run anywhere that sufficient system resources
-are available.  However, some orchestrators may not include the
-functionality to choose a location in this way, so we can optionally
-specify a location when creating a stateless service.
-
-OSD services generally require a specific placement choice, as this
-will determine which storage devices are used.
-
 Error Handling
 --------------
 
@@ -237,13 +224,37 @@ Devices
 
 .. py:currentmodule:: orchestrator
 
+Placement
+---------
+
+A :ref:`orchestrator-cli-placement-spec` defines the placement of
+daemons of a specifc service.
+
+In general, stateless services do not require any specific placement
+rules as they can run anywhere that sufficient system resources
+are available. However, some orchestrators may not include the
+functionality to choose a location in this way. Optionally, you can
+specify a location when creating a stateless service.
+
+
+.. py:currentmodule:: ceph.deployment.service_spec
+
+.. autoclass:: PlacementSpec
+   :members:
+
+.. py:currentmodule:: orchestrator
+
 
 Services
 --------
 
 .. autoclass:: ServiceDescription
 
+.. py:currentmodule:: ceph.deployment.service_spec
+
 .. autoclass:: ServiceSpec
+
+.. py:currentmodule:: orchestrator
 
 .. automethod:: Orchestrator.describe_service
 
@@ -262,17 +273,6 @@ OSD management
 --------------
 
 .. automethod:: Orchestrator.create_osds
-
-.. py:currentmodule:: ceph.deployment.drive_group
-
-.. autoclass:: DeviceSelection
-   :members:
-
-.. autoclass:: DriveGroupSpec
-   :members:
-   :exclude-members: from_json
-
-.. py:currentmodule:: orchestrator
 
 .. automethod:: Orchestrator.blink_device_light
 .. autoclass:: DeviceLightLoc
@@ -315,12 +315,20 @@ Stateless Services
 .. automethod:: Orchestrator.add_rbd_mirror
 .. automethod:: Orchestrator.apply_rbd_mirror
 
+.. py:currentmodule:: ceph.deployment.service_spec
+
 .. autoclass:: RGWSpec
+
+.. py:currentmodule:: orchestrator
 
 .. automethod:: Orchestrator.add_rgw
 .. automethod:: Orchestrator.apply_rgw
 
+.. py:currentmodule:: ceph.deployment.service_spec
+
 .. autoclass:: NFSServiceSpec
+
+.. py:currentmodule:: orchestrator
 
 .. automethod:: Orchestrator.add_nfs
 .. automethod:: Orchestrator.apply_nfs

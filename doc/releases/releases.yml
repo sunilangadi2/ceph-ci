@@ -13,12 +13,28 @@
 #
 releases:
   octopus:
+    target_eol: 2022-06-01
     releases:
-      - version: 15.1.0
-        released: 2020-01-29
-    target_eol: 2021-06-01
+      - version: 15.2.4
+        released: 2020-06-30
+      - version: 15.2.3
+        released: 2020-05-29
+      - version: 15.2.2
+        released: 2020-05-18
+      - version: 15.2.1
+        released: 2020-04-09
+      - version: 15.2.0
+        released: 2020-03-23
+
   nautilus:
+    target_eol: 2021-06-01
     releases:
+      - version: 14.2.10
+        released: 2020-06-26
+      - version: 14.2.9
+        released: 2020-04-15
+      - version: 14.2.8
+        released: 2020-03-03
       - version: 14.2.7
         released: 2020-01-31
       - version: 14.2.6
@@ -37,7 +53,12 @@ releases:
         released: 2019-03-19
 
   mimic:
+    target_eol: 2020-06-01
     releases:
+      - version: 13.2.10
+        released: 2020-04-23
+      - version: 13.2.9
+        released: 2020-04-16
       - version: 13.2.8
         released: 2019-12-13
       - version: 13.2.7
@@ -56,9 +77,10 @@ releases:
         released: 2018-07-01
       - version: 13.2.0
         released: 2018-06-01
-    target_eol: 2020-06-01
   
   luminous:
+    target_eol: 2019-06-01
+    actual_eol: 2020-03-01
     releases:
       - version: 12.2.13
         released: 2020-01-31
@@ -88,7 +110,6 @@ releases:
         released: 2017-09-01
       - version: 12.2.0
         released: 2017-08-01
-    target_eol: 2019-06-01
   
   kraken:
     target_eol: 2017-08-01
@@ -243,6 +264,12 @@ releases:
 
 development:
   releases:
+    - version: 15.1.1
+      released: 2020-03-13
+      skip_ref: true
+    - version: 15.1.0
+      released: 2020-01-29
+      skip_ref: true
     - version: 15.0.0
       released: 2019-04-03
       skip_ref: true        

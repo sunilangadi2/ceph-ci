@@ -7,18 +7,17 @@ import { mergeMap } from 'rxjs/operators';
 
 import { InventoryDevice } from '../../ceph/cluster/inventory/inventory-devices/inventory-device.model';
 import { InventoryHost } from '../../ceph/cluster/inventory/inventory-host.model';
-import { ApiModule } from './api.module';
 
 @Injectable({
-  providedIn: ApiModule
+  providedIn: 'root'
 })
 export class OrchestratorService {
   private url = 'api/orchestrator';
 
   constructor(private http: HttpClient) {}
 
-  status() {
-    return this.http.get(`${this.url}/status`);
+  status(): Observable<{ available: boolean; description: string }> {
+    return this.http.get<{ available: boolean; description: string }>(`${this.url}/status`);
   }
 
   identifyDevice(hostname: string, device: string, duration: number) {
@@ -47,17 +46,5 @@ export class OrchestratorService {
         return observableOf(devices);
       })
     );
-  }
-
-  serviceList(hostname?: string) {
-    const options = hostname ? { params: new HttpParams().set('hostname', hostname) } : {};
-    return this.http.get(`${this.url}/service`, options);
-  }
-
-  osdCreate(driveGroup: {}) {
-    const request = {
-      drive_group: driveGroup
-    };
-    return this.http.post(`${this.url}/osd`, request, { observe: 'response' });
   }
 }

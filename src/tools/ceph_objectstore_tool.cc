@@ -681,7 +681,7 @@ int do_trim_pg_log(ObjectStore *store, const coll_t &coll,
       try {
 	e.decode_with_checksum(bp);
       } catch (const buffer::error &e) {
-	cerr << "Error reading pg log entry: " << e << std::endl;
+	cerr << "Error reading pg log entry: " << e.what() << std::endl;
       }
       if (debug) {
 	cerr << "read entry " << e << std::endl;
@@ -3199,7 +3199,7 @@ int main(int argc, char **argv)
   ghobject_t ghobj;
   bool human_readable;
   Formatter *formatter;
-  bool head;
+  bool head, tty;
 
   po::options_description desc("Allowed options");
   desc.add_options()
@@ -3216,7 +3216,7 @@ int main(int argc, char **argv)
      "Pool name, mandatory for apply-layout-settings if --pgid is not specified")
     ("op", po::value<string>(&op),
      "Arg is one of [info, log, remove, mkfs, fsck, repair, fuse, dup, export, export-remove, import, list, list-slow-omap, fix-lost, list-pgs, dump-journal, dump-super, meta-list, "
-     "get-osdmap, set-osdmap, get-inc-osdmap, set-inc-osdmap, mark-complete, reset-last-complete, apply-layout-settings, update-mon-db, dump-export, trim-pg-log]")
+     "get-osdmap, set-osdmap, get-inc-osdmap, set-inc-osdmap, mark-complete, reset-last-complete, apply-layout-settings, update-mon-db, dump-export, trim-pg-log, statfs]")
     ("epoch", po::value<unsigned>(&epoch),
      "epoch# for get-osdmap and get-inc-osdmap, the current epoch in use if not specified")
     ("file", po::value<string>(&file),
@@ -3239,6 +3239,7 @@ int main(int argc, char **argv)
     ("skip-mount-omap", "Disable mounting of omap")
     ("head", "Find head/snapdir when searching for objects by name")
     ("dry-run", "Don't modify the objectstore")
+    ("tty", "Treat stdout as a tty (no binary data)")
     ("namespace", po::value<string>(&argnspace), "Specify namespace when searching for objects")
     ("rmtype", po::value<string>(&rmtypestr), "Specify corrupting object removal 'snapmap' or 'nosnapmap' - TESTING USE ONLY")
     ("slow-omap-threshold", po::value<unsigned>(&slow_threshold),
@@ -3293,6 +3294,7 @@ int main(int argc, char **argv)
     nspace = argnspace;
 
   dry_run = (vm.count("dry-run") > 0);
+  tty = (vm.count("tty") > 0);
 
   osflagbits_t flags = 0;
   if (dry_run || vm.count("skip-journal-replay"))
@@ -3389,7 +3391,7 @@ int main(int argc, char **argv)
     usage(desc);
     return 1;
   }
-  outistty = isatty(STDOUT_FILENO);
+  outistty = isatty(STDOUT_FILENO) || tty;
 
   file_fd = fd_none;
   if ((op == "export" || op == "export-remove" || op == "get-osdmap" || op == "get-inc-osdmap") && !dry_run) {
@@ -3937,6 +3939,21 @@ int main(int argc, char **argv)
     goto out;
   }
 
+  if (op == "statfs") {
+      store_statfs_t statsbuf;
+      ret = fs->statfs(&statsbuf);
+      if (ret < 0) {
+        cerr << "error from statfs: " << cpp_strerror(ret) << std::endl;
+	goto out;
+      }
+      formatter->open_object_section("statfs");
+      statsbuf.dump(formatter);
+      formatter->close_section();
+      formatter->flush(cout);
+      cout << std::endl;
+      goto out;
+  }
+
   if (op == "meta-list") {
     ret = do_meta(fs, object, formatter, debug, human_readable);
     if (ret < 0) {
@@ -3994,7 +4011,7 @@ int main(int argc, char **argv)
   // before complaining about a bad pgid
   if (!vm.count("objcmd") && op != "export" && op != "export-remove" && op != "info" && op != "log" && op != "mark-complete" && op != "trim-pg-log") {
     cerr << "Must provide --op (info, log, remove, mkfs, fsck, repair, export, export-remove, import, list, fix-lost, list-pgs, dump-journal, dump-super, meta-list, "
-      "get-osdmap, set-osdmap, get-inc-osdmap, set-inc-osdmap, mark-complete, reset-last-complete, dump-export, trim-pg-log)"
+      "get-osdmap, set-osdmap, get-inc-osdmap, set-inc-osdmap, mark-complete, reset-last-complete, dump-export, trim-pg-log, statfs)"
 	 << std::endl;
     usage(desc);
     ret = 1;

@@ -6,12 +6,14 @@
 #include "cls/rbd/cls_rbd_client.h"
 #include "common/debug.h"
 #include "common/errno.h"
+#include "common/WorkQueue.h"
 #include "librbd/ExclusiveLock.h"
 #include "librbd/ImageCtx.h"
 #include "librbd/ImageState.h"
 #include "librbd/Journal.h"
 #include "librbd/TrashWatcher.h"
 #include "librbd/Utils.h"
+#include "librbd/asio/ContextWQ.h"
 #include "librbd/journal/ResetRequest.h"
 #include "librbd/mirror/GetInfoRequest.h"
 #include "librbd/trash/MoveRequest.h"
@@ -161,6 +163,9 @@ void TrashMoveRequest<I>::open_image() {
 
   m_image_ctx = I::create("", m_image_id, nullptr, m_io_ctx, false);
 
+  // ensure non-primary images can be modified
+  m_image_ctx->read_only_mask &= ~librbd::IMAGE_READ_ONLY_FLAG_NON_PRIMARY;
+
   {
     // don't attempt to open the journal
     std::unique_lock image_locker{m_image_ctx->image_lock};
@@ -204,12 +209,17 @@ void TrashMoveRequest<I>::reset_journal() {
 
   dout(10) << dendl;
 
+  // TODO use Journal thread pool for journal ops until converted to ASIO
+  ContextWQ* context_wq;
+  librbd::Journal<>::get_work_queue(
+    reinterpret_cast<CephContext*>(m_io_ctx.cct()), &context_wq);
+
   // ensure that if the image is recovered any peers will split-brain
   auto ctx = create_context_callback<
     TrashMoveRequest<I>, &TrashMoveRequest<I>::handle_reset_journal>(this);
   auto req = librbd::journal::ResetRequest<I>::create(
     m_io_ctx, m_image_id, librbd::Journal<>::IMAGE_CLIENT_ID,
-    librbd::Journal<>::LOCAL_MIRROR_UUID, m_op_work_queue, ctx);
+    librbd::Journal<>::LOCAL_MIRROR_UUID, context_wq, ctx);
   req->send();
 }
 

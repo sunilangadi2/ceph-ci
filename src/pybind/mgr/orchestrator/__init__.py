@@ -1,4 +1,8 @@
 from __future__ import absolute_import
+import os
+
+if 'UNITTEST' in os.environ:
+    import tests
 
 from .module import OrchestratorCli
 
@@ -8,10 +12,8 @@ from ._interface import \
     CLICommand, _cli_write_command, _cli_read_command, CLICommandMeta, \
     Orchestrator, OrchestratorClientMixin, \
     OrchestratorValidationError, OrchestratorError, NoOrchestrator, \
-    ServiceSpec, NFSServiceSpec, RGWSpec, HostPlacementSpec, \
-    servicespec_validate_add, servicespec_validate_hosts_have_network_spec, \
-    ServiceDescription, InventoryFilter, PlacementSpec,  HostSpec, \
+    ServiceDescription, InventoryFilter, HostSpec, \
     DaemonDescription, \
+    OrchestratorEvent, set_exception_subject, \
     InventoryHost, DeviceLightLoc, \
-    OutdatableData, OutdatablePersistentDict, \
     UpgradeStatusSpec

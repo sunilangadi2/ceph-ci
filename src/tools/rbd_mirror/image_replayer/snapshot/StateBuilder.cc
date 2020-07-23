@@ -7,6 +7,7 @@
 #include "common/debug.h"
 #include "common/errno.h"
 #include "librbd/ImageCtx.h"
+#include "librbd/mirror/snapshot/ImageMeta.h"
 #include "tools/rbd_mirror/image_replayer/snapshot/CreateLocalImageRequest.h"
 #include "tools/rbd_mirror/image_replayer/snapshot/PrepareReplayRequest.h"
 #include "tools/rbd_mirror/image_replayer/snapshot/Replayer.h"
@@ -30,11 +31,15 @@ StateBuilder<I>::StateBuilder(const std::string& global_image_id)
 
 template <typename I>
 StateBuilder<I>::~StateBuilder() {
+  ceph_assert(local_image_meta == nullptr);
 }
 
 template <typename I>
 void StateBuilder<I>::close(Context* on_finish) {
   dout(10) << dendl;
+
+  delete local_image_meta;
+  local_image_meta = nullptr;
 
   // close the remote image after closing the local
   // image in case the remote cluster is unreachable and
@@ -98,12 +103,14 @@ BaseRequest* StateBuilder<I>::create_prepare_replay_request(
 
 template <typename I>
 image_replayer::Replayer* StateBuilder<I>::create_replayer(
-   Threads<I>* threads,
+    Threads<I>* threads,
+    InstanceWatcher<I>* instance_watcher,
     const std::string& local_mirror_uuid,
     PoolMetaCache* pool_meta_cache,
     ReplayerListener* replayer_listener) {
   return Replayer<I>::create(
-    threads, local_mirror_uuid, pool_meta_cache, this, replayer_listener);
+    threads, instance_watcher, local_mirror_uuid, pool_meta_cache, this,
+    replayer_listener);
 }
 
 } // namespace snapshot

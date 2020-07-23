@@ -32,7 +32,8 @@ struct GetMetadataRequest<MockTestImageCtx> {
   static GetMetadataRequest* s_instance;
   static GetMetadataRequest* create(librados::IoCtx& io_ctx,
                                     const std::string& oid,
-                                    const std::string& filter,
+                                    bool filter_internal,
+                                    const std::string& filter_key_prefix,
                                     const std::string& last_key,
                                     size_t max_results,
                                     std::map<std::string, bufferlist>* pairs,
@@ -127,7 +128,7 @@ public:
       ceph::encode(key, bl);
       EXPECT_CALL(get_mock_io_ctx(m_mock_local_image_ctx->md_ctx),
                   exec(m_mock_local_image_ctx->header_oid, _, StrEq("rbd"),
-                  StrEq("metadata_remove"), ContentsEqual(bl), _, _))
+                  StrEq("metadata_remove"), ContentsEqual(bl), _, _, _))
         .WillOnce(Return(r));
       if (r < 0) {
         return;
@@ -139,7 +140,7 @@ public:
       ceph::encode(pairs, bl);
       EXPECT_CALL(get_mock_io_ctx(m_mock_local_image_ctx->md_ctx),
                   exec(m_mock_local_image_ctx->header_oid, _, StrEq("rbd"),
-                  StrEq("metadata_set"), ContentsEqual(bl), _, _))
+                  StrEq("metadata_set"), ContentsEqual(bl), _, _, _))
         .WillOnce(Return(r));
     }
   }

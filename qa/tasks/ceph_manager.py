@@ -1,7 +1,6 @@
 """
 ceph manager -- Thrasher and CephManager objects
 """
-from cStringIO import StringIO
 from functools import wraps
 import contextlib
 import random
@@ -14,21 +13,22 @@ import logging
 import threading
 import traceback
 import os
+
+from io import BytesIO, StringIO
 from teuthology import misc as teuthology
 from tasks.scrub import Scrubber
-from util.rados import cmd_erasure_code_profile
-from util import get_remote
+from tasks.util.rados import cmd_erasure_code_profile
+from tasks.util import get_remote
 from teuthology.contextutil import safe_while
 from teuthology.orchestra.remote import Remote
 from teuthology.orchestra import run
 from teuthology.exceptions import CommandFailedError
 from tasks.thrasher import Thrasher
-import six
 
 try:
     from subprocess import DEVNULL # py3k
 except ImportError:
-    DEVNULL = open(os.devnull, 'r+')
+    DEVNULL = open(os.devnull, 'r+')  # type: ignore
 
 DEFAULT_CONF_PATH = '/etc/ceph/ceph.conf'
 
@@ -36,12 +36,9 @@ log = logging.getLogger(__name__)
 
 # this is for cephadm clusters
 def shell(ctx, cluster_name, remote, args, name=None, **kwargs):
-    testdir = teuthology.get_testdir(ctx)
     extra_args = []
     if name:
         extra_args = ['-n', name]
-    else:
-        extra_args = ['-c', '{}/{}.conf'.format(testdir, cluster_name)]
     return remote.run(
         args=[
             'sudo',
@@ -49,7 +46,6 @@ def shell(ctx, cluster_name, remote, args, name=None, **kwargs):
             '--image', ctx.ceph[cluster_name].image,
             'shell',
         ] + extra_args + [
-            '-k', '{}/{}.keyring'.format(testdir, cluster_name),
             '--fsid', ctx.ceph[cluster_name].fsid,
             '--',
         ] + args,
@@ -57,7 +53,7 @@ def shell(ctx, cluster_name, remote, args, name=None, **kwargs):
     )
 
 def write_conf(ctx, conf_path=DEFAULT_CONF_PATH, cluster='ceph'):
-    conf_fp = StringIO()
+    conf_fp = BytesIO()
     ctx.ceph[cluster].conf.write(conf_fp)
     conf_fp.seek(0)
     writes = ctx.cluster.run(
@@ -113,6 +109,17 @@ def mount_osd_data(ctx, remote, cluster, osd):
                 mnt,
             ]
             )
+
+
+def log_exc(func):
+    @wraps(func)
+    def wrapper(self):
+        try:
+            return func(self)
+        except:
+            self.log(traceback.format_exc())
+            raise
+    return wrapper
 
 
 class PoolType:
@@ -212,8 +219,8 @@ class OSDThrasher(Thrasher):
         allremotes = list(set(allremotes))
         for remote in allremotes:
             proc = remote.run(args=['type', cmd], wait=True,
-                              check_status=False, stdout=StringIO(),
-                              stderr=StringIO())
+                              check_status=False, stdout=BytesIO(),
+                              stderr=BytesIO())
             if proc.exitstatus != 0:
                 return False;
         return True;
@@ -230,7 +237,8 @@ class OSDThrasher(Thrasher):
         else:
             return remote.run(
                 args=['sudo', 'adjust-ulimits', 'ceph-objectstore-tool'] + cmd,
-                wait=True, check_status=False, stdout=StringIO(),
+                wait=True, check_status=False,
+                stdout=StringIO(),
                 stderr=StringIO())
 
     def kill_osd(self, osd=None, mark_down=False, mark_out=False):
@@ -275,8 +283,8 @@ class OSDThrasher(Thrasher):
                 with safe_while(sleep=15, tries=40, action="type ceph-objectstore-tool") as proceed:
                     while proceed():
                         proc = exp_remote.run(args=['type', 'ceph-objectstore-tool'],
-                                              wait=True, check_status=False, stdout=StringIO(),
-                                              stderr=StringIO())
+                                              wait=True, check_status=False, stdout=BytesIO(),
+                                              stderr=BytesIO())
                         if proc.exitstatus == 0:
                             break
                         log.debug("ceph-objectstore-tool binary not present, trying again")
@@ -294,7 +302,8 @@ class OSDThrasher(Thrasher):
                         ])
                     if proc.exitstatus == 0:
                         break
-                    elif proc.exitstatus == 1 and proc.stderr == "OSD has the store locked":
+                    elif (proc.exitstatus == 1 and
+                          proc.stderr.getvalue() == "OSD has the store locked"):
                         continue
                     else:
                         raise Exception("ceph-objectstore-tool: "
@@ -441,9 +450,10 @@ class OSDThrasher(Thrasher):
                                '--journal-path', JPATH.format(id=imp_osd),
                            ])
                            + " --op apply-layout-settings --pool " + pool).format(id=osd)
-                    proc = imp_remote.run(args=cmd, wait=True, check_status=False, stderr=StringIO())
-                    output = proc.stderr.getvalue()
-                    if 'Couldn\'t find pool' in output:
+                    proc = imp_remote.run(args=cmd,
+                                          wait=True, check_status=False,
+                                          stderr=StringIO())
+                    if 'Couldn\'t find pool' in proc.stderr.getvalue():
                         continue
                     if proc.exitstatus:
                         raise Exception("ceph-objectstore-tool apply-layout-settings"
@@ -1067,16 +1077,6 @@ class OSDThrasher(Thrasher):
             # Allow successful completion so gevent doesn't see an exception.
             # The DaemonWatchdog will observe the error and tear down the test.
 
-    def log_exc(func):
-        @wraps(func)
-        def wrapper(self):
-            try:
-                return func(self)
-            except:
-                self.log(traceback.format_exc())
-                raise
-        return wrapper
-
     @log_exc
     def do_sighup(self):
         """
@@ -1236,8 +1236,8 @@ class ObjectStoreTool:
             self.pgid = self.manager.get_object_pg_with_shard(self.pool,
                                                               self.object_name,
                                                               self.osd)
-        self.remote = self.manager.ctx.\
-            cluster.only('osd.{o}'.format(o=self.osd)).remotes.keys()[0]
+        self.remote = next(iter(self.manager.ctx.\
+            cluster.only('osd.{o}'.format(o=self.osd)).remotes.keys()))
         path = self.manager.get_filepath().format(id=self.osd)
         self.paths = ("--data-path {path} --journal-path {path}/journal".
                       format(path=path))
@@ -1264,21 +1264,20 @@ class ObjectStoreTool:
         lines.append(cmd)
         return "\n".join(lines)
 
-    def run(self, options, args, stdin=None, stdout=None):
-        if stdout is None:
-            stdout = StringIO()
+    def run(self, options, args):
         self.manager.kill_osd(self.osd)
-        cmd = self.build_cmd(options, args, stdin)
+        cmd = self.build_cmd(options, args, None)
         self.manager.log(cmd)
         try:
             proc = self.remote.run(args=['bash', '-e', '-x', '-c', cmd],
                                    check_status=False,
-                                   stdout=stdout,
-                                   stderr=StringIO())
+                                   stdout=BytesIO(),
+                                   stderr=BytesIO())
             proc.wait()
             if proc.exitstatus != 0:
                 self.manager.log("failed with " + str(proc.exitstatus))
-                error = proc.stdout.getvalue() + " " + proc.stderr.getvalue()
+                error = proc.stdout.getvalue().decode()  + " " + \
+                        proc.stderr.getvalue().decode()
                 raise Exception(error)
         finally:
             if self.do_revive:
@@ -1388,7 +1387,7 @@ class CephManager:
 
     def run_ceph_w(self, watch_channel=None):
         """
-        Execute "ceph -w" in the background with stdout connected to a StringIO,
+        Execute "ceph -w" in the background with stdout connected to a BytesIO,
         and return the RemoteProcess.
 
         :param watch_channel: Specifies the channel to be watched. This can be
@@ -1815,9 +1814,9 @@ class CephManager:
         """
         Get osd statuses sorted by states that the osds are in.
         """
-        osd_lines = filter(
+        osd_lines = list(filter(
             lambda x: x.startswith('osd.') and (("up" in x) or ("down" in x)),
-            self.raw_osd_status().split('\n'))
+            self.raw_osd_status().split('\n')))
         self.log(osd_lines)
         in_osds = [int(i[4:].split()[0])
                    for i in filter(lambda x: " in " in x, osd_lines)]
@@ -1896,7 +1895,7 @@ class CephManager:
         :param erasure_code_use_overwrites: if true, allow overwrites
         """
         with self.lock:
-            assert isinstance(pool_name, six.string_types)
+            assert isinstance(pool_name, str)
             assert isinstance(pg_num, int)
             assert pool_name not in self.pools
             self.log("creating pool_name %s" % (pool_name,))
@@ -1948,7 +1947,7 @@ class CephManager:
         :param pool_name: Pool to be removed
         """
         with self.lock:
-            assert isinstance(pool_name, six.string_types)
+            assert isinstance(pool_name, str)
             assert pool_name in self.pools
             self.log("removing pool_name %s" % (pool_name,))
             del self.pools[pool_name]
@@ -1961,14 +1960,14 @@ class CephManager:
         """
         with self.lock:
             if self.pools:
-                return random.choice(self.pools.keys())
+                return random.sample(self.pools.keys(), 1)[0]
 
     def get_pool_pg_num(self, pool_name):
         """
         Return the number of pgs in the pool specified.
         """
         with self.lock:
-            assert isinstance(pool_name, six.string_types)
+            assert isinstance(pool_name, str)
             if pool_name in self.pools:
                 return self.pools[pool_name]
             return 0
@@ -1980,8 +1979,8 @@ class CephManager:
         :returns: property as string
         """
         with self.lock:
-            assert isinstance(pool_name, six.string_types)
-            assert isinstance(prop, six.string_types)
+            assert isinstance(pool_name, str)
+            assert isinstance(prop, str)
             output = self.raw_cluster_cmd(
                 'osd',
                 'pool',
@@ -2002,8 +2001,8 @@ class CephManager:
         This routine retries if set operation fails.
         """
         with self.lock:
-            assert isinstance(pool_name, six.string_types)
-            assert isinstance(prop, six.string_types)
+            assert isinstance(pool_name, str)
+            assert isinstance(prop, str)
             assert isinstance(val, int)
             tries = 0
             while True:
@@ -2030,7 +2029,7 @@ class CephManager:
         Increase the number of pgs in a pool
         """
         with self.lock:
-            assert isinstance(pool_name, six.string_types)
+            assert isinstance(pool_name, str)
             assert isinstance(by, int)
             assert pool_name in self.pools
             if self.get_num_creating() > 0:
@@ -2050,7 +2049,7 @@ class CephManager:
         with self.lock:
             self.log('contract_pool %s by %s min %s' % (
                      pool_name, str(by), str(min_pgs)))
-            assert isinstance(pool_name, six.string_types)
+            assert isinstance(pool_name, str)
             assert isinstance(by, int)
             assert pool_name in self.pools
             if self.get_num_creating() > 0:
@@ -2090,7 +2089,7 @@ class CephManager:
         Set pgpnum property of pool_name pool.
         """
         with self.lock:
-            assert isinstance(pool_name, six.string_types)
+            assert isinstance(pool_name, str)
             assert pool_name in self.pools
             if not force and self.get_num_creating() > 0:
                 return False
@@ -2178,13 +2177,13 @@ class CephManager:
                 ret[status] += 1
         return ret
 
-    @wait_for_pg_stats
+    @wait_for_pg_stats # type: ignore
     def with_pg_state(self, pool, pgnum, check):
         pgstr = self.get_pgid(pool, pgnum)
         stats = self.get_single_pg_stats(pgstr)
         assert(check(stats['state']))
 
-    @wait_for_pg_stats
+    @wait_for_pg_stats # type: ignore
     def with_pg(self, pool, pgnum, check):
         pgstr = self.get_pgid(pool, pgnum)
         stats = self.get_single_pg_stats(pgstr)
@@ -2462,6 +2461,36 @@ class CephManager:
         pgs = self.get_pg_stats()
         return self._get_num_active_down(pgs) == len(pgs)
 
+    def dump_pgs_not_active_clean(self):
+        """
+        Dumps all pgs that are not active+clean
+        """
+        pgs = self.get_pg_stats()
+        for pg in pgs:
+           if pg['state'] != 'active+clean':
+             self.log('PG %s is not active+clean' % pg['pgid'])
+             self.log(pg)
+
+    def dump_pgs_not_active_down(self):
+        """
+        Dumps all pgs that are not active or down
+        """
+        pgs = self.get_pg_stats()
+        for pg in pgs:
+           if 'active' not in pg['state'] and 'down' not in pg['state']:
+             self.log('PG %s is not active or down' % pg['pgid'])
+             self.log(pg)
+
+    def dump_pgs_not_active(self):
+        """
+        Dumps all pgs that are not active
+        """
+        pgs = self.get_pg_stats()
+        for pg in pgs:
+           if 'active' not in pg['state']:
+             self.log('PG %s is not active' % pg['pgid'])
+             self.log(pg)
+
     def wait_for_clean(self, timeout=1200):
         """
         Returns true when all pgs are clean.
@@ -2477,11 +2506,10 @@ class CephManager:
                 else:
                     self.log("no progress seen, keeping timeout for now")
                     if time.time() - start >= timeout:
-                        self.log('dumping pgs')
-                        out = self.raw_cluster_cmd('pg', 'dump')
-                        self.log(out)
+                        self.log('dumping pgs not clean')
+                        self.dump_pgs_not_active_clean()
                         assert time.time() - start < timeout, \
-                            'failed to become clean before timeout expired'
+                            'wait_for_clean: failed before timeout expired'
             cur_active_clean = self.get_num_active_clean()
             if cur_active_clean != num_active_clean:
                 start = time.time()
@@ -2563,11 +2591,10 @@ class CephManager:
                     if now - start >= timeout:
                         if self.is_recovered():
                             break
-                        self.log('dumping pgs')
-                        out = self.raw_cluster_cmd('pg', 'dump')
-                        self.log(out)
+                        self.log('dumping pgs not recovered yet')
+                        self.dump_pgs_not_active_clean()
                         assert now - start < timeout, \
-                            'failed to recover before timeout expired'
+                            'wait_for_recovery: failed before timeout expired'
             cur_active_recovered = self.get_num_active_recovered()
             if cur_active_recovered != num_active_recovered:
                 start = time.time()
@@ -2585,11 +2612,10 @@ class CephManager:
         while not self.is_active():
             if timeout is not None:
                 if time.time() - start >= timeout:
-                    self.log('dumping pgs')
-                    out = self.raw_cluster_cmd('pg', 'dump')
-                    self.log(out)
+                    self.log('dumping pgs not active')
+                    self.dump_pgs_not_active()
                     assert time.time() - start < timeout, \
-                        'failed to recover before timeout expired'
+                        'wait_for_active: failed before timeout expired'
             cur_active = self.get_num_active()
             if cur_active != num_active:
                 start = time.time()
@@ -2608,11 +2634,10 @@ class CephManager:
         while not self.is_active_or_down():
             if timeout is not None:
                 if time.time() - start >= timeout:
-                    self.log('dumping pgs')
-                    out = self.raw_cluster_cmd('pg', 'dump')
-                    self.log(out)
+                    self.log('dumping pgs not active or down')
+                    self.dump_pgs_not_active_down()
                     assert time.time() - start < timeout, \
-                        'failed to recover before timeout expired'
+                        'wait_for_active_or_down: failed before timeout expired'
             cur_active_down = self.get_num_active_down()
             if cur_active_down != num_active_down:
                 start = time.time()
@@ -2662,11 +2687,10 @@ class CephManager:
         while not self.is_active():
             if timeout is not None:
                 if time.time() - start >= timeout:
-                    self.log('dumping pgs')
-                    out = self.raw_cluster_cmd('pg', 'dump')
-                    self.log(out)
+                    self.log('dumping pgs not active')
+                    self.dump_pgs_not_active()
                     assert time.time() - start < timeout, \
-                        'failed to become active before timeout expired'
+                        'wait_till_active: failed before timeout expired'
             time.sleep(3)
         self.log("active!")
 

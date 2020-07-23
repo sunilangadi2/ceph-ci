@@ -1,11 +1,19 @@
-import { Component, EventEmitter, Input, OnChanges, OnInit, Output } from '@angular/core';
-import { I18n } from '@ngx-translate/i18n-polyfill';
+import {
+  Component,
+  EventEmitter,
+  Input,
+  OnDestroy,
+  OnInit,
+  Output,
+  ViewChild
+} from '@angular/core';
 
 import * as _ from 'lodash';
-import { BsModalService } from 'ngx-bootstrap/modal';
+import { Subscription } from 'rxjs';
 
 import { OrchestratorService } from '../../../../shared/api/orchestrator.service';
 import { FormModalComponent } from '../../../../shared/components/form-modal/form-modal.component';
+import { TableComponent } from '../../../../shared/datatable/table/table.component';
 import { CellTemplate } from '../../../../shared/enum/cell-template.enum';
 import { Icons } from '../../../../shared/enum/icons.enum';
 import { NotificationType } from '../../../../shared/enum/notification-type.enum';
@@ -16,6 +24,7 @@ import { CdTableSelection } from '../../../../shared/models/cd-table-selection';
 import { Permission } from '../../../../shared/models/permissions';
 import { DimlessBinaryPipe } from '../../../../shared/pipes/dimless-binary.pipe';
 import { AuthStorageService } from '../../../../shared/services/auth-storage.service';
+import { ModalService } from '../../../../shared/services/modal.service';
 import { NotificationService } from '../../../../shared/services/notification.service';
 import { InventoryDevice } from './inventory-device.model';
 
@@ -24,7 +33,10 @@ import { InventoryDevice } from './inventory-device.model';
   templateUrl: './inventory-devices.component.html',
   styleUrls: ['./inventory-devices.component.scss']
 })
-export class InventoryDevicesComponent implements OnInit, OnChanges {
+export class InventoryDevicesComponent implements OnInit, OnDestroy {
+  @ViewChild(TableComponent, { static: true })
+  table: TableComponent;
+
   // Devices
   @Input() devices: InventoryDevice[] = [];
 
@@ -46,17 +58,19 @@ export class InventoryDevicesComponent implements OnInit, OnChanges {
 
   @Output() filterChange = new EventEmitter<CdTableColumnFiltersChange>();
 
+  @Output() fetchInventory = new EventEmitter();
+
   icons = Icons;
   columns: Array<CdTableColumn> = [];
   selection: CdTableSelection = new CdTableSelection();
   permission: Permission;
   tableActions: CdTableAction[];
+  fetchInventorySub: Subscription;
 
   constructor(
     private authStorageService: AuthStorageService,
     private dimlessBinary: DimlessBinaryPipe,
-    private i18n: I18n,
-    private modalService: BsModalService,
+    private modalService: ModalService,
     private notificationService: NotificationService,
     private orchService: OrchestratorService
   ) {}
@@ -68,7 +82,7 @@ export class InventoryDevicesComponent implements OnInit, OnChanges {
         permission: 'update',
         icon: Icons.show,
         click: () => this.identifyDevice(),
-        name: this.i18n('Identify'),
+        name: $localize`Identify`,
         disable: () => !this.selection.hasSingleSelection,
         canBePrimary: (selection: CdTableSelection) => !selection.hasSingleSelection,
         visible: () => _.isString(this.selectionType)
@@ -76,17 +90,17 @@ export class InventoryDevicesComponent implements OnInit, OnChanges {
     ];
     const columns = [
       {
-        name: this.i18n('Hostname'),
+        name: $localize`Hostname`,
         prop: 'hostname',
         flexGrow: 1
       },
       {
-        name: this.i18n('Device path'),
+        name: $localize`Device path`,
         prop: 'path',
         flexGrow: 1
       },
       {
-        name: this.i18n('Type'),
+        name: $localize`Type`,
         prop: 'human_readable_type',
         flexGrow: 1,
         cellTransformation: CellTemplate.badge,
@@ -98,28 +112,30 @@ export class InventoryDevicesComponent implements OnInit, OnChanges {
         }
       },
       {
-        name: this.i18n('Available'),
+        name: $localize`Available`,
         prop: 'available',
-        flexGrow: 1
+        flexGrow: 1,
+        cellClass: 'text-center',
+        cellTransformation: CellTemplate.checkIcon
       },
       {
-        name: this.i18n('Vendor'),
+        name: $localize`Vendor`,
         prop: 'sys_api.vendor',
         flexGrow: 1
       },
       {
-        name: this.i18n('Model'),
+        name: $localize`Model`,
         prop: 'sys_api.model',
         flexGrow: 1
       },
       {
-        name: this.i18n('Size'),
+        name: $localize`Size`,
         prop: 'sys_api.size',
         flexGrow: 1,
         pipe: this.dimlessBinary
       },
       {
-        name: this.i18n('OSDs'),
+        name: $localize`OSDs`,
         prop: 'osd_ids',
         flexGrow: 1,
         cellTransformation: CellTemplate.badge,
@@ -141,10 +157,18 @@ export class InventoryDevicesComponent implements OnInit, OnChanges {
         col.filterable = true;
       }
     });
+
+    if (this.fetchInventory.observers.length > 0) {
+      this.fetchInventorySub = this.table.fetchData.subscribe(() => {
+        this.fetchInventory.emit();
+      });
+    }
   }
 
-  ngOnChanges() {
-    this.devices = [...this.devices];
+  ngOnDestroy() {
+    if (this.fetchInventorySub) {
+      this.fetchInventorySub.unsubscribe();
+    }
   }
 
   onColumnFiltersChanged(event: CdTableColumnFiltersChange) {
@@ -160,36 +184,33 @@ export class InventoryDevicesComponent implements OnInit, OnChanges {
     const hostname = selected.hostname;
     const device = selected.path || selected.device_id;
     this.modalService.show(FormModalComponent, {
-      initialState: {
-        titleText: this.i18n(`Identify device {{device}}`, { device }),
-        message: this.i18n('Please enter the duration how long to blink the LED.'),
-        fields: [
-          {
-            type: 'select',
-            name: 'duration',
-            value: 300,
-            required: true,
+      titleText: $localize`Identify device ${device}`,
+      message: $localize`Please enter the duration how long to blink the LED.`,
+      fields: [
+        {
+          type: 'select',
+          name: 'duration',
+          value: 300,
+          required: true,
+          typeConfig: {
             options: [
-              { text: this.i18n('1 minute'), value: 60 },
-              { text: this.i18n('2 minutes'), value: 120 },
-              { text: this.i18n('5 minutes'), value: 300 },
-              { text: this.i18n('10 minutes'), value: 600 },
-              { text: this.i18n('15 minutes'), value: 900 }
+              { text: $localize`1 minute`, value: 60 },
+              { text: $localize`2 minutes`, value: 120 },
+              { text: $localize`5 minutes`, value: 300 },
+              { text: $localize`10 minutes`, value: 600 },
+              { text: $localize`15 minutes`, value: 900 }
             ]
           }
-        ],
-        submitButtonText: this.i18n('Execute'),
-        onSubmit: (values: any) => {
-          this.orchService.identifyDevice(hostname, device, values.duration).subscribe(() => {
-            this.notificationService.show(
-              NotificationType.success,
-              this.i18n(`Identifying '{{device}}' started on host '{{hostname}}'`, {
-                hostname,
-                device
-              })
-            );
-          });
         }
+      ],
+      submitButtonText: $localize`Execute`,
+      onSubmit: (values: any) => {
+        this.orchService.identifyDevice(hostname, device, values.duration).subscribe(() => {
+          this.notificationService.show(
+            NotificationType.success,
+            $localize`Identifying '${device}' started on host '${hostname}'`
+          );
+        });
       }
     });
   }

@@ -1,7 +1,7 @@
 import { HttpClientTestingModule, HttpTestingController } from '@angular/common/http/testing';
 import { TestBed } from '@angular/core/testing';
 
-import { configureTestBed, i18nProviders } from '../../../testing/unit-test-helper';
+import { configureTestBed } from '../../../testing/unit-test-helper';
 import { OrchestratorService } from './orchestrator.service';
 
 describe('OrchestratorService', () => {
@@ -10,13 +10,13 @@ describe('OrchestratorService', () => {
   const apiPath = 'api/orchestrator';
 
   configureTestBed({
-    providers: [OrchestratorService, i18nProviders],
+    providers: [OrchestratorService],
     imports: [HttpClientTestingModule]
   });
 
   beforeEach(() => {
-    service = TestBed.get(OrchestratorService);
-    httpTesting = TestBed.get(HttpTestingController);
+    service = TestBed.inject(OrchestratorService);
+    httpTesting = TestBed.inject(HttpTestingController);
   });
 
   afterEach(() => {
@@ -44,30 +44,5 @@ describe('OrchestratorService', () => {
     service.inventoryList(host).subscribe();
     const req = httpTesting.expectOne(`${apiPath}/inventory?hostname=${host}`);
     expect(req.request.method).toBe('GET');
-  });
-
-  it('should call serviceList', () => {
-    service.serviceList().subscribe();
-    const req = httpTesting.expectOne(`${apiPath}/service`);
-    expect(req.request.method).toBe('GET');
-  });
-
-  it('should call serviceList with a host', () => {
-    const host = 'host0';
-    service.serviceList(host).subscribe();
-    const req = httpTesting.expectOne(`${apiPath}/service?hostname=${host}`);
-    expect(req.request.method).toBe('GET');
-  });
-
-  it('should call osdCreate', () => {
-    const data = {
-      drive_group: {
-        host_pattern: '*'
-      }
-    };
-    service.osdCreate(data['drive_group']).subscribe();
-    const req = httpTesting.expectOne(`${apiPath}/osd`);
-    expect(req.request.method).toBe('POST');
-    expect(req.request.body).toEqual(data);
   });
 });

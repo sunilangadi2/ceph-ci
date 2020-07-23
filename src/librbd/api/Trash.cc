@@ -7,6 +7,7 @@
 #include "common/errno.h"
 #include "common/Cond.h"
 #include "cls/rbd/cls_rbd_client.h"
+#include "librbd/AsioEngine.h"
 #include "librbd/ExclusiveLock.h"
 #include "librbd/ImageCtx.h"
 #include "librbd/ImageState.h"
@@ -43,25 +44,12 @@ namespace {
 
 template <typename I>
 int disable_mirroring(I *ictx) {
-  cls::rbd::MirrorImage mirror_image;
-  int r = cls_client::mirror_image_get(&ictx->md_ctx, ictx->id, &mirror_image);
-  if (r == -ENOENT) {
-    ldout(ictx->cct, 10) << "mirroring is not enabled for this image" << dendl;
-    return 0;
-  }
-
-  if (r < 0) {
-    lderr(ictx->cct) << "failed to retrieve mirror image: " << cpp_strerror(r)
-                     << dendl;
-    return r;
-  }
-
   ldout(ictx->cct, 10) << dendl;
 
   C_SaferCond ctx;
   auto req = mirror::DisableRequest<I>::create(ictx, false, true, &ctx);
   req->send();
-  r = ctx.wait();
+  int r = ctx.wait();
   if (r < 0) {
     lderr(ictx->cct) << "failed to disable mirroring: " << cpp_strerror(r)
                      << dendl;
@@ -103,13 +91,12 @@ int enable_mirroring(IoCtx &io_ctx, const std::string &image_id) {
 
   ldout(cct, 10) << dendl;
 
-  ThreadPool *thread_pool;
-  ContextWQ *op_work_queue;
-  ImageCtx::get_thread_pool_instance(cct, &thread_pool, &op_work_queue);
+  AsioEngine asio_engine(io_ctx);
+
   C_SaferCond ctx;
   auto req = mirror::EnableRequest<I>::create(
-    io_ctx, image_id, cls::rbd::MIRROR_IMAGE_MODE_JOURNAL, "", op_work_queue,
-    &ctx);
+    io_ctx, image_id, cls::rbd::MIRROR_IMAGE_MODE_JOURNAL, "", false,
+    asio_engine.get_work_queue(), &ctx);
   req->send();
   r = ctx.wait();
   if (r < 0) {
@@ -141,6 +128,26 @@ int Trash<I>::move(librados::IoCtx &io_ctx, rbd_trash_image_source_t source,
   }
 
   if (r == 0) {
+    cls::rbd::MirrorImage mirror_image;
+    int mirror_r = cls_client::mirror_image_get(&ictx->md_ctx, ictx->id,
+                                                &mirror_image);
+    if (mirror_r == -ENOENT) {
+      ldout(ictx->cct, 10) << "mirroring is not enabled for this image"
+                           << dendl;
+    } else if (mirror_r < 0) {
+      lderr(ictx->cct) << "failed to retrieve mirror image: "
+                       << cpp_strerror(mirror_r) << dendl;
+      return mirror_r;
+    } else if (mirror_image.mode == cls::rbd::MIRROR_IMAGE_MODE_SNAPSHOT) {
+      // a remote rbd-mirror might own the exclusive-lock on this image
+      // and therefore we need to disable mirroring so that it closes the image
+      r = disable_mirroring<I>(ictx);
+      if (r < 0) {
+        ictx->state->close();
+        return r;
+      }
+    }
+
     if (ictx->test_features(RBD_FEATURE_JOURNALING)) {
       std::unique_lock image_locker{ictx->image_lock};
       ictx->set_journal_policy(new journal::DisabledPolicy());
@@ -151,7 +158,7 @@ int Trash<I>::move(librados::IoCtx &io_ctx, rbd_trash_image_source_t source,
       ictx->exclusive_lock->block_requests(0);
 
       r = ictx->operations->prepare_image_update(
-        exclusive_lock::OPERATION_REQUEST_TYPE_GENERAL, false);
+        exclusive_lock::OPERATION_REQUEST_TYPE_GENERAL, true);
       if (r < 0) {
         lderr(cct) << "cannot obtain exclusive lock - not removing" << dendl;
         ictx->owner_lock.unlock_shared();
@@ -170,10 +177,13 @@ int Trash<I>::move(librados::IoCtx &io_ctx, rbd_trash_image_source_t source,
     }
     ictx->image_lock.unlock_shared();
 
-    r = disable_mirroring<I>(ictx);
-    if (r < 0) {
-      ictx->state->close();
-      return r;
+    if (mirror_r >= 0 &&
+        mirror_image.mode != cls::rbd::MIRROR_IMAGE_MODE_SNAPSHOT) {
+      r = disable_mirroring<I>(ictx);
+      if (r < 0) {
+        ictx->state->close();
+        return r;
+      }
     }
 
     ictx->state->close();
@@ -525,13 +535,11 @@ int Trash<I>::remove(IoCtx &io_ctx, const std::string &image_id, bool force,
     return -EBUSY;
   }
 
-  ThreadPool *thread_pool;
-  ContextWQ *op_work_queue;
-  ImageCtx::get_thread_pool_instance(cct, &thread_pool, &op_work_queue);
+  AsioEngine asio_engine(io_ctx);
 
   C_SaferCond cond;
   auto req = librbd::trash::RemoveRequest<I>::create(
-      io_ctx, image_id, op_work_queue, force, prog_ctx, &cond);
+      io_ctx, image_id, asio_engine.get_work_queue(), force, prog_ctx, &cond);
   req->send();
 
   r = cond.wait();

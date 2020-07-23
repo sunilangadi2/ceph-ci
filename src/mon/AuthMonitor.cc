@@ -40,6 +40,35 @@
 #define dout_subsys ceph_subsys_mon
 #undef dout_prefix
 #define dout_prefix _prefix(_dout, mon, get_last_committed())
+using namespace TOPNSPC::common;
+
+using std::cerr;
+using std::cout;
+using std::dec;
+using std::hex;
+using std::list;
+using std::map;
+using std::make_pair;
+using std::ostream;
+using std::ostringstream;
+using std::pair;
+using std::set;
+using std::setfill;
+using std::string;
+using std::stringstream;
+using std::to_string;
+using std::vector;
+using std::unique_ptr;
+
+using ceph::bufferlist;
+using ceph::decode;
+using ceph::encode;
+using ceph::Formatter;
+using ceph::JSONFormatter;
+using ceph::make_message;
+using ceph::mono_clock;
+using ceph::mono_time;
+using ceph::timespan_str;
 static ostream& _prefix(std::ostream *_dout, Monitor *mon, version_t v) {
   return *_dout << "mon." << mon->name << "@" << mon->rank
 		<< "(" << mon->get_state_name()
@@ -598,7 +627,7 @@ bool AuthMonitor::prep_auth(MonOpRequestRef op, bool paxos_writable)
       decode(supported, indata);
       decode(entity_name, indata);
       decode(s->con->peer_global_id, indata);
-    } catch (const buffer::error &e) {
+    } catch (const ceph::buffer::error &e) {
       dout(10) << "failed to decode initial auth message" << dendl;
       ret = -EINVAL;
       goto reply;
@@ -737,7 +766,7 @@ bool AuthMonitor::prep_auth(MonOpRequestRef op, bool paxos_writable)
       }
       ret = 0;
     }
-  } catch (const buffer::error &err) {
+  } catch (const ceph::buffer::error &err) {
     ret = -EINVAL;
     dout(0) << "caught error when trying to handle auth request, probably malformed request" << dendl;
   }
@@ -1090,7 +1119,7 @@ int _create_auth(
     return -EINVAL;
   try {
     auth.key.decode_base64(key);
-  } catch (buffer::error& e) {
+  } catch (ceph::buffer::error& e) {
     return -EINVAL;
   }
   auth.caps = caps;
@@ -1345,7 +1374,7 @@ bool AuthMonitor::prepare_command(MonOpRequestRef op)
     KeyRing keyring;
     try {
       decode(keyring, iter);
-    } catch (const buffer::error &ex) {
+    } catch (const ceph::buffer::error &ex) {
       ss << "error decoding keyring" << " " << ex.what();
       err = -EINVAL;
       goto done;
@@ -1380,7 +1409,7 @@ bool AuthMonitor::prepare_command(MonOpRequestRef op)
       auto iter = bl.cbegin();
       try {
         decode(new_keyring, iter);
-      } catch (const buffer::error &ex) {
+      } catch (const ceph::buffer::error &ex) {
         ss << "error decoding keyring";
         err = -EINVAL;
         goto done;
@@ -1761,7 +1790,7 @@ bool AuthMonitor::_upgrade_format_to_dumpling()
       auto it = p->second.caps["mon"].cbegin();
       decode(mon_caps, it);
     }
-    catch (const buffer::error&) {
+    catch (const ceph::buffer::error&) {
       dout(10) << __func__ << " unable to parse mon cap for "
 	       << p->first << dendl;
       continue;
@@ -1773,7 +1802,7 @@ bool AuthMonitor::_upgrade_format_to_dumpling()
     // set daemon profiles
     if ((p->first.is_osd() || p->first.is_mds()) &&
         mon_caps == "allow rwx") {
-      new_caps = string("allow profile ") + p->first.get_type_name();
+      new_caps = string("allow profile ") + std::string(p->first.get_type_name());
     }
 
     // update bootstrap keys

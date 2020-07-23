@@ -2,20 +2,17 @@ import { HttpClientTestingModule } from '@angular/common/http/testing';
 import { ComponentFixture, fakeAsync, TestBed, tick } from '@angular/core/testing';
 import { ReactiveFormsModule } from '@angular/forms';
 import { By } from '@angular/platform-browser';
+import { BrowserAnimationsModule } from '@angular/platform-browser/animations';
 import { RouterTestingModule } from '@angular/router/testing';
 
+import { NgbDropdownModule } from '@ng-bootstrap/ng-bootstrap';
 import * as _ from 'lodash';
-import { BsModalService } from 'ngx-bootstrap/modal';
-import { TabsModule } from 'ngx-bootstrap/tabs';
 import { ToastrModule } from 'ngx-toastr';
 import { EMPTY, of } from 'rxjs';
 
-import {
-  configureTestBed,
-  i18nProviders,
-  PermissionHelper
-} from '../../../../../testing/unit-test-helper';
+import { configureTestBed, PermissionHelper } from '../../../../../testing/unit-test-helper';
 import { CoreModule } from '../../../../core/core.module';
+import { OrchestratorService } from '../../../../shared/api/orchestrator.service';
 import { OsdService } from '../../../../shared/api/osd.service';
 import { ConfirmationModalComponent } from '../../../../shared/components/confirmation-modal/confirmation-modal.component';
 import { CriticalConfirmationModalComponent } from '../../../../shared/components/critical-confirmation-modal/critical-confirmation-modal.component';
@@ -25,6 +22,7 @@ import { CdTableAction } from '../../../../shared/models/cd-table-action';
 import { CdTableSelection } from '../../../../shared/models/cd-table-selection';
 import { Permissions } from '../../../../shared/models/permissions';
 import { AuthStorageService } from '../../../../shared/services/auth-storage.service';
+import { ModalService } from '../../../../shared/services/modal.service';
 import { CephModule } from '../../../ceph.module';
 import { PerformanceCounterModule } from '../../../performance-counter/performance-counter.module';
 import { OsdReweightModalComponent } from '../osd-reweight-modal/osd-reweight-modal.component';
@@ -71,37 +69,48 @@ describe('OsdListComponent', () => {
    * we will have to fake its request to be able to open those modals.
    */
   const mockSafeToDestroy = () => {
-    spyOn(TestBed.get(OsdService), 'safeToDestroy').and.callFake(() =>
-      of({ 'safe-to-destroy': true })
+    spyOn(TestBed.inject(OsdService), 'safeToDestroy').and.callFake(() =>
+      of({ is_safe_to_destroy: true })
+    );
+  };
+
+  const mockSafeToDelete = () => {
+    spyOn(TestBed.inject(OsdService), 'safeToDelete').and.callFake(() =>
+      of({ is_safe_to_delete: true })
+    );
+  };
+
+  const mockOrchestratorStatus = () => {
+    spyOn(TestBed.inject(OrchestratorService), 'status').and.callFake(() =>
+      of({ available: true })
     );
   };
 
   configureTestBed({
     imports: [
+      BrowserAnimationsModule,
       HttpClientTestingModule,
       PerformanceCounterModule,
-      TabsModule.forRoot(),
       ToastrModule.forRoot(),
       CephModule,
       ReactiveFormsModule,
+      NgbDropdownModule,
       RouterTestingModule,
       CoreModule,
       RouterTestingModule
     ],
-    declarations: [],
     providers: [
       { provide: AuthStorageService, useValue: fakeAuthStorageService },
       TableActionsComponent,
-      BsModalService,
-      i18nProviders
+      ModalService
     ]
   });
 
   beforeEach(() => {
     fixture = TestBed.createComponent(OsdListComponent);
     component = fixture.componentInstance;
-    osdService = TestBed.get(OsdService);
-    modalServiceShowSpy = spyOn(TestBed.get(BsModalService), 'show').and.stub();
+    osdService = TestBed.inject(OsdService);
+    modalServiceShowSpy = spyOn(TestBed.inject(ModalService), 'show').and.stub();
   });
 
   it('should create', () => {
@@ -113,7 +122,7 @@ describe('OsdListComponent', () => {
     fixture.detectChanges();
     expect(
       component.columns
-        .filter((column) => !column.checkboxable)
+        .filter((column) => !(column.prop === undefined))
         .every((column) => Boolean(column.prop))
     ).toBeTruthy();
   });
@@ -129,8 +138,14 @@ describe('OsdListComponent', () => {
           device_class: 'ssd'
         },
         stats_history: {
-          op_out_bytes: [[n, n], [n * 2, n * 2]],
-          op_in_bytes: [[n * 3, n * 3], [n * 4, n * 4]]
+          op_out_bytes: [
+            [n, n],
+            [n * 2, n * 2]
+          ],
+          op_in_bytes: [
+            [n * 3, n * 3],
+            [n * 4, n * 4]
+          ]
         },
         stats: {
           stat_bytes_used: n * n,
@@ -257,7 +272,8 @@ describe('OsdListComponent', () => {
           'Mark Down',
           'Mark Lost',
           'Purge',
-          'Destroy'
+          'Destroy',
+          'Delete'
         ],
         primary: { multiple: 'Scrub', executing: 'Edit', single: 'Edit', no: 'Create' }
       },
@@ -275,7 +291,7 @@ describe('OsdListComponent', () => {
         primary: { multiple: 'Scrub', executing: 'Edit', single: 'Edit', no: 'Create' }
       },
       'create,delete': {
-        actions: ['Create', 'Mark Lost', 'Purge', 'Destroy'],
+        actions: ['Create', 'Mark Lost', 'Purge', 'Destroy', 'Delete'],
         primary: {
           multiple: 'Create',
           executing: 'Mark Lost',
@@ -298,7 +314,8 @@ describe('OsdListComponent', () => {
           'Mark Down',
           'Mark Lost',
           'Purge',
-          'Destroy'
+          'Destroy',
+          'Delete'
         ],
         primary: { multiple: 'Scrub', executing: 'Edit', single: 'Edit', no: 'Edit' }
       },
@@ -307,7 +324,7 @@ describe('OsdListComponent', () => {
         primary: { multiple: 'Scrub', executing: 'Edit', single: 'Edit', no: 'Edit' }
       },
       delete: {
-        actions: ['Mark Lost', 'Purge', 'Destroy'],
+        actions: ['Mark Lost', 'Purge', 'Destroy', 'Delete'],
         primary: {
           multiple: 'Mark Lost',
           executing: 'Mark Lost',
@@ -337,9 +354,9 @@ describe('OsdListComponent', () => {
 
     it('has all menu entries disabled except create', () => {
       const tableActionElement = fixture.debugElement.query(By.directive(TableActionsComponent));
-      const toClassName = TestBed.get(TableActionsComponent).toClassName;
+      const toClassName = TestBed.inject(TableActionsComponent).toClassName;
       const getActionClasses = (action: CdTableAction) =>
-        tableActionElement.query(By.css(`.${toClassName(action.name)} .dropdown-item`)).classes;
+        tableActionElement.query(By.css(`[ngbDropdownItem].${toClassName(action.name)}`)).classes;
 
       component.tableActions.forEach((action) => {
         if (action.name === 'Create') {
@@ -387,17 +404,27 @@ describe('OsdListComponent', () => {
       expectOpensModal('Mark Lost', modalClass);
       expectOpensModal('Purge', modalClass);
       expectOpensModal('Destroy', modalClass);
+      mockOrchestratorStatus();
+      mockSafeToDelete();
+      expectOpensModal('Delete', modalClass);
     });
   });
 
   describe('tests if the correct methods are called on confirmation', () => {
     const expectOsdServiceMethodCalled = (
       actionName: string,
-      osdServiceMethodName: 'markOut' | 'markIn' | 'markDown' | 'markLost' | 'purge' | 'destroy'
+      osdServiceMethodName:
+        | 'markOut'
+        | 'markIn'
+        | 'markDown'
+        | 'markLost'
+        | 'purge'
+        | 'destroy'
+        | 'delete'
     ): void => {
       const osdServiceSpy = spyOn(osdService, osdServiceMethodName).and.callFake(() => EMPTY);
       openActionModal(actionName);
-      const initialState = modalServiceShowSpy.calls.first().args[1].initialState;
+      const initialState = modalServiceShowSpy.calls.first().args[1];
       const submit = initialState.onSubmit || initialState.submitAction;
       submit.call(component);
 
@@ -420,6 +447,9 @@ describe('OsdListComponent', () => {
       expectOsdServiceMethodCalled('Mark Lost', 'markLost');
       expectOsdServiceMethodCalled('Purge', 'purge');
       expectOsdServiceMethodCalled('Destroy', 'destroy');
+      mockOrchestratorStatus();
+      mockSafeToDelete();
+      expectOsdServiceMethodCalled('Delete', 'delete');
     });
   });
 });

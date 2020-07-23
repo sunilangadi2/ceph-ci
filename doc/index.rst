@@ -84,7 +84,7 @@ about Ceph, see our `Architecture`_ section.
 .. _Ceph Object Store: radosgw
 .. _Ceph Block Device: rbd
 .. _Ceph File System: cephfs
-.. _Getting Started: start
+.. _Getting Started: install
 .. _Architecture: architecture
 
 .. toctree::
@@ -92,9 +92,8 @@ about Ceph, see our `Architecture`_ section.
    :hidden:
 
    start/intro
-   bootstrap
-   start/index
    install/index
+   cephadm/index
    rados/index
    cephfs/index
    rbd/index

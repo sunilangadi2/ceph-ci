@@ -8,12 +8,14 @@
 #include "common/dout.h"
 #include "common/errno.h"
 #include "common/perf_counters.h"
-#include "common/WorkQueue.h"
 
+#include "librbd/AsioEngine.h"
 #include "librbd/ImageCtx.h"
 #include "librbd/internal.h"
 #include "librbd/Journal.h"
 #include "librbd/Types.h"
+#include <boost/asio/dispatch.hpp>
+#include <boost/asio/post.hpp>
 
 #ifdef WITH_LTTNG
 #include "tracing/librbd.h"
@@ -104,18 +106,16 @@ void AioCompletion::complete() {
       complete_external_callback();
     } else {
       complete_cb(rbd_comp, complete_arg);
+      complete_event_socket();
+      notify_callbacks_complete();
     }
+  } else {
+    complete_event_socket();
+    notify_callbacks_complete();
   }
 
-  if (ictx != nullptr && event_notify && ictx->event_socket.is_valid()) {
-    ictx->event_socket_completions.push(this);
-    ictx->event_socket.notify();
-  }
-  state = AIO_STATE_COMPLETE;
-
-  {
-    std::unique_lock<std::mutex> locker(lock);
-    cond.notify_all();
+  if (image_dispatcher_ctx != nullptr) {
+    image_dispatcher_ctx->complete(rval);
   }
 
   // note: possible for image to be closed after op marked finished
@@ -150,8 +150,12 @@ void AioCompletion::queue_complete() {
   pending_count.compare_exchange_strong(zero, 1);
   ceph_assert(zero == 0);
 
+  add_request();
+
   // ensure completion fires in clean lock context
-  ictx->op_work_queue->queue(new C_AioRequest(this), 0);
+  boost::asio::post(ictx->asio_engine->get_api_strand(), [this]() {
+      complete_request(0);
+    });
 }
 
 void AioCompletion::block(CephContext* cct) {
@@ -248,28 +252,30 @@ ssize_t AioCompletion::get_return_value() {
 }
 
 void AioCompletion::complete_external_callback() {
+  get();
+
   // ensure librbd external users never experience concurrent callbacks
   // from multiple librbd-internal threads.
-  ictx->external_callback_completions.push(this);
+  boost::asio::dispatch(ictx->asio_engine->get_api_strand(), [this]() {
+      complete_cb(rbd_comp, complete_arg);
+      complete_event_socket();
+      notify_callbacks_complete();
+      put();
+    });
+}
 
-  while (true) {
-    if (ictx->external_callback_in_progress.exchange(true)) {
-      // another thread is concurrently invoking external callbacks
-      break;
-    }
-
-    AioCompletion* aio_comp;
-    while (ictx->external_callback_completions.pop(aio_comp)) {
-      aio_comp->complete_cb(aio_comp->rbd_comp, aio_comp->complete_arg);
-    }
-
-    ictx->external_callback_in_progress.store(false);
-    if (ictx->external_callback_completions.empty()) {
-      // queue still empty implies we didn't have a race between the last failed
-      // pop and resetting the in-progress state
-      break;
-    }
+void AioCompletion::complete_event_socket() {
+  if (ictx != nullptr && event_notify && ictx->event_socket.is_valid()) {
+    ictx->event_socket_completions.push(this);
+    ictx->event_socket.notify();
   }
+}
+
+void AioCompletion::notify_callbacks_complete() {
+  state = AIO_STATE_COMPLETE;
+
+  std::unique_lock<std::mutex> locker(lock);
+  cond.notify_all();
 }
 
 } // namespace io

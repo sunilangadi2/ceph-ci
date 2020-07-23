@@ -237,7 +237,6 @@ BLOCK_MGR_ROLE = Role('block-manager', 'Block Manager', {
 # RadosGW manager role provides all permissions for block related scopes
 RGW_MGR_ROLE = Role('rgw-manager', 'RGW Manager', {
     Scope.RGW: [_P.READ, _P.CREATE, _P.UPDATE, _P.DELETE],
-    Scope.CONFIG_OPT: [_P.READ],
     Scope.GRAFANA: [_P.READ],
 })
 
@@ -258,14 +257,12 @@ CLUSTER_MGR_ROLE = Role('cluster-manager', 'Cluster Manager', {
 # Pool manager role provides all permissions for pool related scopes
 POOL_MGR_ROLE = Role('pool-manager', 'Pool Manager', {
     Scope.POOL: [_P.READ, _P.CREATE, _P.UPDATE, _P.DELETE],
-    Scope.CONFIG_OPT: [_P.READ],
     Scope.GRAFANA: [_P.READ],
 })
 
-# Pool manager role provides all permissions for CephFS related scopes
+# CephFS manager role provides all permissions for CephFS related scopes
 CEPHFS_MGR_ROLE = Role('cephfs-manager', 'CephFS Manager', {
     Scope.CEPHFS: [_P.READ, _P.CREATE, _P.UPDATE, _P.DELETE],
-    Scope.CONFIG_OPT: [_P.READ],
     Scope.GRAFANA: [_P.READ],
 })
 
@@ -273,7 +270,6 @@ GANESHA_MGR_ROLE = Role('ganesha-manager', 'NFS Ganesha Manager', {
     Scope.NFS_GANESHA: [_P.READ, _P.CREATE, _P.UPDATE, _P.DELETE],
     Scope.CEPHFS: [_P.READ, _P.CREATE, _P.UPDATE, _P.DELETE],
     Scope.RGW: [_P.READ, _P.CREATE, _P.UPDATE, _P.DELETE],
-    Scope.CONFIG_OPT: [_P.READ],
     Scope.GRAFANA: [_P.READ],
 })
 
@@ -383,7 +379,8 @@ class User(object):
         return False
 
     def permissions_dict(self):
-        perms = {}
+        # type: () -> dict
+        perms = {}  # type: dict
         for role in self.roles:
             for scope, perms_list in role.scopes_permissions.items():
                 if scope in perms:
@@ -553,12 +550,12 @@ class AccessControlDB(object):
             db.check_and_update_db()
             return db
 
-        db = json.loads(json_db)
+        dict_db = json.loads(json_db)
         roles = {rn: Role.from_dict(r)
-                 for rn, r in db.get('roles', {}).items()}
+                 for rn, r in dict_db.get('roles', {}).items()}
         users = {un: User.from_dict(u, dict(roles, **SYSTEM_ROLES))
-                 for un, u in db.get('users', {}).items()}
-        return cls(db['version'], users, roles)
+                 for un, u in dict_db.get('users', {}).items()}
+        return cls(dict_db['version'], users, roles)
 
 
 def load_access_control_db():
@@ -707,11 +704,12 @@ def ac_user_show_cmd(_, username=None):
                  'name=email,type=CephString,req=false '
                  'name=enabled,type=CephBool,req=false '
                  'name=force_password,type=CephBool,req=false '
-                 'name=pwd_expiration_date,type=CephInt,req=false',
+                 'name=pwd_expiration_date,type=CephInt,req=false '
+                 'name=pwd_update_required,type=CephBool,req=false',
                  'Create a user')
 def ac_user_create_cmd(_, username, password=None, rolename=None, name=None,
                        email=None, enabled=True, force_password=False,
-                       pwd_expiration_date=None):
+                       pwd_expiration_date=None, pwd_update_required=False):
     try:
         role = mgr.ACCESS_CTRL_DB.get_role(rolename) if rolename else None
     except RoleDoesNotExist as ex:
@@ -724,11 +722,12 @@ def ac_user_create_cmd(_, username, password=None, rolename=None, name=None,
             pw_check = PasswordPolicy(password, username)
             pw_check.check_all()
         user = mgr.ACCESS_CTRL_DB.create_user(username, password, name, email,
-                                              enabled, pwd_expiration_date)
+                                              enabled, pwd_expiration_date,
+                                              pwd_update_required)
     except PasswordPolicyException as ex:
         return -errno.EINVAL, '', str(ex)
     except UserAlreadyExists as ex:
-        return -errno.EEXIST, '', str(ex)
+        return 0, str(ex), ''
 
     if role:
         user.set_roles([role])

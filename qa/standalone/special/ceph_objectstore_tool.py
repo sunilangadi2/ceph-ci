@@ -152,7 +152,7 @@ def cat_file(level, filename):
 
 def vstart(new, opt="-o osd_pool_default_pg_autoscale_mode=off"):
     print("vstarting....", end="")
-    NEW = new and "-n" or "-N"
+    NEW = new and "-n" or "-k"
     call("MON=1 OSD=4 MDS=0 MGR=1 CEPH_PORT=7400 MGR_PYTHON_PATH={path}/src/pybind/mgr {path}/src/vstart.sh --filestore --short -l {new} -d {opt} > /dev/null 2>&1".format(new=NEW, opt=opt, path=CEPH_ROOT), shell=True)
     print("DONE")
 
@@ -688,10 +688,7 @@ def test_removeall(CFSD_PREFIX, db, OBJREPPGS, REP_POOL, CEPH_BIN, OSDDIR, REP_N
 
 
 def main(argv):
-    if sys.version_info[0] < 3:
-        sys.stdout = stdout = os.fdopen(sys.stdout.fileno(), 'wb', 0)
-    else:
-        stdout = sys.stdout.buffer
+    stdout = sys.stdout.buffer
     if len(argv) > 1 and argv[1] == "debug":
         nullfd = stdout
     else:
@@ -997,7 +994,7 @@ def main(argv):
     cmd = (CFSD_PREFIX + "--op import --file {FOO}").format(osd=ONEOSD, FOO=OTHERFILE)
     ERRORS += test_failure(cmd, "file: {FOO}: No such file or directory".format(FOO=OTHERFILE))
 
-    cmd = "{path}/ceph-objectstore-tool --no-mon-config --data-path BAD_DATA_PATH --op list".format(osd=ONEOSD, path=CEPH_BIN)
+    cmd = "{path}/ceph-objectstore-tool --no-mon-config --data-path BAD_DATA_PATH --op list".format(path=CEPH_BIN)
     ERRORS += test_failure(cmd, "data-path: BAD_DATA_PATH: No such file or directory")
 
     cmd = (CFSD_PREFIX + "--journal-path BAD_JOURNAL_PATH --op list").format(osd=ONEOSD)
@@ -1020,7 +1017,7 @@ def main(argv):
     ERRORS += test_failure(cmd, "Unable to create store of type foobar")
 
     # Don't specify a data-path
-    cmd = "{path}/ceph-objectstore-tool --no-mon-config --type memstore --op list --pgid {pg}".format(dir=OSDDIR, osd=ONEOSD, pg=ONEPG, path=CEPH_BIN)
+    cmd = "{path}/ceph-objectstore-tool --no-mon-config --type memstore --op list --pgid {pg}".format(pg=ONEPG, path=CEPH_BIN)
     ERRORS += test_failure(cmd, "Must provide --data-path")
 
     cmd = (CFSD_PREFIX + "--op remove --pgid 2.0").format(osd=ONEOSD)
@@ -1035,7 +1032,7 @@ def main(argv):
 
     # Specify a bad --op command
     cmd = (CFSD_PREFIX + "--op oops").format(osd=ONEOSD)
-    ERRORS += test_failure(cmd, "Must provide --op (info, log, remove, mkfs, fsck, repair, export, export-remove, import, list, fix-lost, list-pgs, dump-journal, dump-super, meta-list, get-osdmap, set-osdmap, get-inc-osdmap, set-inc-osdmap, mark-complete, reset-last-complete, dump-export, trim-pg-log)")
+    ERRORS += test_failure(cmd, "Must provide --op (info, log, remove, mkfs, fsck, repair, export, export-remove, import, list, fix-lost, list-pgs, dump-journal, dump-super, meta-list, get-osdmap, set-osdmap, get-inc-osdmap, set-inc-osdmap, mark-complete, reset-last-complete, dump-export, trim-pg-log, statfs)")
 
     # Provide just the object param not a command
     cmd = (CFSD_PREFIX + "object").format(osd=ONEOSD)
@@ -1535,7 +1532,7 @@ def main(argv):
                     jsondict[1]['shard_id'] = int(pg.split('s')[1])
                     JSON = json.dumps((pg, jsondict[1]))
                     for osd in OSDS:
-                        cmd = (CFSD_PREFIX + " '{json}' get-attr hinfo_key").format(osd=osd, json=JSON)
+                        cmd = (CFSD_PREFIX + " --tty '{json}' get-attr hinfo_key").format(osd=osd, json=JSON)
                         logging.debug("TRY: " + cmd)
                         try:
                             out = check_output(cmd, shell=True, stderr=subprocess.STDOUT)
@@ -1543,9 +1540,9 @@ def main(argv):
                             found += 1
                         except subprocess.CalledProcessError as e:
                             logging.debug("Error message: {output}".format(output=e.output))
-                            if "No such file or directory" not in e.output and \
-                               "No data available" not in e.output and \
-                               "not contained by pg" not in e.output:
+                            if "No such file or directory" not in str(e.output) and \
+                               "No data available" not in str(e.output) and \
+                               "not contained by pg" not in str(e.output):
                                 raise
                 # Assuming k=2 m=1 for the default ec pool
                 if found != 3:

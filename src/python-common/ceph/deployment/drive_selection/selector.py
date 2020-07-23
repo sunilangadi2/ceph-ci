@@ -5,9 +5,7 @@ try:
 except ImportError:
     pass
 
-from ceph.deployment.inventory import Device
-
-from ..inventory import Devices
+from ..inventory import Device
 from ..drive_group import DriveGroupSpec, DeviceSelection
 
 from .filter import FilterGenerator
@@ -18,7 +16,7 @@ logger = logging.getLogger(__name__)
 class DriveSelection(object):
     def __init__(self,
                  spec,  # type: DriveGroupSpec
-                 disks,  # type: Devices
+                 disks,  # type: List[Device]
                  ):
         self.disks = disks.copy()
         self.spec = spec
@@ -113,49 +111,49 @@ class DriveSelection(object):
             return []
 
         devices = list()  # type: List[Device]
-        for _filter in FilterGenerator(device_filter):
-            if not _filter.is_matchable:
+        for disk in self.disks:
+            logger.debug("Processing disk {}".format(disk.path))
+
+            if not disk.available:
                 logger.debug(
-                    "Ignoring disk {}. Filter is not matchable".format(
-                        device_filter))
+                    "Ignoring disk {}. Disk is not available".format(disk.path))
                 continue
 
-            for disk in self.disks.devices:
-                logger.debug("Processing disk {}".format(disk.path))
-
-                # continue criteria
-                assert _filter.matcher is not None
-
-                if not disk.available:
-                    logger.debug(
-                        "Ignoring disk {}. Disk is not available".format(disk.path))
-                    continue
-
-                if not _filter.matcher.compare(disk):
-                    logger.debug(
-                        "Ignoring disk {}. Filter did not match".format(
-                            disk.path))
-                    continue
-
-                if not self._has_mandatory_idents(disk):
-                    logger.debug(
-                        "Ignoring disk {}. Missing mandatory idents".format(
-                            disk.path))
-                    continue
-
-                # break on this condition.
-                if self._limit_reached(device_filter, len(devices), disk.path):
-                    logger.debug("Ignoring disk {}. Limit reached".format(
+            if not self._has_mandatory_idents(disk):
+                logger.debug(
+                    "Ignoring disk {}. Missing mandatory idents".format(
                         disk.path))
-                    break
+                continue
 
-                if disk not in devices:
-                    logger.debug('Adding disk {}'.format(disk.path))
-                    devices.append(disk)
+            # break on this condition.
+            if self._limit_reached(device_filter, len(devices), disk.path):
+                logger.debug("Ignoring disk {}. Limit reached".format(
+                    disk.path))
+                break
+
+            if disk in devices:
+                continue
+
+            if self.spec.filter_logic == 'AND':
+                if not all(m.compare(disk) for m in FilterGenerator(device_filter)):
+                    logger.debug(
+                        "Ignoring disk {}. Not all filter did match the disk".format(
+                            disk.path))
+                    continue
+
+            if self.spec.filter_logic == 'OR':
+                if not any(m.compare(disk) for m in FilterGenerator(device_filter)):
+                    logger.debug(
+                        "Ignoring disk {}. No filter matched the disk".format(
+                            disk.path))
+                    continue
+
+            logger.debug('Adding disk {}'.format(disk.path))
+            devices.append(disk)
 
         # This disk is already taken and must not be re-assigned.
         for taken_device in devices:
-            if taken_device in self.disks.devices:
-                self.disks.devices.remove(taken_device)
+            if taken_device in self.disks:
+                self.disks.remove(taken_device)
 
         return sorted([x for x in devices], key=lambda dev: dev.path)

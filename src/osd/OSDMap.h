@@ -32,6 +32,7 @@
 
 #include <boost/smart_ptr/local_shared_ptr.hpp>
 #include "include/btree_map.h"
+#include "include/common_fwd.h"
 #include "include/types.h"
 #include "common/ceph_releases.h"
 #include "osd_types.h"
@@ -40,7 +41,6 @@
 #include "crush/CrushWrapper.h"
 
 // forward declaration
-class CephContext;
 class CrushWrapper;
 class health_check_map_t;
 
@@ -571,7 +571,7 @@ private:
   mempool::osdmap::map<int64_t,pg_pool_t> pools;
   mempool::osdmap::map<int64_t,std::string> pool_name;
   mempool::osdmap::map<std::string, std::map<std::string,std::string>> erasure_code_profiles;
-  mempool::osdmap::map<std::string,int64_t> name_pool;
+  mempool::osdmap::map<std::string,int64_t, std::less<>> name_pool;
 
   std::shared_ptr< mempool::osdmap::vector<uuid_d> > osd_uuid;
   mempool::osdmap::vector<osd_xinfo_t> osd_xinfo;
@@ -1054,17 +1054,17 @@ public:
    */
   uint64_t get_up_osd_features() const;
 
-  void get_upmap_pgs(vector<pg_t> *upmap_pgs) const;
+  void get_upmap_pgs(std::vector<pg_t> *upmap_pgs) const;
   bool check_pg_upmaps(
     CephContext *cct,
-    const vector<pg_t>& to_check,
-    vector<pg_t> *to_cancel,
-    map<pg_t, mempool::osdmap::vector<pair<int,int>>> *to_remap) const;
+    const std::vector<pg_t>& to_check,
+    std::vector<pg_t> *to_cancel,
+    std::map<pg_t, mempool::osdmap::vector<std::pair<int,int>>> *to_remap) const;
   void clean_pg_upmaps(
     CephContext *cct,
     Incremental *pending_inc,
-    const vector<pg_t>& to_cancel,
-    const map<pg_t, mempool::osdmap::vector<pair<int,int>>>& to_remap) const;
+    const std::vector<pg_t>& to_cancel,
+    const std::map<pg_t, mempool::osdmap::vector<std::pair<int,int>>>& to_remap) const;
   bool clean_pg_upmaps(CephContext *cct, Incremental *pending_inc) const;
 
   int apply_incremental(const Incremental &inc);
@@ -1299,7 +1299,7 @@ public:
     return new_purged_snaps;
   }
 
-  int64_t lookup_pg_pool_name(const std::string& name) const {
+  int64_t lookup_pg_pool_name(std::string_view name) const {
     auto p = name_pool.find(name);
     if (p == name_pool.end())
       return -ENOENT;
@@ -1427,7 +1427,7 @@ public:
       pg_upmap_items.count(pg);
   }
 
-  bool check_full(const set<pg_shard_t> &missing_on) const {
+  bool check_full(const std::set<pg_shard_t> &missing_on) const {
     for (auto shard : missing_on) {
       if (get_state(shard.osd) & CEPH_OSD_FULL)
 	return true;

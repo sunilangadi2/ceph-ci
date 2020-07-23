@@ -4,113 +4,39 @@ ceph-mgr orchestrator interface
 
 Please see the ceph-mgr module developer's guide for more information.
 """
+
 import copy
-import functools
+import datetime
+import errno
 import logging
 import pickle
-import sys
-import time
-from collections import namedtuple
-from functools import wraps, partialmethod
-import uuid
-import string
-import random
-import datetime
-import copy
 import re
-import six
-import errno
+import time
+import uuid
+
+from collections import namedtuple, OrderedDict
+from contextlib import contextmanager
+from functools import wraps
+
+import yaml
 
 from ceph.deployment import inventory
+from ceph.deployment.service_spec import ServiceSpec, NFSServiceSpec, RGWSpec, \
+    ServiceSpecValidationError, IscsiServiceSpec
+from ceph.deployment.drive_group import DriveGroupSpec
+from ceph.deployment.hostspec import HostSpec
 
-from mgr_module import MgrModule, PersistentStoreDict, CLICommand, HandleCommandResult
-from mgr_util import format_bytes
+from mgr_module import MgrModule, CLICommand, HandleCommandResult
 
 try:
-    from ceph.deployment.drive_group import DriveGroupSpec
     from typing import TypeVar, Generic, List, Optional, Union, Tuple, Iterator, Callable, Any, \
-        Type, Sequence, Dict
+    Type, Sequence, Dict, cast
 except ImportError:
     pass
 
 logger = logging.getLogger(__name__)
 
 DATEFMT = '%Y-%m-%dT%H:%M:%S.%f'
-
-class HostPlacementSpec(namedtuple('HostPlacementSpec', ['hostname', 'network', 'name'])):
-    def __str__(self):
-        res = ''
-        res += self.hostname
-        if self.network:
-            res += ':' + self.network
-        if self.name:
-            res += '=' + self.name
-        return res
-
-    @classmethod
-    def parse(cls, host, require_network=True):
-        # type: (str, bool) -> HostPlacementSpec
-        """
-        Split host into host, network, and (optional) daemon name parts.  The network
-        part can be an IP, CIDR, or ceph addrvec like '[v2:1.2.3.4:3300,v1:1.2.3.4:6789]'.
-        e.g.,
-          "myhost"
-          "myhost=name"
-          "myhost:1.2.3.4"
-          "myhost:1.2.3.4=name"
-          "myhost:1.2.3.0/24"
-          "myhost:1.2.3.0/24=name"
-          "myhost:[v2:1.2.3.4:3000]=name"
-          "myhost:[v2:1.2.3.4:3000,v1:1.2.3.4:6789]=name"
-        """
-        # Matches from start to : or = or until end of string
-        host_re = r'^(.*?)(:|=|$)'
-        # Matches from : to = or until end of string
-        ip_re = r':(.*?)(=|$)'
-        # Matches from = to end of string
-        name_re = r'=(.*?)$'
-
-        # assign defaults
-        host_spec = cls('', '', '')
-
-        match_host = re.search(host_re, host)
-        if match_host:
-            host_spec = host_spec._replace(hostname=match_host.group(1))
-
-        name_match = re.search(name_re, host)
-        if name_match:
-            host_spec = host_spec._replace(name=name_match.group(1))
-
-        ip_match = re.search(ip_re, host)
-        if ip_match:
-            host_spec = host_spec._replace(network=ip_match.group(1))
-
-        if not require_network:
-            return host_spec
-
-        from ipaddress import ip_network, ip_address
-        networks = list()  # type: List[str]
-        network = host_spec.network
-        # in case we have [v2:1.2.3.4:3000,v1:1.2.3.4:6478]
-        if ',' in network:
-            networks = [x for x in network.split(',')]
-        else:
-            networks.append(network)
-        for network in networks:
-            # only if we have versioned network configs
-            if network.startswith('v') or network.startswith('[v'):
-                network = network.split(':')[1]
-            try:
-                # if subnets are defined, also verify the validity
-                if '/' in network:
-                    ip_network(six.text_type(network))
-                else:
-                    ip_address(six.text_type(network))
-            except ValueError as e:
-                # logging?
-                raise e
-
-        return host_spec
 
 
 class OrchestratorError(Exception):
@@ -121,6 +47,10 @@ class OrchestratorError(Exception):
 
     It's not intended for programming errors or orchestrator internal errors.
     """
+    def __init__(self, msg, event_kind_subject: Optional[Tuple[str, str]]=None):
+        super(Exception, self).__init__(msg)
+        # See OrchestratorEvent.subject
+        self.event_subject = event_kind_subject
 
 
 class NoOrchestrator(OrchestratorError):
@@ -137,12 +67,22 @@ class OrchestratorValidationError(OrchestratorError):
     """
 
 
+@contextmanager
+def set_exception_subject(kind, subject, overwrite=False):
+    try:
+        yield
+    except OrchestratorError as e:
+        if overwrite or hasattr(e, 'event_subject'):
+            e.event_subject = (kind, subject)
+        raise
+
+
 def handle_exception(prefix, cmd_args, desc, perm, func):
     @wraps(func)
     def wrapper(*args, **kwargs):
         try:
             return func(*args, **kwargs)
-        except (OrchestratorError, ImportError) as e:
+        except (OrchestratorError, ImportError, ServiceSpecValidationError) as e:
             # Do not print Traceback for expected errors.
             return HandleCommandResult(-errno.ENOENT, stderr=str(e))
         except NotImplementedError:
@@ -246,9 +186,14 @@ class _Promise(object):
         self._exception_ = e
         try:
             self._serialized_exception_ = pickle.dumps(e) if e is not None else None
-        except Exception:
-            logger.exception("failed to pickle {}".format(e))
-            # We can't properly raise anything here. Just hope for the best.
+        except pickle.PicklingError:
+            logger.error(f"failed to pickle {e}")
+            if isinstance(e, Exception):
+                e = Exception(*e.args)
+            else:
+                e = Exception(str(e))
+            # degenerate to a plain Exception
+            self._serialized_exception_ = pickle.dumps(e)
 
     @property
     def _serialized_exception(self):
@@ -299,8 +244,11 @@ class _Promise(object):
         Call ``on_complete`` as soon as this promise is finalized.
         """
         assert self._state in (self.INITIALIZED, self.RUNNING)
+
+        if self._next_promise is not None:
+            return self._next_promise.then(on_complete)
+
         if self._on_complete is not None:
-            assert self._next_promise is None
             self._set_next_promise(self.__class__(
                 _first_promise=self._first_promise,
                 on_complete=on_complete
@@ -510,7 +458,8 @@ class Completion(_Promise):
     call one completion from another completion. I.e. making them re-usable
     using Promises E.g.::
 
-        >>> return Orchestrator().get_hosts().then(self._create_osd)
+        >>> #doctest: +SKIP
+        ... return Orchestrator().get_hosts().then(self._create_osd)
 
     where ``get_hosts`` returns a Completion of list of hosts and
     ``_create_osd`` takes a list of hosts.
@@ -518,7 +467,8 @@ class Completion(_Promise):
     The concept behind this is to store the computation steps
     explicit and then explicitly evaluate the chain:
 
-        >>> p = Completion(on_complete=lambda x: x*2).then(on_complete=lambda x: str(x))
+        >>> #doctest: +SKIP
+        ... p = Completion(on_complete=lambda x: x*2).then(on_complete=lambda x: str(x))
         ... p.finalize(2)
         ... assert p.result = "4"
 
@@ -768,7 +718,8 @@ class Orchestrator(object):
             is actually available in the orchestrator. I.e. this
             won't work as expected::
 
-                >>> if OrchestratorClientMixin().available()[0]:  # wrong.
+                >>> #doctest: +SKIP
+                ... if OrchestratorClientMixin().available()[0]:  # wrong.
                 ...     OrchestratorClientMixin().get_hosts()
 
         :return: two-tuple of boolean, string
@@ -800,13 +751,15 @@ class Orchestrator(object):
             is actually possible in the orchestrator. I.e. this
             won't work as expected::
 
-                >>> api = OrchestratorClientMixin()
+                >>> #doctest: +SKIP
+                ... api = OrchestratorClientMixin()
                 ... if api.get_feature_set()['get_hosts']['available']:  # wrong.
                 ...     api.get_hosts()
 
             It's better to ask for forgiveness instead::
 
-                >>> try:
+                >>> #doctest: +SKIP
+                ... try:
                 ...     OrchestratorClientMixin().get_hosts()
                 ... except (OrchestratorError, NotImplementedError):
                 ...     ...
@@ -820,12 +773,19 @@ class Orchestrator(object):
                     }
         return features
 
-    @_hide_in_features
     def cancel_completions(self):
         # type: () -> None
         """
         Cancels ongoing completions. Unstuck the mgr.
         """
+        raise NotImplementedError()
+
+    def pause(self):
+        # type: () -> None
+        raise NotImplementedError()
+
+    def resume(self):
+        # type: () -> None
         raise NotImplementedError()
 
     def add_host(self, host_spec):
@@ -903,8 +863,8 @@ class Orchestrator(object):
         """
         raise NotImplementedError()
 
-    def list_daemons(self, daemon_type=None, daemon_id=None, host=None, refresh=False):
-        # type: (Optional[str], Optional[str], Optional[str], bool) -> Completion
+    def list_daemons(self, service_name=None, daemon_type=None, daemon_id=None, host=None, refresh=False):
+        # type: (Optional[str], Optional[str], Optional[str], Optional[str], bool) -> Completion
         """
         Describe a daemon (of any kind) that is already configured in
         the orchestrator.
@@ -913,8 +873,51 @@ class Orchestrator(object):
         """
         raise NotImplementedError()
 
-    def remove_daemons(self, names, force):
-        # type: (List[str], bool) -> Completion
+    def apply(self, specs: List["GenericSpec"]) -> Completion:
+        """
+        Applies any spec
+        """
+        fns: Dict[str, function] = {
+            'alertmanager': self.apply_alertmanager,
+            'crash': self.apply_crash,
+            'grafana': self.apply_grafana,
+            'iscsi': self.apply_iscsi,
+            'mds': self.apply_mds,
+            'mgr': self.apply_mgr,
+            'mon': self.apply_mon,
+            'nfs': self.apply_nfs,
+            'node-exporter': self.apply_node_exporter,
+            'osd': lambda dg: self.apply_drivegroups([dg]),
+            'prometheus': self.apply_prometheus,
+            'rbd-mirror': self.apply_rbd_mirror,
+            'rgw': self.apply_rgw,
+            'host': self.add_host,
+        }
+
+        def merge(ls, r):
+            if isinstance(ls, list):
+                return ls + [r]
+            return [ls, r]
+
+        spec, *specs = specs
+
+        fn = cast(Callable[["GenericSpec"], Completion], fns[spec.service_type])
+        completion = fn(spec)
+        for s in specs:
+            def next(ls):
+                fn = cast(Callable[["GenericSpec"], Completion], fns[spec.service_type])
+                return fn(s).then(lambda r: merge(ls, r))
+            completion = completion.then(next)
+        return completion
+
+    def plan(self, spec: List["GenericSpec"]):
+        """
+        Plan (Dry-run, Preview) a List of Specs.
+        """
+        raise NotImplementedError()
+
+    def remove_daemons(self, names):
+        # type: (List[str]) -> Completion
         """
         Remove specific daemon(s).
 
@@ -957,8 +960,8 @@ class Orchestrator(object):
         #assert action in ["start", "stop", "reload, "restart", "redeploy"]
         raise NotImplementedError()
 
-    def create_osds(self, drive_groups):
-        # type: (List[DriveGroupSpec]) -> Completion
+    def create_osds(self, drive_group):
+        # type: (DriveGroupSpec) -> Completion
         """
         Create one or more OSDs within a single Drive Group.
 
@@ -966,12 +969,43 @@ class Orchestrator(object):
         of OsdSpec: other fields are advisory/extensible for any
         finer-grained OSD feature enablement (choice of backing store,
         compression/encryption, etc).
+        """
+        raise NotImplementedError()
 
-        :param drive_groups: a list of DriveGroupSpec
-        :param all_hosts: TODO, this is required because the orchestrator methods are not composable
-                Probably this parameter can be easily removed because each orchestrator can use
-                the "get_inventory" method and the "drive_group.host_pattern" attribute
-                to obtain the list of hosts where to apply the operation
+    def apply_drivegroups(self, specs: List[DriveGroupSpec]) -> Completion:
+        """ Update OSD cluster """
+        raise NotImplementedError()
+
+    def set_unmanaged_flag(self,
+                           unmanaged_flag: bool,
+                           service_type: str = 'osd',
+                           service_name=None
+                           ) -> HandleCommandResult:
+        raise NotImplementedError()
+
+    def preview_osdspecs(self,
+                         osdspec_name: Optional[str] = 'osd',
+                         osdspecs: Optional[List[DriveGroupSpec]] = None
+                         ) -> Completion:
+        """ Get a preview for OSD deployments """
+        raise NotImplementedError()
+
+    def remove_osds(self, osd_ids: List[str],
+                    replace: bool = False,
+                    force: bool = False) -> Completion:
+        """
+        :param osd_ids: list of OSD IDs
+        :param replace: marks the OSD as being destroyed. See :ref:`orchestrator-osd-replace`
+        :param force: Forces the OSD removal process without waiting for the data to be drained first.
+        Note that this can only remove OSDs that were successfully
+        created (i.e. got an OSD ID).
+        """
+        raise NotImplementedError()
+
+    def remove_osds_status(self):
+        # type: () -> Completion
+        """
+        Returns a status of the ongoing OSD removal operations.
         """
         raise NotImplementedError()
 
@@ -1021,6 +1055,16 @@ class Orchestrator(object):
         """Update MDS cluster"""
         raise NotImplementedError()
 
+    def add_rgw(self, spec):
+        # type: (RGWSpec) -> Completion
+        """Create RGW daemon(s)"""
+        raise NotImplementedError()
+
+    def apply_rgw(self, spec):
+        # type: (RGWSpec) -> Completion
+        """Update RGW cluster"""
+        raise NotImplementedError()
+
     def add_rbd_mirror(self, spec):
         # type: (ServiceSpec) -> Completion
         """Create rbd-mirror daemon(s)"""
@@ -1041,14 +1085,14 @@ class Orchestrator(object):
         """Update NFS cluster"""
         raise NotImplementedError()
 
-    def add_rgw(self, spec):
-        # type: (RGWSpec) -> Completion
-        """Create RGW daemon(s)"""
+    def add_iscsi(self, spec):
+        # type: (IscsiServiceSpec) -> Completion
+        """Create iscsi daemon(s)"""
         raise NotImplementedError()
 
-    def apply_rgw(self, spec):
-        # type: (RGWSpec) -> Completion
-        """Update RGW cluster"""
+    def apply_iscsi(self, spec):
+        # type: (IscsiServiceSpec) -> Completion
+        """Update iscsi cluster"""
         raise NotImplementedError()
 
     def add_prometheus(self, spec):
@@ -1069,6 +1113,36 @@ class Orchestrator(object):
     def apply_node_exporter(self, spec):
         # type: (ServiceSpec) -> Completion
         """Update existing a Node-Exporter daemon(s)"""
+        raise NotImplementedError()
+
+    def add_crash(self, spec):
+        # type: (ServiceSpec) -> Completion
+        """Create a new crash service"""
+        raise NotImplementedError()
+
+    def apply_crash(self, spec):
+        # type: (ServiceSpec) -> Completion
+        """Update existing a crash daemon(s)"""
+        raise NotImplementedError()
+
+    def add_grafana(self, spec):
+        # type: (ServiceSpec) -> Completion
+        """Create a new Node-Exporter service"""
+        raise NotImplementedError()
+
+    def apply_grafana(self, spec):
+        # type: (ServiceSpec) -> Completion
+        """Update existing a Node-Exporter daemon(s)"""
+        raise NotImplementedError()
+
+    def add_alertmanager(self, spec):
+        # type: (ServiceSpec) -> Completion
+        """Create a new AlertManager service"""
+        raise NotImplementedError()
+
+    def apply_alertmanager(self, spec):
+        # type: (ServiceSpec) -> Completion
+        """Update an existing AlertManager daemon(s)"""
         raise NotImplementedError()
 
     def upgrade_check(self, image, version):
@@ -1112,53 +1186,14 @@ class Orchestrator(object):
         raise NotImplementedError()
 
 
-class HostSpec(object):
-    """
-    Information about hosts. Like e.g. ``kubectl get nodes``
-    """
-    def __init__(self,
-                 hostname,  # type: str
-                 addr=None,  # type: Optional[str]
-                 labels=None,  # type: Optional[List[str]]
-                 status=None,  # type: Optional[str]
-                 ):
-        #: the bare hostname on the host. Not the FQDN.
-        self.hostname = hostname  # type: str
+GenericSpec = Union[ServiceSpec, HostSpec]
 
-        #: DNS name or IP address to reach it
-        self.addr = addr or hostname  # type: str
-
-        #: label(s), if any
-        self.labels = labels or []  # type: List[str]
-
-        #: human readable status
-        self.status = status or ''  # type: str
-
-    def to_json(self):
-        return {
-            'hostname': self.hostname,
-            'addr': self.addr,
-            'labels': self.labels,
-            'status': self.status,
-        }
-
-    def __repr__(self):
-        args = [self.hostname]  # type: List[Any]
-        if self.addr is not None:
-            args.append(self.addr)
-        if self.labels:
-            args.append(self.labels)
-        if self.status:
-            args.append(self.status)
-
-        return "<HostSpec>({})".format(', '.join(map(repr, args)))
-
-    def __eq__(self, other):
-        # Let's omit `status` for the moment, as it is still the very same host.
-        return self.hostname == other.hostname and \
-               self.addr == other.addr and \
-               self.labels == other.labels
-
+def json_to_generic_spec(spec):
+    # type: (dict) -> GenericSpec
+    if 'service_type' in spec and spec['service_type'] == 'host':
+        return HostSpec.from_json(spec)
+    else:
+        return ServiceSpec.from_json(spec)
 
 class UpgradeStatusSpec(object):
     # Orchestrator's report on what's going on with any ongoing upgrade
@@ -1167,83 +1202,6 @@ class UpgradeStatusSpec(object):
         self.target_image = None
         self.services_complete = []  # Which daemon types are fully updated?
         self.message = ""  # Freeform description
-
-
-class PlacementSpec(object):
-    """
-    For APIs that need to specify a host subset
-    """
-    def __init__(self, label=None, hosts=None, count=None):
-        # type: (Optional[str], Optional[List], Optional[int]) -> None
-        self.label = label
-        self.hosts = []  # type: List[HostPlacementSpec]
-        if hosts:
-            if all([isinstance(host, HostPlacementSpec) for host in hosts]):
-                self.hosts = hosts
-            else:
-                self.hosts = [HostPlacementSpec.parse(x, require_network=False) for x in hosts if x]
-
-
-        self.count = count  # type: Optional[int]
-
-    def set_hosts(self, hosts):
-        # To backpopulate the .hosts attribute when using labels or count
-        # in the orchestrator backend.
-        self.hosts = hosts
-
-    @classmethod
-    def from_dict(cls, data):
-        _cls = cls(**data)
-        _cls.validate()
-        return _cls
-
-    def validate(self):
-        if self.hosts and self.label:
-            # TODO: a less generic Exception
-            raise Exception('Host and label are mutually exclusive')
-        if self.count is not None and self.count <= 0:
-            raise Exception("num/count must be > 1")
-
-    @classmethod
-    def from_strings(cls, strings):
-        # type: (Optional[List[str]]) -> PlacementSpec
-        """
-        A single integer is parsed as a count:
-        >>> PlacementSpec.from_strings('3'.split())
-        PlacementSpec(count=3)
-        A list of names is parsed as host specifications:
-        >>> PlacementSpec.from_strings('host1 host2'.split())
-        PlacementSpec(label=[HostSpec(hostname='host1', network='', name=''), HostSpec(hostname='host2', network='', name='')])
-        You can also prefix the hosts with a count as follows:
-        >>> PlacementSpec.from_strings('2 host1 host2'.split())
-        PlacementSpec(label=[HostSpec(hostname='host1', network='', name=''), HostSpec(hostname='host2', network='', name='')], count=2)
-        You can spefify labels using `label:<label>`
-        >>> PlacementSpec.from_strings('label:mon'.split())
-        PlacementSpec(label='label:mon')
-        Labels als support a count:
-        >>> PlacementSpec.from_strings('3 label:mon'.split())
-        PlacementSpec(label='label:mon', count=3)
-        >>> PlacementSpec.from_strings(None)
-        PlacementSpec()
-        """
-        strings = strings or []
-
-        count = None
-        if strings:
-            try:
-                count = int(strings[0])
-                strings = strings[1:]
-            except ValueError:
-                pass
-
-        hosts = [x for x in strings if 'label:' not in x]
-        labels = [x for x in strings if 'label:' in x]
-        if len(labels) > 1:
-            raise OrchestratorValidationError('more than one label provided: {}'.format(labels))
-
-        ps = PlacementSpec(count=count, hosts=hosts, label=labels[0] if labels else None)
-        ps.validate()
-        return ps
 
 
 def handle_type_error(method):
@@ -1280,9 +1238,16 @@ class DaemonDescription(object):
                  version=None,
                  status=None,
                  status_desc=None,
-                 last_refresh=None):
+                 last_refresh=None,
+                 created=None,
+                 started=None,
+                 last_configured=None,
+                 osdspec_affinity=None,
+                 last_deployed=None,
+                 events: Optional[List['OrchestratorEvent']]=None):
+
         # Host is at the same granularity as InventoryHost
-        self.hostname = hostname
+        self.hostname: str = hostname
 
         # Not everyone runs in containers, but enough people do to
         # justify having the container_id (runtime id) and container_image
@@ -1298,7 +1263,7 @@ class DaemonDescription(object):
         # typically either based on hostnames or on pod names.
         # This is the <foo> in mds.<foo>, the ID that will appear
         # in the FSMap/ServiceMap.
-        self.daemon_id = daemon_id
+        self.daemon_id: str = daemon_id
 
         # Service version that was deployed
         self.version = version
@@ -1312,6 +1277,16 @@ class DaemonDescription(object):
         # datetime when this info was last refreshed
         self.last_refresh = last_refresh  # type: Optional[datetime.datetime]
 
+        self.created = created    # type: Optional[datetime.datetime]
+        self.started = started    # type: Optional[datetime.datetime]
+        self.last_configured = last_configured # type: Optional[datetime.datetime]
+        self.last_deployed = last_deployed    # type: Optional[datetime.datetime]
+
+        # Affinity to a certain OSDSpec
+        self.osdspec_affinity = osdspec_affinity  # type: Optional[str]
+
+        self.events: List[OrchestratorEvent] = events or []
+
     def name(self):
         return '%s.%s' % (self.daemon_type, self.daemon_id)
 
@@ -1321,12 +1296,51 @@ class DaemonDescription(object):
             return self.name().startswith(service_name + '.')
         return False
 
+    def service_id(self):
+        def _match():
+            err = OrchestratorError("DaemonDescription: Cannot calculate service_id: " \
+                    f"daemon_id='{self.daemon_id}' hostname='{self.hostname}'")
+
+            if not self.hostname:
+                # TODO: can a DaemonDescription exist without a hostname?
+                raise err
+
+            # use the bare hostname, not the FQDN.
+            host = self.hostname.split('.')[0]
+
+            if host == self.daemon_id:
+                # daemon_id == "host"
+                return self.daemon_id
+
+            elif host in self.daemon_id:
+                # daemon_id == "service_id.host"
+                # daemon_id == "service_id.host.random"
+                pre, post = self.daemon_id.rsplit(host, 1)
+                if not pre.endswith('.'):
+                    # '.' sep missing at front of host
+                    raise err
+                elif post and not post.startswith('.'):
+                    # '.' sep missing at end of host
+                    raise err
+                return pre[:-1]
+
+            # daemon_id == "service_id.random"
+            if self.daemon_type == 'rgw':
+                v = self.daemon_id.split('.')
+                if len(v) in [3, 4]:
+                    return '.'.join(v[0:2])
+
+            # daemon_id == "service_id"
+            return self.daemon_id
+
+        if self.daemon_type in ServiceSpec.REQUIRES_SERVICE_ID:
+            return _match()
+
+        return self.daemon_id
+
     def service_name(self):
-        if self.daemon_type == 'rgw':
-            v = self.daemon_id.split('.')
-            return 'rgw.%s' % ('.'.join(v[0:2]))
-        if self.daemon_type in ['mds', 'nfs']:
-            return 'mds.%s' % (self.daemon_id.split('.')[0])
+        if self.daemon_type in ServiceSpec.REQUIRES_SERVICE_ID:
+            return f'{self.daemon_type}.{self.service_id()}'
         return self.daemon_type
 
     def __repr__(self):
@@ -1334,29 +1348,52 @@ class DaemonDescription(object):
                                                          id=self.daemon_id)
 
     def to_json(self):
-        out = {
-            'hostname': self.hostname,
-            'container_id': self.container_id,
-            'container_image_id': self.container_image_id,
-            'container_image_name': self.container_image_name,
-            'daemon_id': self.daemon_id,
-            'daemon_type': self.daemon_type,
-            'version': self.version,
-            'status': self.status,
-            'status_desc': self.status_desc,
-        }
-        if self.last_refresh:
-            out['last_refresh'] = self.last_refresh.strftime(DATEFMT)
-        return {k: v for (k, v) in out.items() if v is not None}
+        out = OrderedDict()
+        out['daemon_type'] = self.daemon_type
+        out['daemon_id'] = self.daemon_id
+        out['hostname'] = self.hostname
+        out['container_id'] = self.container_id
+        out['container_image_id'] = self.container_image_id
+        out['container_image_name'] = self.container_image_name
+        out['version'] = self.version
+        out['status'] = self.status
+        out['status_desc'] = self.status_desc
+
+        for k in ['last_refresh', 'created', 'started', 'last_deployed',
+                  'last_configured']:
+            if getattr(self, k):
+                out[k] = getattr(self, k).strftime(DATEFMT)
+
+        if self.events:
+            out['events'] = [e.to_json() for e in self.events]
+
+        empty = [k for k, v in out.items() if v is None]
+        for e in empty:
+            del out[e]
+        return out
 
     @classmethod
     @handle_type_error
     def from_json(cls, data):
-        if 'last_refresh' in data:
-            data['last_refresh'] = datetime.datetime.strptime(
-                data['last_refresh'],
-                DATEFMT)
-        return cls(**data)
+        c = data.copy()
+        event_strs = c.pop('events', [])
+        for k in ['last_refresh', 'created', 'started', 'last_deployed',
+                  'last_configured']:
+            if k in c:
+                c[k] = datetime.datetime.strptime(c[k], DATEFMT)
+        events = [OrchestratorEvent.from_json(e) for e in event_strs]
+        return cls(events=events, **c)
+
+    def __copy__(self):
+        # feel free to change this:
+        return DaemonDescription.from_json(self.to_json())
+
+    @staticmethod
+    def yaml_representer(dumper: 'yaml.SafeDumper', data: 'DaemonDescription'):
+        return dumper.represent_dict(data.to_json().items())
+
+
+yaml.add_representer(DaemonDescription, DaemonDescription.yaml_representer)
 
 class ServiceDescription(object):
     """
@@ -1372,23 +1409,21 @@ class ServiceDescription(object):
     """
 
     def __init__(self,
+                 spec: ServiceSpec,
                  container_image_id=None,
                  container_image_name=None,
-                 service_name=None,
                  rados_config_location=None,
                  service_url=None,
                  last_refresh=None,
+                 created=None,
                  size=0,
-                 running=0):
+                 running=0,
+                 events: Optional[List['OrchestratorEvent']]=None):
         # Not everyone runs in containers, but enough people do to
         # justify having the container_image_id (image hash) and container_image
         # (image name)
         self.container_image_id = container_image_id      # image hash
         self.container_image_name = container_image_name  # image friendly name
-
-        # The service_name is either a bare type (e.g., 'mgr') or
-        # type.id combination (e.g., 'mds.fsname' or 'rgw.realm.zone').
-        self.service_name = service_name
 
         # Location of the service configuration when stored in rados
         # object. Format: "rados://<pool>/[<namespace/>]<object>"
@@ -1406,186 +1441,60 @@ class ServiceDescription(object):
 
         # datetime when this info was last refreshed
         self.last_refresh = last_refresh   # type: Optional[datetime.datetime]
+        self.created = created   # type: Optional[datetime.datetime]
+
+        self.spec: ServiceSpec = spec
+
+        self.events: List[OrchestratorEvent] = events or []
 
     def service_type(self):
-        if self.service_name:
-            return self.service_name.split('.')[0]
-        return None
+        return self.spec.service_type
 
     def __repr__(self):
-        return "<ServiceDescription>({name})".format(name=self.service_name)
+        return f"<ServiceDescription of {self.spec.one_line_str()}>"
 
-    def to_json(self):
-        out = {
+    def to_json(self) -> OrderedDict:
+        out = self.spec.to_json()
+        status = {
             'container_image_id': self.container_image_id,
             'container_image_name': self.container_image_name,
-            'service_name': self.service_name,
             'rados_config_location': self.rados_config_location,
             'service_url': self.service_url,
             'size': self.size,
             'running': self.running,
+            'last_refresh': self.last_refresh,
+            'created': self.created,
         }
-        if self.last_refresh:
-            out['last_refresh'] = self.last_refresh.strftime(DATEFMT)
-        return {k: v for (k, v) in out.items() if v is not None}
+        for k in ['last_refresh', 'created']:
+            if getattr(self, k):
+                status[k] = getattr(self, k).strftime(DATEFMT)
+        status = {k: v for (k, v) in status.items() if v is not None}
+        out['status'] = status
+        if self.events:
+            out['events'] = [e.to_json() for e in self.events]
+        return out
 
     @classmethod
     @handle_type_error
-    def from_json(cls, data):
-        if 'last_refresh' in data:
-            data['last_refresh'] = datetime.datetime.strptime(
-                data['last_refresh'],
-                DATEFMT)
-        return cls(**data)
+    def from_json(cls, data: dict):
+        c = data.copy()
+        status = c.pop('status', {})
+        event_strs = c.pop('events', [])
+        spec = ServiceSpec.from_json(c)
+
+        c_status = status.copy()
+        for k in ['last_refresh', 'created']:
+            if k in c_status:
+                c_status[k] = datetime.datetime.strptime(c_status[k], DATEFMT)
+        events = [OrchestratorEvent.from_json(e) for e in event_strs]
+        return cls(spec=spec, events=events, **c_status)
+
+    @staticmethod
+    def yaml_representer(dumper: 'yaml.SafeDumper', data: 'DaemonDescription'):
+        return dumper.represent_dict(data.to_json().items())
 
 
-class ServiceSpec(object):
-    """
-    Details of service creation.
-
-    Request to the orchestrator for a cluster of daemons
-    such as MDS, RGW, iscsi gateway, MONs, MGRs, Prometheus
-
-    This structure is supposed to be enough information to
-    start the services.
-
-    """
-
-    def __init__(self, name=None, placement=None):
-        # type: (Optional[str], Optional[PlacementSpec]) -> None
-        self.placement = PlacementSpec() if placement is None else placement  # type: PlacementSpec
-
-        #: Give this set of stateless services a name: typically it would
-        #: be the name of a CephFS filesystem, RGW zone, etc.  Must be unique
-        #: within one ceph cluster. Note: Not all clusters have a name
-        self.name = name  # type: Optional[str]
-
-        if self.placement is not None and self.placement.count is not None:
-            #: Count of service instances. Deprecated.
-            self.count = self.placement.count  # type: int
-        else:
-            self.count = 1
-
-
-def servicespec_validate_add(self: ServiceSpec):
-    # This must not be a method of ServiceSpec, otherwise you'll hunt
-    # sub-interpreter affinity bugs.
-    if not self.name:
-        raise OrchestratorValidationError('Cannot add Service: Name required')
-
-
-def servicespec_validate_hosts_have_network_spec(self: ServiceSpec):
-    # This must not be a method of ServiceSpec, otherwise you'll hunt
-    # sub-interpreter affinity bugs.
-    if not self.placement.hosts:
-        raise OrchestratorValidationError('Service specification: no hosts provided')
-
-    for host, network, _ in self.placement.hosts:
-        if not network:
-            m = "Host '{host}' is missing a network spec\nE.g. {host}:1.2.3.0/24".format(
-                host=host)
-            logger.error(
-                f'validate_hosts_have_network_spec: id(OrchestratorValidationError)={id(OrchestratorValidationError)}')
-            raise OrchestratorValidationError(m)
-
-
-
-class NFSServiceSpec(ServiceSpec):
-    def __init__(self, name, pool=None, namespace=None, placement=None):
-        super(NFSServiceSpec, self).__init__(name, placement)
-
-        #: RADOS pool where NFS client recovery data is stored.
-        self.pool = pool
-
-        #: RADOS namespace where NFS client recovery data is stored in the pool.
-        self.namespace = namespace
-
-    def validate_add(self):
-        servicespec_validate_add(self)
-        
-        if not self.pool:
-            raise OrchestratorValidationError('Cannot add NFS: No Pool specified')
-
-
-class RGWSpec(ServiceSpec):
-    """
-    Settings to configure a (multisite) Ceph RGW
-
-    """
-    def __init__(self,
-                 rgw_realm,  # type: str
-                 rgw_zone,  # type: str
-                 placement=None,
-                 hosts=None,  # type: Optional[List[str]]
-                 rgw_multisite=None,  # type: Optional[bool]
-                 rgw_zonemaster=None,  # type: Optional[bool]
-                 rgw_zonesecondary=None,  # type: Optional[bool]
-                 rgw_multisite_proto=None,  # type: Optional[str]
-                 rgw_frontend_port=None,  # type: Optional[int]
-                 rgw_zonegroup=None,  # type: Optional[str]
-                 rgw_zone_user=None,  # type: Optional[str]
-                 system_access_key=None,  # type: Optional[str]
-                 system_secret_key=None,  # type: Optional[str]
-                 count=None  # type: Optional[int]
-                 ):
-        # Regarding default values. Ansible has a `set_rgwspec_defaults` that sets
-        # default values that makes sense for Ansible. Rook has default values implemented
-        # in Rook itself. Thus we don't set any defaults here in this class.
-
-        super(RGWSpec, self).__init__(name=rgw_realm + '.' + rgw_zone,
-                                      placement=placement)
-
-        #: List of hosts where RGWs should run. Not for Rook.
-        if hosts:
-            self.placement = PlacementSpec(hosts=hosts)
-
-        #: is multisite
-        self.rgw_multisite = rgw_multisite
-        self.rgw_zonemaster = rgw_zonemaster
-        self.rgw_zonesecondary = rgw_zonesecondary
-        self.rgw_multisite_proto = rgw_multisite_proto
-        self.rgw_frontend_port = rgw_frontend_port
-
-        self.rgw_realm = rgw_realm
-        self.rgw_zone = rgw_zone
-        self.rgw_zonegroup = rgw_zonegroup
-        self.rgw_zone_user = rgw_zone_user
-
-        self.system_access_key = system_access_key
-        self.system_secret_key = system_secret_key
-
-    @property
-    def rgw_multisite_endpoint_addr(self):
-        """Returns the first host. Not supported for Rook."""
-        return self.placement.hosts[0]
-
-    @property
-    def rgw_multisite_endpoints_list(self):
-        return ",".join(["{}://{}:{}".format(self.rgw_multisite_proto,
-                             host,
-                             self.rgw_frontend_port) for host in self.placement.hosts])
-
-    def genkey(self, nchars):
-        """ Returns a random string of nchars
-
-        :nchars : Length of the returned string
-        """
-        # TODO Python 3: use Secrets module instead.
-
-        return ''.join(random.choice(string.ascii_uppercase +
-                                     string.ascii_lowercase +
-                                     string.digits) for _ in range(nchars))
-
-    @classmethod
-    def from_json(cls, json_rgw_spec):
-        # type: (dict) -> RGWSpec
-        """
-        Initialize 'RGWSpec' object data from a json structure
-        :param json_rgw_spec: A valid dict with a the RGW settings
-        """
-        # TODO: also add PlacementSpec(**json_rgw_spec['placement'])
-        args = {k:v for k, v in json_rgw_spec.items()}
-        return RGWSpec(**args)
+yaml.add_representer(ServiceDescription, ServiceDescription.yaml_representer)
 
 
 class InventoryFilter(object):
@@ -1644,10 +1553,10 @@ class InventoryHost(object):
             name = _data.pop('name')
             addr = _data.pop('addr', None) or name
             devices = inventory.Devices.from_json(_data.pop('devices'))
+            labels = _data.pop('labels', list())
             if _data:
                 error_msg = 'Unknown key(s) in Inventory: {}'.format(','.join(_data.keys()))
                 raise OrchestratorValidationError(error_msg)
-            labels = _data.get('labels', list())
             return cls(name, devices, labels, addr)
         except KeyError as e:
             error_msg = '{} is required for {}'.format(e, cls.__name__)
@@ -1686,6 +1595,60 @@ class DeviceLightLoc(namedtuple('DeviceLightLoc', ['host', 'dev', 'path'])):
     __slots__ = ()
 
 
+class OrchestratorEvent:
+    """
+    Similar to K8s Events.
+
+    Some form of "important" log message attached to something.
+    """
+    INFO = 'INFO'
+    ERROR = 'ERROR'
+    regex_v1 = re.compile(r'^([^ ]+) ([^:]+):([^ ]+) \[([^\]]+)\] "(.*)"$')
+
+    def __init__(self, created: Union[str, datetime.datetime], kind, subject, level, message):
+        if isinstance(created, str):
+            created = datetime.datetime.strptime(created, DATEFMT)
+        self.created: datetime.datetime = created
+
+        assert kind in "service daemon".split()
+        self.kind: str = kind
+
+        # service name, or daemon danem or something
+        self.subject: str = subject
+
+        # Events are not meant for debugging. debugs should end in the log.
+        assert level in "INFO ERROR".split()
+        self.level = level
+
+        self.message: str = message
+
+    __slots__ = ('created', 'kind', 'subject', 'level', 'message')
+
+    def kind_subject(self) -> str:
+        return f'{self.kind}:{self.subject}'
+
+    def to_json(self) -> str:
+        # Make a long list of events readable.
+        created = self.created.strftime(DATEFMT)
+        return f'{created} {self.kind_subject()} [{self.level}] "{self.message}"'
+
+
+    @classmethod
+    @handle_type_error
+    def from_json(cls, data) -> "OrchestratorEvent":
+        """
+        >>> OrchestratorEvent.from_json('''2020-06-10T10:20:25.691255 daemon:crash.ubuntu [INFO] "Deployed crash.ubuntu on host 'ubuntu'"''').to_json()
+        '2020-06-10T10:20:25.691255 daemon:crash.ubuntu [INFO] "Deployed crash.ubuntu on host \\'ubuntu\\'"'
+
+        :param data:
+        :return:
+        """
+        match = cls.regex_v1.match(data)
+        if match:
+            return cls(*match.groups())
+        raise ValueError(f'Unable to match: "{data}"')
+
+
 def _mk_orch_methods(cls):
     # Needs to be defined outside of for.
     # Otherwise meth is always bound to last key
@@ -1722,7 +1685,8 @@ class OrchestratorClientMixin(Orchestrator):
 
 
     >>> import mgr_module
-    >>> class MyImplentation(mgr_module.MgrModule, Orchestrator):
+    >>> #doctest: +SKIP
+    ... class MyImplentation(mgr_module.MgrModule, Orchestrator):
     ...     def __init__(self, ...):
     ...         self.orch_client = OrchestratorClientMixin()
     ...         self.orch_client.set_mgr(self.mgr))
@@ -1761,7 +1725,15 @@ class OrchestratorClientMixin(Orchestrator):
             raise NoOrchestrator()
 
         mgr.log.debug("_oremote {} -> {}.{}(*{}, **{})".format(mgr.module_name, o, meth, args, kwargs))
-        return mgr.remote(o, meth, *args, **kwargs)
+        try:
+            return mgr.remote(o, meth, *args, **kwargs)
+        except Exception as e:
+            if meth == 'get_feature_set':
+                raise  # self.get_feature_set() calls self._oremote()
+            f_set = self.get_feature_set()
+            if meth not in f_set or not f_set[meth]['available']:
+                raise NotImplementedError(f'{o} does not implement {meth}') from e
+            raise
 
     def _orchestrator_wait(self, completions):
         # type: (List[Completion]) -> None
@@ -1784,108 +1756,3 @@ class OrchestratorClientMixin(Orchestrator):
                 time.sleep(1)
             else:
                 break
-
-
-class OutdatableData(object):
-    DATEFMT = '%Y-%m-%d %H:%M:%S.%f'
-
-    def __init__(self, data=None, last_refresh=None):
-        # type: (Optional[dict], Optional[datetime.datetime]) -> None
-        self._data = data
-        if data is not None and last_refresh is None:
-            self.last_refresh = datetime.datetime.utcnow()  # type: Optional[datetime.datetime]
-        else:
-            self.last_refresh = last_refresh
-
-    def json(self):
-        if self.last_refresh is not None:
-            timestr = self.last_refresh.strftime(self.DATEFMT)  # type: Optional[str]
-        else:
-            timestr = None
-
-        return {
-            "data": self._data,
-            "last_refresh": timestr,
-        }
-
-    @property
-    def data(self):
-        return self._data
-
-    # @data.setter
-    # No setter, as it doesn't work as expected: It's not saved in store automatically
-
-    @classmethod
-    def time_from_string(cls, timestr):
-        if timestr is None:
-            return None
-        # drop the 'Z' timezone indication, it's always UTC
-        timestr = timestr.rstrip('Z')
-        return datetime.datetime.strptime(timestr, cls.DATEFMT)
-
-    @classmethod
-    def from_json(cls, data):
-        return cls(data['data'], cls.time_from_string(data['last_refresh']))
-
-    def outdated(self, timeout=None):
-        if timeout is None:
-            timeout = 600
-        if self.last_refresh is None:
-            return True
-        cutoff = datetime.datetime.utcnow() - datetime.timedelta(
-            seconds=timeout)
-        return self.last_refresh < cutoff
-
-    def __repr__(self):
-        return 'OutdatableData(data={}, last_refresh={})'.format(self._data, self.last_refresh)
-
-
-class OutdatableDictMixin(object):
-    """
-    Toolbox for implementing a cache. As every orchestrator has
-    different needs, we cannot implement any logic here.
-    """
-
-    def __getitem__(self, item):
-        # type: (str) -> OutdatableData
-        return OutdatableData.from_json(super(OutdatableDictMixin, self).__getitem__(item))  # type: ignore
-
-    def __setitem__(self, key, value):
-        # type: (str, OutdatableData) -> None
-        val = None if value is None else value.json()
-        super(OutdatableDictMixin, self).__setitem__(key, val)  # type: ignore
-
-    def items(self):
-        ## type: () -> Iterator[Tuple[str, OutdatableData]]
-        for item in super(OutdatableDictMixin, self).items():  # type: ignore
-            k, v = item
-            yield k, OutdatableData.from_json(v)
-
-    def items_filtered(self, keys=None):
-        if keys:
-            return [(host, self[host]) for host in keys]
-        else:
-            return list(self.items())
-
-    def any_outdated(self, timeout=None):
-        items = self.items()
-        if not list(items):
-            return True
-        return any([i[1].outdated(timeout) for i in items])
-
-    def remove_outdated(self):
-        outdated = [item[0] for item in self.items() if item[1].outdated()]
-        for o in outdated:
-            del self[o]  # type: ignore
-
-    def invalidate(self, key):
-        self[key] = OutdatableData(self[key].data,
-                                   datetime.datetime.fromtimestamp(0))
-
-
-class OutdatablePersistentDict(OutdatableDictMixin, PersistentStoreDict):
-    pass
-
-
-class OutdatableDict(OutdatableDictMixin, dict):
-    pass

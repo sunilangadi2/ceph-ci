@@ -39,6 +39,33 @@
 #include "mds/mdstypes.h"
 #include "Session.h"
 
+using namespace TOPNSPC::common;
+
+using std::dec;
+using std::hex;
+using std::list;
+using std::map;
+using std::make_pair;
+using std::ostream;
+using std::ostringstream;
+using std::pair;
+using std::set;
+using std::string;
+using std::stringstream;
+using std::to_string;
+using std::vector;
+
+using ceph::bufferlist;
+using ceph::decode;
+using ceph::encode;
+using ceph::ErasureCodeInterfaceRef;
+using ceph::ErasureCodeProfile;
+using ceph::Formatter;
+using ceph::JSONFormatter;
+using ceph::make_message;
+using ceph::mono_clock;
+using ceph::mono_time;
+
 #define dout_subsys ceph_subsys_mon
 #undef dout_prefix
 #define dout_prefix _prefix(_dout, mon, get_fsmap())
@@ -56,6 +83,7 @@ static const string MDS_HEALTH_PREFIX("mds_health");
  * Specialized implementation of cmd_getval to allow us to parse
  * out strongly-typedef'd types
  */
+namespace TOPNSPC::common {
 template<> bool cmd_getval(const cmdmap_t& cmdmap,
 			   const std::string& k, mds_gid_t &val)
 {
@@ -73,7 +101,7 @@ template<> bool cmd_getval(const cmdmap_t& cmdmap,
 {
   return cmd_getval(cmdmap, k, (int64_t&)val);
 }
-
+}
 // my methods
 
 template <int dblV>
@@ -1162,6 +1190,23 @@ bool MDSMonitor::preprocess_command(MonOpRequestRef op)
       }
     }
     r = 0;
+  } else if (prefix == "fs feature ls") {
+    if (f) {
+      f->open_array_section("cephfs_features");
+      for (size_t i = 0; i <= CEPHFS_FEATURE_MAX; ++i) {
+	f->open_object_section("feature");
+	f->dump_int("index", i);
+	f->dump_string("name", cephfs_feature_name(i));
+	f->close_section();
+      }
+      f->close_section();
+      f->flush(ds);
+    } else {
+      for (size_t i = 0; i <= CEPHFS_FEATURE_MAX; ++i) {
+        ds << i << " " << cephfs_feature_name(i) << std::endl;
+      }
+    }
+    r = 0;
   }
 
 out:
@@ -1993,7 +2038,7 @@ bool MDSMonitor::check_health(FSMap& fsmap, bool* propose_osdmap)
   for (const auto& p : last_beacon) {
     latest_beacon = std::max(p.second.stamp, latest_beacon);
   }
-  auto since = chrono::duration<double>(now-latest_beacon);
+  auto since = std::chrono::duration<double>(now-latest_beacon);
   const bool may_replace = since.count() <
       std::max(g_conf()->mds_beacon_interval, g_conf()->mds_beacon_grace * 0.5);
 
@@ -2001,7 +2046,7 @@ bool MDSMonitor::check_health(FSMap& fsmap, bool* propose_osdmap)
   std::vector<mds_gid_t> to_remove;
   for (auto it = last_beacon.begin(); it != last_beacon.end(); ) {
     auto& [gid, beacon_info] = *it;
-    auto since_last = chrono::duration<double>(now-beacon_info.stamp);
+    auto since_last = std::chrono::duration<double>(now-beacon_info.stamp);
 
     if (!fsmap.gid_exists(gid)) {
       // gid no longer exists, remove from tracked beacons
@@ -2036,7 +2081,7 @@ bool MDSMonitor::check_health(FSMap& fsmap, bool* propose_osdmap)
   }
 
   for (const auto& gid : to_remove) {
-    auto& info = fsmap.get_info_gid(gid);
+    auto info = fsmap.get_info_gid(gid);
     const mds_info_t* rep_info = nullptr;
     if (info.rank >= 0) {
       auto fscid = fsmap.gid_fscid(gid);

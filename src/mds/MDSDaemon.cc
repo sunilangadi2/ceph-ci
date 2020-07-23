@@ -59,9 +59,10 @@
 #define dout_subsys ceph_subsys_mds
 #undef dout_prefix
 #define dout_prefix *_dout << "mds." << name << ' '
-
+using TOPNSPC::common::cmd_getval;
 // cons/des
-MDSDaemon::MDSDaemon(std::string_view n, Messenger *m, MonClient *mc) :
+MDSDaemon::MDSDaemon(std::string_view n, Messenger *m, MonClient *mc,
+		     boost::asio::io_context& ioctx) :
   Dispatcher(m->cct),
   timer(m->cct, mds_lock),
   gss_ktfile_client(m->cct->_conf.get_val<std::string>("gss_ktab_client_file")),
@@ -69,6 +70,7 @@ MDSDaemon::MDSDaemon(std::string_view n, Messenger *m, MonClient *mc) :
   name(n),
   messenger(m),
   monc(mc),
+  ioctx(ioctx),
   mgrc(m->cct, m, &mc->monmap),
   log_client(m->cct, messenger, &mc->monmap, LogClient::NO_FLAGS),
   starttime(mono_clock::now())
@@ -113,7 +115,7 @@ public:
     Formatter *f,
     std::ostream& errss,
     ceph::buffer::list& out) override {
-    ceph_abort("shoudl go to call_async");
+    ceph_abort("should go to call_async");
   }
   void call_async(
     std::string_view command,
@@ -192,7 +194,7 @@ void MDSDaemon::asok_command(
       try {
 	mds_rank->handle_asok_command(command, cmdmap, f, inbl, on_finish);
 	return;
-      } catch (const bad_cmd_get& e) {
+      } catch (const TOPNSPC::common::bad_cmd_get& e) {
 	ss << e.what();
 	r = -EINVAL;
       }
@@ -620,7 +622,7 @@ void MDSDaemon::handle_command(const cref_t<MCommand> &m)
     r = -EINVAL;
     ss << "no command given";
     outs = ss.str();
-  } else if (!cmdmap_from_json(m->cmd, &cmdmap, ss)) {
+  } else if (!TOPNSPC::common::cmdmap_from_json(m->cmd, &cmdmap, ss)) {
     r = -EINVAL;
     outs = ss.str();
   } else {
@@ -741,10 +743,12 @@ void MDSDaemon::handle_mds_map(const cref_t<MMDSMap> &m)
 
     // Did I previously not hold a rank?  Initialize!
     if (mds_rank == NULL) {
-      mds_rank = new MDSRankDispatcher(whoami, mds_lock, clog,
-          timer, beacon, mdsmap, messenger, monc, &mgrc,
-          new LambdaContext([this](int r){respawn();}),
-          new LambdaContext([this](int r){suicide();}));
+      mds_rank = new MDSRankDispatcher(
+	whoami, mds_lock, clog,
+	timer, beacon, mdsmap, messenger, monc, &mgrc,
+	new LambdaContext([this](int r){respawn();}),
+	new LambdaContext([this](int r){suicide();}),
+	ioctx);
       dout(10) <<  __func__ << ": initializing MDS rank "
                << mds_rank->get_nodeid() << dendl;
       mds_rank->init();
@@ -904,6 +908,17 @@ bool MDSDaemon::ms_dispatch2(const ref_t<Message> &m)
 /*
  * high priority messages we always process
  */
+
+#define ALLOW_MESSAGES_FROM(peers)                                      \
+  do {                                                                  \
+    if (m->get_connection() && (m->get_connection()->get_peer_type() & (peers)) == 0) { \
+      dout(0) << __FILE__ << "." << __LINE__ << ": filtered out request, peer=" \
+              << m->get_connection()->get_peer_type() << " allowing="   \
+              << #peers << " message=" << *m << dendl;                  \
+      return true;                                                      \
+    }                                                                   \
+  } while (0)
+
 bool MDSDaemon::handle_core_message(const cref_t<Message> &m)
 {
   switch (m->get_type()) {

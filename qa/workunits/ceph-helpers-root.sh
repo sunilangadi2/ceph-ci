@@ -50,15 +50,6 @@ function install_one() {
     esac
 }
 
-function install_cmake3_on_xenial {
-    install_pkg_on_ubuntu \
-	ceph-cmake \
-	d278b9d28de0f6b88f56dfe1e8bf684a41577210 \
-	xenial \
-	force \
-	cmake
-}
-
 function install_pkg_on_ubuntu {
     local project=$1
     shift
@@ -108,7 +99,7 @@ function pool_read_write() {
 
     ceph osd pool delete $test_pool $test_pool --yes-i-really-really-mean-it || return 1
     ceph osd pool create $test_pool 4 || return 1
-    ceph osd pool set $test_pool size $size || return 1
+    ceph osd pool set $test_pool size $size --yes-i-really-mean-it || return 1
     ceph osd pool set $test_pool min_size $size || return 1
     ceph osd pool application enable $test_pool rados
 

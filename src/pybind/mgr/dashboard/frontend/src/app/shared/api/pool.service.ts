@@ -7,11 +7,10 @@ import { map } from 'rxjs/operators';
 import { cdEncode } from '../decorators/cd-encode';
 import { RbdConfigurationEntry } from '../models/configuration';
 import { RbdConfigurationService } from '../services/rbd-configuration.service';
-import { ApiModule } from './api.module';
 
 @cdEncode
 @Injectable({
-  providedIn: ApiModule
+  providedIn: 'root'
 })
 export class PoolService {
   apiPath = 'api/pool';
@@ -59,8 +58,8 @@ export class PoolService {
     );
   }
 
-  getInfo(pool_name?: string) {
-    return this.http.get(`${this.apiPath}/_info` + (pool_name ? `?pool_name=${pool_name}` : ''));
+  getInfo() {
+    return this.http.get(`ui-${this.apiPath}/info`);
   }
 
   list(attrs: string[] = []) {

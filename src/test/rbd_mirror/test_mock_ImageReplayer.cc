@@ -175,7 +175,8 @@ struct StateBuilder<librbd::MockTestImageCtx> {
   }
 
   MOCK_METHOD1(close, void(Context*));
-  MOCK_METHOD4(create_replayer, Replayer*(Threads<librbd::MockTestImageCtx>*,
+  MOCK_METHOD5(create_replayer, Replayer*(Threads<librbd::MockTestImageCtx>*,
+                                          InstanceWatcher<librbd::MockTestImageCtx>*,
                                           const std::string&, PoolMetaCache*,
                                           ReplayerListener*));
 
@@ -301,9 +302,9 @@ public:
 
   void expect_create_replayer(MockStateBuilder& mock_state_builder,
                               MockReplayer& mock_replayer) {
-    EXPECT_CALL(mock_state_builder, create_replayer(_, _, _, _))
-      .WillOnce(WithArg<3>(
-        Invoke([this, &mock_replayer]
+    EXPECT_CALL(mock_state_builder, create_replayer(_, _, _, _, _))
+      .WillOnce(WithArg<4>(
+        Invoke([&mock_replayer]
                (image_replayer::ReplayerListener* replayer_listener) {
           mock_replayer.replayer_listener = replayer_listener;
           return &mock_replayer;
@@ -319,14 +320,14 @@ public:
 
   void expect_init(MockReplayer& mock_replayer, int r) {
     EXPECT_CALL(mock_replayer, init(_))
-      .WillOnce(Invoke([this, &mock_replayer, r](Context* ctx) {
+      .WillOnce(Invoke([this, r](Context* ctx) {
                   m_threads->work_queue->queue(ctx, r);
                 }));
   }
 
   void expect_shut_down(MockReplayer& mock_replayer, int r) {
     EXPECT_CALL(mock_replayer, shut_down(_))
-      .WillOnce(Invoke([this, &mock_replayer, r](Context* ctx) {
+      .WillOnce(Invoke([this, r](Context* ctx) {
                   m_threads->work_queue->queue(ctx, r);
                 }));
     EXPECT_CALL(mock_replayer, destroy());

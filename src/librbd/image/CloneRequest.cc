@@ -8,12 +8,14 @@
 #include "include/ceph_assert.h"
 #include "librbd/ImageState.h"
 #include "librbd/Utils.h"
+#include "librbd/asio/ContextWQ.h"
 #include "librbd/deep_copy/MetadataCopyRequest.h"
 #include "librbd/image/AttachChildRequest.h"
 #include "librbd/image/AttachParentRequest.h"
 #include "librbd/image/CloneRequest.h"
 #include "librbd/image/CreateRequest.h"
 #include "librbd/image/RemoveRequest.h"
+#include "librbd/image/Types.h"
 #include "librbd/mirror/EnableRequest.h"
 
 #define dout_subsys ceph_subsys_rbd
@@ -45,7 +47,7 @@ CloneRequest<I>::CloneRequest(
     cls::rbd::MirrorImageMode mirror_image_mode,
     const std::string &non_primary_global_image_id,
     const std::string &primary_mirror_uuid,
-    ContextWQ *op_work_queue, Context *on_finish)
+    asio::ContextWQ *op_work_queue, Context *on_finish)
   : m_config(config), m_parent_io_ctx(parent_io_ctx),
     m_parent_image_id(parent_image_id), m_parent_snap_name(parent_snap_name),
     m_parent_snap_namespace(parent_snap_namespace),
@@ -281,12 +283,23 @@ void CloneRequest<I>::create_child() {
   }
   m_opts.set(RBD_IMAGE_OPTION_FEATURES, m_features);
 
+  uint64_t stripe_unit = m_parent_image_ctx->stripe_unit;
+  if (m_opts.get(RBD_IMAGE_OPTION_STRIPE_UNIT, &stripe_unit) != 0) {
+    m_opts.set(RBD_IMAGE_OPTION_STRIPE_UNIT, stripe_unit);
+  }
+
+  uint64_t stripe_count = m_parent_image_ctx->stripe_count;
+  if (m_opts.get(RBD_IMAGE_OPTION_STRIPE_COUNT, &stripe_count) != 0) {
+    m_opts.set(RBD_IMAGE_OPTION_STRIPE_COUNT, stripe_count);
+  }
+
   using klass = CloneRequest<I>;
   Context *ctx = create_context_callback<
     klass, &klass::handle_create_child>(this);
 
-  CreateRequest<I> *req = CreateRequest<I>::create(
-    m_config, m_ioctx, m_name, m_id, m_size, m_opts, true,
+  auto req = CreateRequest<I>::create(
+    m_config, m_ioctx, m_name, m_id, m_size, m_opts,
+    image::CREATE_FLAG_SKIP_MIRROR_ENABLE,
     cls::rbd::MIRROR_IMAGE_MODE_JOURNAL, m_non_primary_global_image_id,
     m_primary_mirror_uuid, m_op_work_queue, ctx);
   req->send();
@@ -424,7 +437,17 @@ template <typename I>
 void CloneRequest<I>::get_mirror_mode() {
   ldout(m_cct, 15) << dendl;
 
-  if (!m_imctx->test_features(RBD_FEATURE_JOURNALING)) {
+  uint64_t mirror_image_mode;
+  if (!m_non_primary_global_image_id.empty()) {
+    enable_mirror();
+    return;
+  } else if (m_opts.get(RBD_IMAGE_OPTION_MIRROR_IMAGE_MODE,
+                        &mirror_image_mode) == 0) {
+    m_mirror_image_mode = static_cast<cls::rbd::MirrorImageMode>(
+      mirror_image_mode);
+    enable_mirror();
+    return;
+  } else if (!m_imctx->test_features(RBD_FEATURE_JOURNALING)) {
     close_child();
     return;
   }
@@ -455,15 +478,13 @@ void CloneRequest<I>::handle_get_mirror_mode(int r) {
                  << dendl;
 
     m_r_saved = r;
-    close_child();
-  } else {
-    if (m_mirror_mode == cls::rbd::MIRROR_MODE_POOL ||
-	!m_non_primary_global_image_id.empty()) {
-      enable_mirror();
-    } else {
-      close_child();
-    }
+  } else if (m_mirror_mode == cls::rbd::MIRROR_MODE_POOL) {
+    m_mirror_image_mode = cls::rbd::MIRROR_IMAGE_MODE_JOURNAL;
+    enable_mirror();
+    return;
   }
+
+  close_child();
 }
 
 template <typename I>
@@ -474,8 +495,7 @@ void CloneRequest<I>::enable_mirror() {
   Context *ctx = create_context_callback<
     klass, &klass::handle_enable_mirror>(this);
   auto req = mirror::EnableRequest<I>::create(
-    m_imctx->md_ctx, m_id, m_mirror_image_mode, m_non_primary_global_image_id,
-    m_imctx->op_work_queue, ctx);
+    m_imctx, m_mirror_image_mode, m_non_primary_global_image_id, true, ctx);
   req->send();
 }
 

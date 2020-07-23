@@ -10,6 +10,7 @@
 #include "include/rbd/features.h"
 #include "common/config.h"
 #include "common/errno.h"
+#include "common/escape.h"
 #include "common/safe_io.h"
 #include "global/global_context.h"
 #include <iostream>
@@ -22,6 +23,24 @@ namespace utils {
 
 namespace at = argument_types;
 namespace po = boost::program_options;
+
+namespace {
+
+static std::string mgr_command_args_to_str(
+    const std::map<std::string, std::string> &args) {
+  std::string out = "";
+
+  std::string delimiter;
+  for (auto &it : args) {
+    out += delimiter + "\"" + it.first + "\": \"" +
+      stringify(json_stream_escaper(it.second)) + "\"";
+    delimiter = ",\n";
+  }
+
+  return out;
+}
+
+} // anonymous namespace
 
 int ProgressContext::update_progress(uint64_t offset, uint64_t total) {
   if (progress) {
@@ -420,8 +439,6 @@ int get_image_options(const boost::program_options::variables_map &vm,
 
   if (vm.count(at::IMAGE_ORDER)) {
     order = vm[at::IMAGE_ORDER].as<uint64_t>();
-    std::cerr << "rbd: --order is deprecated, use --object-size"
-	      << std::endl;
   } else if (vm.count(at::IMAGE_OBJECT_SIZE)) {
     object_size = vm[at::IMAGE_OBJECT_SIZE].as<uint64_t>();
     order = std::round(std::log2(object_size));
@@ -538,6 +555,11 @@ int get_image_options(const boost::program_options::variables_map &vm,
     return r;
   }
 
+  if (vm.count(at::IMAGE_MIRROR_IMAGE_MODE)) {
+    opts->set(RBD_IMAGE_OPTION_MIRROR_IMAGE_MODE,
+              vm[at::IMAGE_MIRROR_IMAGE_MODE].as<librbd::mirror_image_mode_t>());
+  }
+
   return 0;
 }
 
@@ -630,6 +652,24 @@ int get_formatter(const po::variables_map &vm,
     std::cerr << "rbd: --pretty-format only works when --format "
               << "is json or xml" << std::endl;
     return -EINVAL;
+  }
+  return 0;
+}
+
+int get_snap_create_flags(const po::variables_map &vm, uint32_t *flags) {
+  if (vm[at::SKIP_QUIESCE].as<bool>() &&
+      vm[at::IGNORE_QUIESCE_ERROR].as<bool>()) {
+    std::cerr << "rbd: " << at::IGNORE_QUIESCE_ERROR
+              << " cannot be used together with " << at::SKIP_QUIESCE
+              << std::endl;
+    return -EINVAL;
+  }
+
+  *flags = 0;
+  if (vm[at::SKIP_QUIESCE].as<bool>()) {
+    *flags |= RBD_SNAP_CREATE_SKIP_QUIESCE;
+  } else if (vm[at::IGNORE_QUIESCE_ERROR].as<bool>()) {
+    *flags |= RBD_SNAP_CREATE_IGNORE_QUIESCE_ERROR;
   }
   return 0;
 }
@@ -1015,6 +1055,34 @@ void populate_unknown_mirror_image_site_statuses(
   }
 
   std::swap(global_status->site_statuses, site_statuses);
+}
+
+int mgr_command(librados::Rados& rados, const std::string& cmd,
+                const std::map<std::string, std::string> &args,
+                std::ostream *out_os, std::ostream *err_os) {
+  std::string command = R"(
+    {
+      "prefix": ")" + cmd + R"(", )" + mgr_command_args_to_str(args) + R"(
+    })";
+
+  bufferlist in_bl;
+  bufferlist out_bl;
+  std::string outs;
+  int r = rados.mgr_command(command, in_bl, &out_bl, &outs);
+  if (r < 0) {
+    (*err_os) << "rbd: " << cmd << " failed: " << cpp_strerror(r);
+    if (!outs.empty()) {
+      (*err_os) << ": " << outs;
+    }
+    (*err_os) << std::endl;
+    return r;
+  }
+
+  if (out_bl.length() != 0) {
+    (*out_os) << out_bl.c_str();
+  }
+
+  return 0;
 }
 
 } // namespace utils

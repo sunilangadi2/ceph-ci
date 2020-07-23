@@ -201,7 +201,7 @@ COMMAND("log name=logtext,type=CephString,n=N",
 COMMAND("log last "
         "name=num,type=CephInt,range=1,req=false "
         "name=level,type=CephChoices,strings=debug|info|sec|warn|error,req=false "
-        "name=channel,type=CephChoices,strings=*|cluster|audit,req=false",
+        "name=channel,type=CephChoices,strings=*|cluster|audit|cephadm,req=false",
 	"print last few lines of the cluster log",
 	"mon", "r")
 
@@ -405,6 +405,17 @@ COMMAND("fs flag set name=flag_name,type=CephChoices,strings=enable_multiple "
 	"name=yes_i_really_mean_it,type=CephBool,req=false",
 	"Set a global CephFS flag",
 	"fs", "rw")
+
+COMMAND("fs feature ls",
+        "list available cephfs features to be set/unset",
+	"mds", "r")
+
+COMMAND("fs required_client_features "
+        "name=fs_name,type=CephString "
+        "name=subop,type=CephChoices,strings=add|rm "
+        "name=val,type=CephString ",
+        "add/remove required features of clients", "mds", "rw")
+
 COMMAND("fs add_data_pool name=fs_name,type=CephString "
 	"name=pool,type=CephString",
 	"add data pool <pool>", "mds", "rw")
@@ -794,7 +805,7 @@ COMMAND("osd unset "
 	"notieragent|nosnaptrim",
 	"unset <key>", "osd", "rw")
 COMMAND("osd require-osd-release "\
-	"name=release,type=CephChoices,strings=luminous|mimic|nautilus|octopus "
+	"name=release,type=CephChoices,strings=luminous|mimic|nautilus|octopus|pacific "
         "name=yes_i_really_mean_it,type=CephBool,req=false",
 	"set the minimum allowed OSD release to participate in the cluster",
 	"osd", "rw")
@@ -894,7 +905,7 @@ COMMAND("osd reweight "
 	"reweight osd to 0.0 < <weight> < 1.0", "osd", "rw")
 COMMAND("osd reweightn "
 	"name=weights,type=CephString",
-	"reweight osds with {<id>: <weight>,...})",
+	"reweight osds with {<id>: <weight>,...}",
 	"osd", "rw")
 COMMAND("osd force-create-pg "
 	"name=pgid,type=CephPgid "\
@@ -1099,7 +1110,7 @@ COMMAND_WITH_FLAG("osd tier remove "
     FLAG(DEPRECATED))
 COMMAND("osd tier cache-mode "
 	"name=pool,type=CephPoolname "
-	"name=mode,type=CephChoices,strings=none|writeback|forward|readonly|readforward|proxy|readproxy "
+	"name=mode,type=CephChoices,strings=writeback|readproxy|readonly|none "
 	"name=yes_i_really_mean_it,type=CephBool,req=false",
 	"specify the caching mode for cache tier <pool>", "osd", "rw")
 COMMAND("osd tier set-overlay "
@@ -1161,7 +1172,7 @@ COMMAND("mgr dump "
 	"name=epoch,type=CephInt,range=0,req=false",
 	"dump the latest MgrMap",
 	"mgr", "r")
-COMMAND("mgr fail name=who,type=CephString",
+COMMAND("mgr fail name=who,type=CephString,req=false",
 	"treat the named manager daemon as failed", "mgr", "rw")
 COMMAND("mgr module ls",
 	"list active mgr modules", "mgr", "r")

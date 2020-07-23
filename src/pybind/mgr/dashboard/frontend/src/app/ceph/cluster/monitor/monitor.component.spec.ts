@@ -4,7 +4,7 @@ import { ComponentFixture, TestBed } from '@angular/core/testing';
 
 import { of } from 'rxjs';
 
-import { configureTestBed, i18nProviders } from '../../../../testing/unit-test-helper';
+import { configureTestBed } from '../../../../testing/unit-test-helper';
 import { MonitorService } from '../../../shared/api/monitor.service';
 import { MonitorComponent } from './monitor.component';
 
@@ -17,7 +17,7 @@ describe('MonitorComponent', () => {
     imports: [HttpClientTestingModule],
     declarations: [MonitorComponent],
     schemas: [NO_ERRORS_SCHEMA],
-    providers: [MonitorService, i18nProviders]
+    providers: [MonitorService]
   });
 
   beforeEach(() => {
@@ -29,19 +29,37 @@ describe('MonitorComponent', () => {
           stats: { num_sessions: [[1, 5]] }
         },
         {
-          stats: { num_sessions: [[1, 1], [2, 10], [3, 1]] }
+          stats: {
+            num_sessions: [
+              [1, 1],
+              [2, 10],
+              [3, 1]
+            ]
+          }
         },
         {
-          stats: { num_sessions: [[1, 0], [2, 3]] }
+          stats: {
+            num_sessions: [
+              [1, 0],
+              [2, 3]
+            ]
+          }
         },
         {
-          stats: { num_sessions: [[1, 2], [2, 1], [3, 7], [4, 5]] }
+          stats: {
+            num_sessions: [
+              [1, 2],
+              [2, 1],
+              [3, 7],
+              [4, 5]
+            ]
+          }
         }
       ],
       mon_status: null,
       out_quorum: []
     };
-    getMonitorSpy = spyOn(TestBed.get(MonitorService), 'getMonitor').and.returnValue(
+    getMonitorSpy = spyOn(TestBed.inject(MonitorService), 'getMonitor').and.returnValue(
       of(getMonitorPayload)
     );
   });

@@ -1,13 +1,15 @@
 # -*- coding: utf-8 -*-
 from __future__ import absolute_import
-
 import logging
 
-from orchestrator import InventoryFilter, DeviceLightLoc, Completion
-from orchestrator import OrchestratorClientMixin, raise_if_exception, OrchestratorError
-from .. import mgr
-from ..tools import wraps
+from functools import wraps
+from typing import List, Optional
 
+from orchestrator import InventoryFilter, DeviceLightLoc, Completion
+from orchestrator import ServiceDescription, DaemonDescription
+from orchestrator import OrchestratorClientMixin, raise_if_exception, OrchestratorError
+from orchestrator import HostSpec
+from .. import mgr
 
 logger = logging.getLogger('orchestrator')
 
@@ -16,7 +18,7 @@ logger = logging.getLogger('orchestrator')
 class OrchestratorAPI(OrchestratorClientMixin):
     def __init__(self):
         super(OrchestratorAPI, self).__init__()
-        self.set_mgr(mgr)
+        self.set_mgr(mgr)  # type: ignore
 
     def status(self):
         try:
@@ -24,8 +26,9 @@ class OrchestratorAPI(OrchestratorClientMixin):
             logger.info("is orchestrator available: %s, %s", status, desc)
             return dict(available=status, description=desc)
         except (RuntimeError, OrchestratorError, ImportError):
-            return dict(available=False,
-                        description='Orchestrator is unavailable for unknown reason')
+            return dict(
+                available=False,
+                description='Orchestrator is unavailable for unknown reason')
 
     def orchestrator_wait(self, completions):
         return self._orchestrator_wait(completions)
@@ -47,26 +50,32 @@ class ResourceManager(object):
 
 
 class HostManger(ResourceManager):
-
     @wait_api_result
-    def list(self):
+    def list(self) -> List[HostSpec]:
         return self.api.get_hosts()
 
-    def get(self, hostname):
-        hosts = [host for host in self.list() if host.name == hostname]
+    def get(self, hostname: str) -> Optional[HostSpec]:
+        hosts = [host for host in self.list() if host.hostname == hostname]
         return hosts[0] if hosts else None
 
     @wait_api_result
-    def add(self, hostname):
-        return self.api.add_host(hostname)
+    def add(self, hostname: str):
+        return self.api.add_host(HostSpec(hostname))
 
     @wait_api_result
-    def remove(self, hostname):
+    def remove(self, hostname: str):
         return self.api.remove_host(hostname)
+
+    @wait_api_result
+    def add_label(self, host: str, label: str) -> Completion:
+        return self.api.add_host_label(host, label)
+
+    @wait_api_result
+    def remove_label(self, host: str, label: str) -> Completion:
+        return self.api.remove_host_label(host, label)
 
 
 class InventoryManager(ResourceManager):
-
     @wait_api_result
     def list(self, hosts=None, refresh=False):
         host_filter = InventoryFilter(hosts=hosts) if hosts else None
@@ -74,28 +83,46 @@ class InventoryManager(ResourceManager):
 
 
 class ServiceManager(ResourceManager):
+    @wait_api_result
+    def list(self, service_name: Optional[str] = None) -> List[ServiceDescription]:
+        return self.api.describe_service(None, service_name)
 
     @wait_api_result
-    def list(self, service_type=None, service_id=None, host_name=None):
-        return self.api.list_daemons(service_type, service_id, host_name)
+    def get(self, service_name: str) -> ServiceDescription:
+        return self.api.describe_service(None, service_name)
+
+    @wait_api_result
+    def list_daemons(self,
+                     service_name: Optional[str] = None,
+                     hostname: Optional[str] = None) -> List[DaemonDescription]:
+        return self.api.list_daemons(service_name, host=hostname)
 
     def reload(self, service_type, service_ids):
         if not isinstance(service_ids, list):
             service_ids = [service_ids]
 
-        completion_list = [self.api.service_action('reload', service_type,
-                                                   service_name, service_id)
-                           for service_name, service_id in service_ids]
+        completion_list = [
+            self.api.service_action('reload', service_type, service_name,
+                                    service_id)
+            for service_name, service_id in service_ids
+        ]
         self.api.orchestrator_wait(completion_list)
         for c in completion_list:
             raise_if_exception(c)
 
 
 class OsdManager(ResourceManager):
+    @wait_api_result
+    def create(self, drive_group_specs):
+        return self.api.apply_drivegroups(drive_group_specs)
 
     @wait_api_result
-    def create(self, drive_group):
-        return self.api.create_osds([drive_group])
+    def remove(self, osd_ids, replace=False, force=False):
+        return self.api.remove_osds(osd_ids, replace, force)
+
+    @wait_api_result
+    def removing_status(self):
+        return self.api.remove_osds_status()
 
 
 class OrchClient(object):
@@ -125,4 +152,5 @@ class OrchClient(object):
     @wait_api_result
     def blink_device_light(self, hostname, device, ident_fault, on):
         # type: (str, str, str, bool) -> Completion
-        return self.api.blink_device_light(ident_fault, on, [DeviceLightLoc(hostname, device)])
+        return self.api.blink_device_light(
+            ident_fault, on, [DeviceLightLoc(hostname, device, device)])

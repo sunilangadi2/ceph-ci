@@ -23,7 +23,7 @@ using librbd::util::create_rados_callback;
 
 template <typename I>
 GetInfoRequest<I>::GetInfoRequest(librados::IoCtx& io_ctx,
-                                  ContextWQ *op_work_queue,
+                                  asio::ContextWQ *op_work_queue,
                                   const std::string &image_id,
                                   cls::rbd::MirrorImage *mirror_image,
                                   PromotionState *promotion_state,
@@ -168,7 +168,16 @@ void GetInfoRequest<I>::handle_get_snapcontext(int r) {
     r = cls_client::get_snapcontext_finish(&it, &m_snapc);
   }
 
-  if (r < 0) {
+  if (r == -ENOENT &&
+      m_mirror_image->state == cls::rbd::MIRROR_IMAGE_STATE_CREATING) {
+    // image doesn't exist but we have a mirror image record for it
+    ldout(m_cct, 10) << "image does not exist for mirror image id "
+                     << m_image_id << dendl;
+    *m_promotion_state = PROMOTION_STATE_UNKNOWN;
+    *m_primary_mirror_uuid = "";
+    finish(0);
+    return;
+  } else if (r < 0) {
     lderr(m_cct) << "failed to get snapcontext: " << cpp_strerror(r)
                  << dendl;
     finish(r);
@@ -252,6 +261,7 @@ void GetInfoRequest<I>::calc_promotion_state(
   for (auto it = snap_info.rbegin(); it != snap_info.rend(); it++) {
     auto mirror_ns = boost::get<cls::rbd::MirrorSnapshotNamespace>(
       &it->second.snap_namespace);
+
     if (mirror_ns != nullptr) {
       switch (mirror_ns->state) {
       case cls::rbd::MIRROR_SNAPSHOT_STATE_PRIMARY:
@@ -259,6 +269,7 @@ void GetInfoRequest<I>::calc_promotion_state(
         break;
       case cls::rbd::MIRROR_SNAPSHOT_STATE_NON_PRIMARY:
         *m_promotion_state = PROMOTION_STATE_NON_PRIMARY;
+        *m_primary_mirror_uuid = mirror_ns->primary_mirror_uuid;
         break;
       case cls::rbd::MIRROR_SNAPSHOT_STATE_PRIMARY_DEMOTED:
       case cls::rbd::MIRROR_SNAPSHOT_STATE_NON_PRIMARY_DEMOTED:

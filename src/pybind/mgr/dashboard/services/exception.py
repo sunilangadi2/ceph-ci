@@ -4,64 +4,18 @@ from __future__ import absolute_import
 import json
 from contextlib import contextmanager
 import logging
-import six
 
 import cherrypy
 
+from orchestrator import OrchestratorError
 import rbd
 import rados
 
 from ..services.ceph_service import SendCommandError
 from ..exceptions import ViewCacheNoDataException, DashboardException
-from ..tools import wraps
 
 
 logger = logging.getLogger('exception')
-
-
-if six.PY2:
-    # Monkey-patch a __call__ method into @contextmanager to make
-    # it compatible to Python 3
-
-    # pylint: disable=no-name-in-module,ungrouped-imports
-    from contextlib import GeneratorContextManager
-
-    def init(self, *args):
-        if len(args) == 1:
-            self.gen = args[0]
-        elif len(args) == 3:
-            self.func, self.args, self.kwargs = args
-        else:
-            raise TypeError()
-
-    def enter(self):
-        if hasattr(self, 'func'):
-            self.gen = self.func(*self.args, **self.kwargs)
-        try:
-            return self.gen.next()
-        except StopIteration:
-            raise RuntimeError("generator didn't yield")
-
-    def call(self, f):
-        @wraps(f)
-        def wrapper(*args, **kwargs):
-            with self:
-                return f(*args, **kwargs)
-
-        return wrapper
-
-    GeneratorContextManager.__init__ = init
-    GeneratorContextManager.__enter__ = enter
-    GeneratorContextManager.__call__ = call
-
-    # pylint: disable=function-redefined
-    def contextmanager(func):  # noqa: F811
-
-        @wraps(func)
-        def helper(*args, **kwds):
-            return GeneratorContextManager(func, args, kwds)
-
-        return helper
 
 
 def serialize_dashboard_exception(e, include_http_status=False, task=None):
@@ -83,7 +37,7 @@ def serialize_dashboard_exception(e, include_http_status=False, task=None):
     if include_http_status:
         out['status'] = getattr(e, 'status', 500)
     if task:
-        out['task'] = dict(name=task.name, metadata=task.metadata)
+        out['task'] = dict(name=task.name, metadata=task.metadata)  # type: ignore
     return out
 
 
@@ -131,6 +85,5 @@ def handle_send_command_error(component):
 def handle_orchestrator_error(component):
     try:
         yield
-    except RuntimeError as e:
-        # how to catch remote error e.g. NotImplementedError ?
+    except OrchestratorError as e:
         raise DashboardException(e, component=component)

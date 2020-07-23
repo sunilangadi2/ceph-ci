@@ -323,7 +323,7 @@ PyObject *ActivePyModules::get_python(const std::string &what)
     cluster_state.with_pgmap(
       [&f, &tstate](const PGMap &pg_map) {
         PyEval_RestoreThread(tstate);
-	pg_map.dump(&f);
+	pg_map.dump(&f, false);
       }
     );
     return f.get();
@@ -369,11 +369,36 @@ PyObject *ActivePyModules::get_python(const std::string &what)
         pg_map.dump_pool_stats_full(osd_map, nullptr, &f, true);
       });
     return f.get();
+  } else if (what == "pg_stats") {
+    cluster_state.with_pgmap(
+        [&f, &tstate](const PGMap &pg_map) {
+      PyEval_RestoreThread(tstate);
+      pg_map.dump_pg_stats(&f, false);
+    });
+    return f.get();
+  } else if (what == "pool_stats") {
+    cluster_state.with_pgmap(
+        [&f, &tstate](const PGMap &pg_map) {
+      PyEval_RestoreThread(tstate);
+      pg_map.dump_pool_stats(&f);
+    });
+    return f.get();
+  } else if (what == "pg_ready") {
+    PyEval_RestoreThread(tstate);
+    server.dump_pg_ready(&f);
+    return f.get();
   } else if (what == "osd_stats") {
     cluster_state.with_pgmap(
         [&f, &tstate](const PGMap &pg_map) {
       PyEval_RestoreThread(tstate);
       pg_map.dump_osd_stats(&f, false);
+    });
+    return f.get();
+  } else if (what == "osd_ping_times") {
+    cluster_state.with_pgmap(
+        [&f, &tstate](const PGMap &pg_map) {
+      PyEval_RestoreThread(tstate);
+      pg_map.dump_osd_ping_times(&f);
     });
     return f.get();
   } else if (what == "osd_pool_stats") {
@@ -389,18 +414,19 @@ PyObject *ActivePyModules::get_python(const std::string &what)
         f.close_section();
     });
     return f.get();
-  } else if (what == "health" || what == "mon_status") {
-    bufferlist json;
-    if (what == "health") {
-      json = cluster_state.get_health();
-    } else if (what == "mon_status") {
-      json = cluster_state.get_mon_status();
-    } else {
-      ceph_abort();
-    }
-
-    PyEval_RestoreThread(tstate);
-    f.dump_string("json", json.to_str());
+  } else if (what == "health") {
+    cluster_state.with_health(
+        [&f, &tstate](const ceph::bufferlist &health_json) {
+      PyEval_RestoreThread(tstate);
+      f.dump_string("json", health_json.to_str());
+    });
+    return f.get();
+  } else if (what == "mon_status") {
+    cluster_state.with_mon_status(
+        [&f, &tstate](const ceph::bufferlist &mon_status_json) {
+      PyEval_RestoreThread(tstate);
+      f.dump_string("json", mon_status_json.to_str());
+    });
     return f.get();
   } else if (what == "mgr_map") {
     cluster_state.with_mgrmap([&f, &tstate](const MgrMap &mgr_map) {
@@ -420,21 +446,22 @@ void ActivePyModules::start_one(PyModuleRef py_module)
   std::lock_guard l(lock);
 
   const auto name = py_module->get_name();
-  auto em = modules.emplace(name,
-      std::make_shared<ActivePyModule>(py_module, clog));
-  ceph_assert(em.second); // actually inserted
-  auto& active_module = em.first->second;
+  auto active_module = std::make_shared<ActivePyModule>(py_module, clog);
 
+  pending_modules.insert(name);
   // Send all python calls down a Finisher to avoid blocking
   // C++ code, and avoid any potential lock cycles.
   finisher.queue(new LambdaContext([this, active_module, name](int) {
     int r = active_module->load(this);
+    std::lock_guard l(lock);
+    pending_modules.erase(name);
     if (r != 0) {
       derr << "Failed to run module in active mode ('" << name << "')"
            << dendl;
-      std::lock_guard l(lock);
-      modules.erase(name);
     } else {
+      auto em = modules.emplace(name, active_module);
+      ceph_assert(em.second); // actually inserted
+
       dout(4) << "Starting thread for " << name << dendl;
       active_module->thread.create(active_module->get_thread_name());
     }
@@ -1074,11 +1101,25 @@ void ActivePyModules::cluster_log(const std::string &channel, clog_type prio,
 {
   std::lock_guard l(lock);
 
-  if (channel == "audit") {
-    audit_clog->do_log(prio, message);
-  } else {
-    clog->do_log(prio, message);
-  }
+  auto cl = monc.get_log_client()->create_channel(channel);
+  map<string,string> log_to_monitors;
+  map<string,string> log_to_syslog;
+  map<string,string> log_channel;
+  map<string,string> log_prio;
+  map<string,string> log_to_graylog;
+  map<string,string> log_to_graylog_host;
+  map<string,string> log_to_graylog_port;
+  uuid_d fsid;
+  string host;
+  if (parse_log_client_options(g_ceph_context, log_to_monitors, log_to_syslog,
+			       log_channel, log_prio, log_to_graylog,
+			       log_to_graylog_host, log_to_graylog_port,
+			       fsid, host) == 0)
+    cl->update_config(log_to_monitors, log_to_syslog,
+		      log_channel, log_prio, log_to_graylog,
+		      log_to_graylog_host, log_to_graylog_port,
+		      fsid, host);
+  cl->do_log(prio, message);
 }
 
 void ActivePyModules::register_client(std::string_view name, std::string addrs)

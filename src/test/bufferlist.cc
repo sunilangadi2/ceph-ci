@@ -534,7 +534,7 @@ TEST(BufferPtr, copy_out_bench) {
     }
     utime_t end = ceph_clock_now();
     cout << count << " fills of buffer len " << buflen
-	 << " with " << s << " byte copy_out in"
+	 << " with " << s << " byte copy_out in "
 	 << (end - start) << std::endl;
   }
 }
@@ -794,7 +794,7 @@ TEST(BufferListIterator, end) {
 static void bench_bufferlistiter_deref(const size_t step,
 				       const size_t bufsize,
 				       const size_t bufnum) {
-  const std::string buf('a', bufsize);
+  const std::string buf(bufsize, 'a');
   ceph::bufferlist bl;
 
   for (size_t i = 0; i < bufnum; i++) {
@@ -1310,6 +1310,18 @@ TEST(BufferList, constructors) {
   }
 }
 
+TEST(BufferList, append_after_move) {
+  bufferlist bl(6);
+  bl.append("ABC", 3);
+  EXPECT_EQ(1, bl.get_num_buffers());
+
+  bufferlist moved_to_bl(std::move(bl));
+  moved_to_bl.append("123", 3);
+  // it's expected that the list(list&&) ctor will preserve the _carriage
+  EXPECT_EQ(1, moved_to_bl.get_num_buffers());
+  EXPECT_EQ(0, ::memcmp("ABC123", moved_to_bl.c_str(), 6));
+}
+
 void bench_bufferlist_alloc(int size, int num, int per)
 {
   utime_t start = ceph_clock_now();
@@ -1379,6 +1391,26 @@ TEST(BufferList, append_bench) {
   }
 }
 
+TEST(BufferList, operator_assign_rvalue) {
+  bufferlist from;
+  {
+    bufferptr ptr(2);
+    from.append(ptr);
+  }
+  bufferlist to;
+  {
+    bufferptr ptr(4);
+    to.append(ptr);
+  }
+  EXPECT_EQ((unsigned)4, to.length());
+  EXPECT_EQ((unsigned)1, to.get_num_buffers());
+  to = std::move(from);
+  EXPECT_EQ((unsigned)2, to.length());
+  EXPECT_EQ((unsigned)1, to.get_num_buffers());
+  EXPECT_EQ((unsigned)0, from.get_num_buffers());
+  EXPECT_EQ((unsigned)0, from.length());
+}
+
 TEST(BufferList, operator_equal) {
   //
   // list& operator= (const list& other)
@@ -1400,7 +1432,8 @@ TEST(BufferList, operator_equal) {
   //
   // list& operator= (list&& other)
   //
-  bufferlist move = std::move(bl);
+  bufferlist move;
+  move = std::move(bl);
   {
     std::string dest;
     move.begin(1).copy(1, dest);
@@ -1854,26 +1887,6 @@ TEST(BufferList, rebuild_page_aligned) {
     EXPECT_TRUE(bl.is_page_aligned());
     EXPECT_EQ((unsigned)4, bl.get_num_buffers());
   }
-}
-
-TEST(BufferList, claim) {
-  bufferlist from;
-  {
-    bufferptr ptr(2);
-    from.append(ptr);
-  }
-  bufferlist to;
-  {
-    bufferptr ptr(4);
-    to.append(ptr);
-  }
-  EXPECT_EQ((unsigned)4, to.length());
-  EXPECT_EQ((unsigned)1, to.get_num_buffers());
-  to.claim(from);
-  EXPECT_EQ((unsigned)2, to.length());
-  EXPECT_EQ((unsigned)1, to.get_num_buffers());
-  EXPECT_EQ((unsigned)0, from.get_num_buffers());
-  EXPECT_EQ((unsigned)0, from.length());
 }
 
 TEST(BufferList, claim_append) {
@@ -2528,8 +2541,9 @@ TEST(BufferList, crc32c_append_perf) {
 TEST(BufferList, compare) {
   bufferlist a;
   a.append("A");
-  bufferlist ab;
-  ab.append("AB");
+  bufferlist ab; // AB in segments
+  ab.append(bufferptr("A", 1));
+  ab.append(bufferptr("B", 1));
   bufferlist ac;
   ac.append("AC");
   //

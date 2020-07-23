@@ -22,6 +22,7 @@
 
 #include <boost/algorithm/string.hpp>
 
+#include "include/common_fwd.h"
 #include "include/mempool.h"
 #include "include/stringify.h"
 #include "common/admin_socket.h"
@@ -45,16 +46,20 @@
 #include "common/valgrind.h"
 #include "include/spinlock.h"
 
-using ceph::bufferlist;
-using ceph::HeartbeatMap;
-
 // for CINIT_FLAGS
 #include "common/common_init.h"
 
 #include <iostream>
 #include <pthread.h>
 
-#ifdef WITH_SEASTAR
+using namespace std::literals;
+
+using ceph::bufferlist;
+using ceph::HeartbeatMap;
+
+
+#if defined(WITH_SEASTAR) && !defined(WITH_ALIEN)
+namespace crimson::common {
 CephContext::CephContext()
   : _conf{crimson::common::local_conf()},
     _perf_counters_collection{crimson::common::local_perf_coll()},
@@ -93,6 +98,7 @@ PerfCountersCollectionImpl* CephContext::get_perfcounters_collection()
   return _perf_counters_collection.get_perf_collection();
 }
 
+}
 #else  // WITH_SEASTAR
 namespace {
 
@@ -168,7 +174,7 @@ public:
 
   // AdminSocketHook
   int call(std::string_view command, const cmdmap_t& cmdmap,
-	   Formatter *f,
+	   ceph::Formatter *f,
 	   std::ostream& errss,
 	   bufferlist& out) override {
     if (command == "dump_mempools") {
@@ -183,6 +189,7 @@ public:
 
 } // anonymous namespace
 
+namespace ceph::common {
 class CephContextServiceThread : public Thread
 {
 public:
@@ -244,7 +251,7 @@ private:
   bool _exit_thread;
   CephContext *_cct;
 };
-
+}
 
 /**
  * observe logging config changes
@@ -312,7 +319,7 @@ public:
     }
 
     if (changed.count("log_stderr_prefix")) {
-      log->set_log_stderr_prefix(conf.get_val<string>("log_stderr_prefix"));
+      log->set_log_stderr_prefix(conf.get_val<std::string>("log_stderr_prefix"));
     }
 
     if (changed.count("log_max_new")) {
@@ -356,6 +363,7 @@ public:
 };
 
 
+namespace ceph::common {
 // cct config watcher
 class CephContextObs : public md_config_obs_t {
   CephContext *cct;
@@ -398,10 +406,30 @@ public:
     }
   }
 };
+// perfcounter hooks
+
+class CephContextHook : public AdminSocketHook {
+  CephContext *m_cct;
+
+public:
+  explicit CephContextHook(CephContext *cct) : m_cct(cct) {}
+
+  int call(std::string_view command, const cmdmap_t& cmdmap,
+	   Formatter *f,
+	   std::ostream& errss,
+	   bufferlist& out) override {
+    try {
+      return m_cct->do_command(command, cmdmap, f, errss, &out);
+    } catch (const bad_cmd_get& e) {
+      return -EINVAL;
+    }
+  }
+};
+
 
 bool CephContext::check_experimental_feature_enabled(const std::string& feat)
 {
-  stringstream message;
+  std::stringstream message;
   bool enabled = check_experimental_feature_enabled(feat, &message);
   lderr(this) << message.str() << dendl;
   return enabled;
@@ -433,26 +461,6 @@ bool CephContext::check_experimental_feature_enabled(const std::string& feat,
   }
   return enabled;
 }
-
-// perfcounter hooks
-
-class CephContextHook : public AdminSocketHook {
-  CephContext *m_cct;
-
-public:
-  explicit CephContextHook(CephContext *cct) : m_cct(cct) {}
-
-  int call(std::string_view command, const cmdmap_t& cmdmap,
-	   Formatter *f,
-	   std::ostream& errss,
-	   bufferlist& out) override {
-    try {
-      return m_cct->do_command(command, cmdmap, f, errss, &out);
-    } catch (const bad_cmd_get& e) {
-      return -EINVAL;
-    }
-  }
-};
 
 int CephContext::do_command(std::string_view command, const cmdmap_t& cmdmap,
 			    Formatter *f,
@@ -557,13 +565,13 @@ int CephContext::_do_command(
 	r = -EINVAL;
       } else {
 	// val may be multiple words
-	string valstr = str_join(val, " ");
+	auto valstr = str_join(val, " ");
         r = _conf.set_val(var.c_str(), valstr.c_str());
         if (r < 0) {
           ss << "error setting '" << var << "' to '" << valstr << "': "
 	     << cpp_strerror(r);
         } else {
-	  stringstream ss;
+	  std::stringstream ss;
           _conf.apply_changes(&ss);
 	  f->dump_string("success", ss.str());
         }
@@ -615,12 +623,10 @@ int CephContext::_do_command(
       f->close_section(); // unknown
     }
     else if (command == "injectargs") {
-      vector<string> argsvec;
+      std::vector<std::string> argsvec;
       cmd_getval(cmdmap, "injected_args", argsvec);
       if (!argsvec.empty()) {
-	string args = joinify<std::string>(argsvec.begin(),
-					   argsvec.end(),
-					   " ");
+	auto args = joinify<std::string>(argsvec.begin(), argsvec.end(), " ");
 	r = _conf.injectargs(args, &ss);
       }
     }
@@ -776,6 +782,8 @@ void CephContext::put() {
   if (--nref == 0) {
     ANNOTATE_HAPPENS_AFTER(&nref);
     ANNOTATE_HAPPENS_BEFORE_FORGET_ALL(&nref);
+    if (g_ceph_context == this)
+      g_ceph_context = nullptr;
     delete this;
   } else {
     ANNOTATE_HAPPENS_BEFORE(&nref);
@@ -785,14 +793,14 @@ void CephContext::put() {
 void CephContext::init_crypto()
 {
   if (_crypto_inited++ == 0) {
-    ceph::crypto::init();
+    TOPNSPC::crypto::init();
   }
 }
 
 void CephContext::shutdown_crypto()
 {
   if (--_crypto_inited == 0) {
-    ceph::crypto::shutdown(g_code_env == CODE_ENVIRONMENT_LIBRARY);
+    TOPNSPC::crypto::shutdown(g_code_env == CODE_ENVIRONMENT_LIBRARY);
   }
 }
 
@@ -885,13 +893,13 @@ void CephContext::_enable_perf_counter()
   _mempool_perf_names.reserve(mempool::num_pools * 2);
   _mempool_perf_descriptions.reserve(mempool::num_pools * 2);
   for (unsigned i = 0; i < mempool::num_pools; ++i) {
-    string n = mempool::get_pool_name(mempool::pool_index_t(i));
-    _mempool_perf_names.push_back(n + "_bytes");
+    std::string n = mempool::get_pool_name(mempool::pool_index_t(i));
+    _mempool_perf_names.push_back(n + "_bytes"s);
     _mempool_perf_descriptions.push_back(
-      string("mempool ") + n + " total bytes");
-    _mempool_perf_names.push_back(n + "_items");
+      "mempool "s + n + " total bytes");
+    _mempool_perf_names.push_back(n + "_items"s);
     _mempool_perf_descriptions.push_back(
-      string("mempool ") + n + " total items");
+      "mempool "s + n + " total items"s);
   }
 
   PerfCountersBuilder plb2(this, "mempool", l_mempool_first,
@@ -982,5 +990,6 @@ void CephContext::notify_post_fork()
   ceph::spin_unlock(&_fork_watchers_lock);
   for (auto &&t : _fork_watchers)
     t->handle_post_fork();
+}
 }
 #endif	// WITH_SEASTAR

@@ -478,6 +478,7 @@ function run_mon() {
         --run-dir=$dir \
         --pid-file=$dir/\$name.pid \
 	--mon-allow-pool-delete \
+	--mon-allow-pool-size-one \
 	--osd-pool-default-pg-autoscale-mode off \
 	--mon-osd-backfillfull-ratio .99 \
         "$@" || return 1
@@ -2069,6 +2070,10 @@ function flush_pg_stats()
     seqs=''
     for osd in $ids; do
 	    seq=`ceph tell osd.$osd flush_pg_stats`
+	    if test -z "$seq"
+	    then
+		continue
+	    fi
 	    seqs="$seqs $osd-$seq"
     done
 

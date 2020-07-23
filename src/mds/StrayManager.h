@@ -14,12 +14,12 @@
 #ifndef STRAY_MANAGER_H
 #define STRAY_MANAGER_H
 
+#include "include/common_fwd.h"
 #include "include/elist.h"
 #include <list>
 #include "mds/PurgeQueue.h"
 
 class MDSRank;
-class PerfCounters;
 class CInode;
 class CDentry;
 
@@ -103,7 +103,7 @@ protected:
   friend class StrayManagerContext;
 
   friend class C_StraysFetched;
-  friend class C_OpenSnapParents;
+  friend class C_RetryEnqueue;
   friend class C_PurgeStrayLogged;
   friend class C_TruncateStrayLogged;
   friend class C_IO_PurgeStrayPurged;

@@ -25,6 +25,8 @@ class RGWGC : public DoutPrefixProvider {
   string *obj_names;
   std::atomic<bool> down_flag = { false };
 
+  static constexpr uint64_t seed = 8675309;
+
   int tag_index(const string& tag);
 
   class GCWorker : public Thread {
@@ -62,7 +64,7 @@ public:
   void initialize(CephContext *_cct, RGWRados *_store);
   void finalize();
 
-  int list(int *index, string& marker, uint32_t max, bool expired_only, std::list<cls_rgw_gc_obj_info>& result, bool *truncated);
+  int list(int *index, string& marker, uint32_t max, bool expired_only, std::list<cls_rgw_gc_obj_info>& result, bool *truncated, bool& processing_queue);
   void list_init(int *index) { *index = 0; }
   int process(int index, int process_max_secs, bool expired_only,
               RGWGCIOManager& io_manager);

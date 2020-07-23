@@ -137,7 +137,7 @@ struct CreateRequest<MockTestImageCtx> {
                                cls::rbd::MirrorImageMode mode,
                                const std::string &non_primary_global_image_id,
                                const std::string &primary_mirror_uuid,
-                               ContextWQ *op_work_queue,
+                               asio::ContextWQ *op_work_queue,
                                Context *on_finish) {
     ceph_assert(s_instance != nullptr);
     s_instance->on_finish = on_finish;
@@ -162,7 +162,7 @@ struct RemoveRequest<MockTestImageCtx> {
                                const std::string &image_id,
                                bool force, bool from_trash_remove,
                                ProgressContext &prog_ctx,
-                               ContextWQ *op_work_queue,
+                               asio::ContextWQ *op_work_queue,
                                Context *on_finish) {
     ceph_assert(s_instance != nullptr);
     s_instance->on_finish = on_finish;
@@ -186,13 +186,12 @@ template <>
 struct EnableRequest<MockTestImageCtx> {
   Context* on_finish = nullptr;
   static EnableRequest* s_instance;
-  static EnableRequest* create(librados::IoCtx &io_ctx,
-                               const std::string &image_id,
+  static EnableRequest* create(MockTestImageCtx* image_ctx,
                                cls::rbd::MirrorImageMode mode,
                                const std::string &non_primary_global_image_id,
-                               MockContextWQ *op_work_queue,
-                               Context *on_finish) {
+                               bool image_clean, Context *on_finish) {
     ceph_assert(s_instance != nullptr);
+    EXPECT_TRUE(image_clean);
     s_instance->on_finish = on_finish;
     return s_instance;
   }
@@ -238,8 +237,9 @@ public:
     ASSERT_EQ(0, _rados.conf_set("rbd_default_clone_format", "2"));
 
     ASSERT_EQ(0, open_image(m_image_name, &image_ctx));
+    NoOpProgressContext prog_ctx;
     ASSERT_EQ(0, image_ctx->operations->snap_create(
-                   cls::rbd::UserSnapshotNamespace{}, "snap"));
+                   cls::rbd::UserSnapshotNamespace{}, "snap", 0, prog_ctx));
     if (is_feature_enabled(RBD_FEATURE_LAYERING)) {
       ASSERT_EQ(0, image_ctx->operations->snap_protect(
                      cls::rbd::UserSnapshotNamespace{}, "snap"));
@@ -332,7 +332,7 @@ public:
 
     EXPECT_CALL(get_mock_io_ctx(mock_image_ctx.md_ctx),
                 exec(RBD_MIRRORING, _, StrEq("rbd"), StrEq("mirror_mode_get"),
-                     _, _, _))
+                     _, _, _, _))
       .WillOnce(WithArg<5>(Invoke([out_bl, r](bufferlist* out) {
                              *out = out_bl;
                              return r;
@@ -915,6 +915,49 @@ TEST_F(TestMockImageCloneRequest, CloseParentError) {
                                   image_ctx->op_work_queue, &ctx);
   req->send();
   ASSERT_EQ(-EINVAL, ctx.wait());
+}
+
+TEST_F(TestMockImageCloneRequest, SnapshotMirrorEnableNonPrimary) {
+  REQUIRE_FEATURE(RBD_FEATURE_LAYERING);
+
+  MockTestImageCtx mock_image_ctx(*image_ctx);
+  expect_op_work_queue(mock_image_ctx);
+
+  InSequence seq;
+  expect_open(mock_image_ctx, 0);
+
+  expect_get_image_size(mock_image_ctx, mock_image_ctx.snaps.front(), 123);
+  expect_is_snap_protected(mock_image_ctx, true, 0);
+
+  MockCreateRequest mock_create_request;
+  expect_create(mock_create_request, 0);
+
+  expect_open(mock_image_ctx, 0);
+
+  MockAttachParentRequest mock_attach_parent_request;
+  expect_attach_parent(mock_attach_parent_request, 0);
+
+  MockAttachChildRequest mock_attach_child_request;
+  expect_attach_child(mock_attach_child_request, 2, 0);
+
+  MockMetadataCopyRequest mock_request;
+  expect_metadata_copy(mock_request, 0);
+
+  MockMirrorEnableRequest mock_mirror_enable_request;
+  expect_mirror_enable(mock_mirror_enable_request, 0);
+
+  expect_close(mock_image_ctx, 0);
+  expect_close(mock_image_ctx, 0);
+
+  C_SaferCond ctx;
+  ImageOptions clone_opts;
+  auto req = new MockCloneRequest(m_cct->_conf, m_ioctx, "parent id", "", {}, 123,
+                                  m_ioctx, "clone name", "clone id", clone_opts,
+                                  cls::rbd::MIRROR_IMAGE_MODE_JOURNAL,
+                                  "global image id", "primary mirror uuid",
+                                  image_ctx->op_work_queue, &ctx);
+  req->send();
+  ASSERT_EQ(0, ctx.wait());
 }
 
 } // namespace image

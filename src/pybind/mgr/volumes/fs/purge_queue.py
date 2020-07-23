@@ -13,7 +13,7 @@ def get_trash_entry_for_volume(volume_client, volname, running_jobs):
     log.debug("fetching trash entry for volume '{0}'".format(volname))
 
     try:
-        with open_volume(volume_client, volname) as fs_handle:
+        with open_volume_lockless(volume_client, volname) as fs_handle:
             try:
                 with open_trashcan(fs_handle, volume_client.volspec) as trashcan:
                     path = trashcan.get_trash_entry(running_jobs)
@@ -23,9 +23,8 @@ def get_trash_entry_for_volume(volume_client, volname, running_jobs):
                     return 0, None
                 raise ve
     except VolumeException as ve:
-        log.error("error fetching trash entry for volume '{0}' ({1})".format(volname), ve)
+        log.error("error fetching trash entry for volume '{0}' ({1})".format(volname, ve))
         return ve.errno, None
-    return ret
 
 # helper for starting a purge operation on a trash entry
 def purge_trash_entry_for_volume(volume_client, volname, purge_dir, should_cancel):

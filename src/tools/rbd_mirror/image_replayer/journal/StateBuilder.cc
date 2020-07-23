@@ -58,6 +58,13 @@ bool StateBuilder<I>::is_disconnected() const {
 }
 
 template <typename I>
+bool StateBuilder<I>::is_linked() const {
+  ceph_assert(!this->remote_mirror_uuid.empty());
+  return (image_replayer::StateBuilder<I>::is_linked() &&
+          local_primary_mirror_uuid == this->remote_mirror_uuid);
+}
+
+template <typename I>
 cls::rbd::MirrorImageMode StateBuilder<I>::get_mirror_image_mode() const {
   return cls::rbd::MIRROR_IMAGE_MODE_JOURNAL;
 }
@@ -97,7 +104,8 @@ BaseRequest* StateBuilder<I>::create_prepare_replay_request(
 
 template <typename I>
 image_replayer::Replayer* StateBuilder<I>::create_replayer(
-   Threads<I>* threads,
+    Threads<I>* threads,
+    InstanceWatcher<I>* instance_watcher,
     const std::string& local_mirror_uuid,
     PoolMetaCache* pool_meta_cache,
     ReplayerListener* replayer_listener) {

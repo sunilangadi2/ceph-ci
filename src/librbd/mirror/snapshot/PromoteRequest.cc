@@ -11,6 +11,7 @@
 #include "librbd/ImageState.h"
 #include "librbd/Operations.h"
 #include "librbd/Utils.h"
+#include "librbd/asio/ContextWQ.h"
 #include "librbd/image/ListWatchersRequest.h"
 #include "librbd/mirror/snapshot/CreateNonPrimaryRequest.h"
 #include "librbd/mirror/snapshot/CreatePrimaryRequest.h"
@@ -27,26 +28,25 @@ namespace snapshot {
 
 using librbd::util::create_async_context_callback;
 using librbd::util::create_context_callback;
+using librbd::util::create_rados_callback;
 
 template <typename I>
 void PromoteRequest<I>::send() {
   CephContext *cct = m_image_ctx->cct;
+  bool requires_orphan = false;
   if (!util::can_create_primary_snapshot(m_image_ctx, false, true,
+                                         &requires_orphan,
                                          &m_rollback_snap_id)) {
     lderr(cct) << "cannot promote" << dendl;
     finish(-EINVAL);
     return;
-  } else if (m_rollback_snap_id == CEPH_NOSNAP) {
+  } else if (m_rollback_snap_id == CEPH_NOSNAP && !requires_orphan) {
     create_promote_snapshot();
     return;
   }
 
-  if (!m_force) {
-    lderr(cct) << "cannot promote: needs rollback and force not set" << dendl;
-    finish(-EINVAL);
-    return;
-  }
-
+  ldout(cct, 20) << "requires_orphan=" << requires_orphan << ", "
+                 << "rollback_snap_id=" << m_rollback_snap_id << dendl;
   create_orphan_snapshot();
 }
 
@@ -237,6 +237,7 @@ void PromoteRequest<I>::handle_acquire_exclusive_lock(int r) {
       r = m_image_ctx->exclusive_lock->get_unlocked_op_error();
       locker.unlock();
       finish(r);
+      return;
     }
   }
 
@@ -295,7 +296,8 @@ void PromoteRequest<I>::create_promote_snapshot() {
     &PromoteRequest<I>::handle_create_promote_snapshot>(this);
 
   auto req = CreatePrimaryRequest<I>::create(
-    m_image_ctx, m_global_image_id,
+    m_image_ctx, m_global_image_id, CEPH_NOSNAP,
+    SNAP_CREATE_FLAG_SKIP_NOTIFY_QUIESCE,
     (snapshot::CREATE_PRIMARY_FLAG_IGNORE_EMPTY_PEERS |
      snapshot::CREATE_PRIMARY_FLAG_FORCE), nullptr, ctx);
   req->send();
@@ -309,6 +311,40 @@ void PromoteRequest<I>::handle_create_promote_snapshot(int r) {
   if (r < 0) {
     lderr(cct) << "failed to create promote snapshot: " << cpp_strerror(r)
                << dendl;
+    finish(r);
+    return;
+  }
+
+  disable_non_primary_feature();
+}
+
+template <typename I>
+void PromoteRequest<I>::disable_non_primary_feature() {
+  CephContext *cct = m_image_ctx->cct;
+  ldout(cct, 10) << dendl;
+
+  // remove the non-primary feature flag so that the image can be
+  // R/W by standard RBD clients
+  librados::ObjectWriteOperation op;
+  cls_client::set_features(&op, 0U, RBD_FEATURE_NON_PRIMARY);
+
+  auto aio_comp = create_rados_callback<
+    PromoteRequest<I>,
+    &PromoteRequest<I>::handle_disable_non_primary_feature>(this);
+  int r = m_image_ctx->md_ctx.aio_operate(m_image_ctx->header_oid, aio_comp,
+                                          &op);
+  ceph_assert(r == 0);
+  aio_comp->release();
+}
+
+template <typename I>
+void PromoteRequest<I>::handle_disable_non_primary_feature(int r) {
+  CephContext *cct = m_image_ctx->cct;
+  ldout(cct, 10) << "r=" << r << dendl;
+
+  if (r < 0) {
+    lderr(cct) << "failed to disable non-primary feature: "
+               << cpp_strerror(r) << dendl;
     finish(r);
     return;
   }

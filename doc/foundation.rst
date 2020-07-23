@@ -28,12 +28,14 @@ Premier
 -------
 
 * `Amihan <https://amihan.net>`_
+* `Bloomberg <https://bloomberg.com>`_
 * `Canonical <https://www.canonical.com/>`_
 * `China Mobile <https://www.chinamobileltd.com/>`_
 * `DigitalOcean <https://www.digitalocean.com/>`_
 * `Intel <http://www.intel.com/>`_
 * `OVH <https://www.ovh.com/>`_
 * `Red Hat <https://www.redhat.com/>`_
+* `Samsung Electronics <https://samsung.com/>`_
 * `SoftIron <https://www.softiron.com/>`_
 * `SUSE <https://www.suse.com/>`_
 * `Western Digital <https://www.wdc.com/>`_
@@ -44,7 +46,6 @@ General
 -------
 
 * `ARM <http://www.arm.com/>`_
-* `BoCloud <http://bocloud.com.cn/>`_
 * `Catalyst Cloud <https://catalystcloud.nz/>`_
 * `Cloudbase Solutions <https://cloudbase.it/>`_
 * `Clyso <https://www.clyso.com/en/>`_
@@ -52,7 +53,6 @@ General
 * `DiDi <https://www.didiglobal.com/>`_
 * `EasyStack <https://www.easystack.io/>`_
 * `ISS <http://iss-integration.com/>`_
-* `PingAn <https://tech.pingan.com/en/>`_
 * `QCT <https://www.qct.io/>`_
 * `SinoRail <http://www.sinorail.com/>`_
 * `Vexxhost <https://vexxhost.com>`_
@@ -104,7 +104,9 @@ Members
 * Lenz Grimmer (SUSE) - Ceph Leadership Team representative
 * Lars Marowsky-Bree (SUSE)
 * Matias Bjorling (Western Digital)
+* Matthew Leonard (Bloomberg)
 * Mike Perez (Red Hat) - Ceph community manager
+* Myoungwon Oh (Samsung Electronics)
 * Paul Emmerich (croit) - General member representative
 * Pawel Sadowski (OVH)
 * Phil Straw (SoftIron)

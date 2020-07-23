@@ -24,6 +24,7 @@
 #include "include/ipaddr.h"
 
 using std::ostream;
+using std::string;
 using std::vector;
 
 ostream& operator<<(ostream& out, const osd_rwxa_t& p)
@@ -332,6 +333,8 @@ void OSDCapGrant::expand_profile()
 
   if (profile.name == "rbd") {
     // RBD read-write grant
+    profile_grants.emplace_back(OSDCapMatch(string(), "rbd_info"),
+                                OSDCapSpec(osd_rwxa_t(OSD_CAP_R)));
     profile_grants.emplace_back(OSDCapMatch(string(), "rbd_children"),
                                 OSDCapSpec(osd_rwxa_t(OSD_CAP_CLS_R)));
     profile_grants.emplace_back(OSDCapMatch(string(), "rbd_mirroring"),

@@ -27,9 +27,13 @@
 #include <stdbool.h>
 #include <fcntl.h>
 
-#include "ceph_statx.h"
+#include "ceph_ll_client.h"
 
 #ifdef __cplusplus
+namespace ceph::common {
+  class CephContext;
+}
+using CephContext = ceph::common::CephContext;
 extern "C" {
 #endif
 
@@ -39,6 +43,14 @@ extern "C" {
 
 #define LIBCEPHFS_VERSION(maj, min, extra) ((maj << 16) + (min << 8) + extra)
 #define LIBCEPHFS_VERSION_CODE LIBCEPHFS_VERSION(LIBCEPHFS_VER_MAJOR, LIBCEPHFS_VER_MINOR, LIBCEPHFS_VER_EXTRA)
+
+#if __GNUC__ >= 4
+  #define LIBCEPHFS_DEPRECATED   __attribute__((deprecated))
+  #pragma GCC diagnostic push
+  #pragma GCC diagnostic ignored "-Wdeprecated-declarations"
+#else
+  #define LIBCEPHFS_DEPRECATED
+#endif
 
 /*
  * If using glibc check that file offset is 64-bit.
@@ -74,27 +86,7 @@ struct ceph_file_layout {
 	uint32_t fl_pg_pool;      /* namespace, crush ruleset, rep level */
 } __attribute__ ((packed));
 
-
-typedef struct inodeno_t {
-  uint64_t val;
-} inodeno_t;
-
-typedef struct _snapid_t {
-  uint64_t val;
-} snapid_t;
-
-typedef struct vinodeno_t {
-  inodeno_t ino;
-  snapid_t snapid;
-} vinodeno_t;
-
-typedef struct Fh Fh;
-#else /* _cplusplus */
-
-struct inodeno_t;
-struct vinodeno_t;
-typedef struct vinodeno_t vinodeno;
-
+struct CephContext;
 #endif /* ! __cplusplus */
 
 struct UserPerm;
@@ -105,7 +97,6 @@ typedef struct Inode Inode;
 
 struct ceph_mount_info;
 struct ceph_dir_result;
-struct CephContext;
 
 /* setattr mask bits */
 #ifndef CEPH_SETATTR_MODE
@@ -221,8 +212,11 @@ int ceph_create(struct ceph_mount_info **cmount, const char * const id);
  * @param conf reuse this pre-existing CephContext config
  * @returns 0 on success, negative error code on failure
  */
+#ifdef __cplusplus
+int ceph_create_with_context(struct ceph_mount_info **cmount, CephContext *conf);
+#else
 int ceph_create_with_context(struct ceph_mount_info **cmount, struct CephContext *conf);
-
+#endif
 
 #ifndef VOIDPTR_RADOS_T
 #define VOIDPTR_RADOS_T
@@ -251,8 +245,8 @@ int ceph_init(struct ceph_mount_info *cmount);
  *
  * An error will be returned if this libcephfs instance is already
  * mounted. This function is an alternative to setting the global
- * client_mds_namespace setting.  Using this function enables multiple
- * libcephfs instances in the same process to mount different filesystems.
+ * client_fs setting.  Using this function enables multiple libcephfs
+ * instances in the same process to mount different filesystems.
  *
  * The filesystem name is *not* validated in this function.  That happens
  * during mount(), where an ENOENT error will result if a non-existent
@@ -382,8 +376,11 @@ uint64_t ceph_get_instance_id(struct ceph_mount_info *cmount);
  * @param cmount the ceph mount handle to get the context from.
  * @returns the CephContext associated with the mount handle.
  */
+#ifdef __cplusplus
+CephContext *ceph_get_mount_context(struct ceph_mount_info *cmount);
+#else
 struct CephContext *ceph_get_mount_context(struct ceph_mount_info *cmount);
-
+#endif
 /*
  * Check mount status.
  *
@@ -759,25 +756,33 @@ int ceph_statx(struct ceph_mount_info *cmount, const char *path, struct ceph_sta
 /**
  * Get a file's statistics and attributes.
  *
- * @param cmount the ceph mount handle to use for performing the stat.
- * @param path the file or directory to get the statistics of.
- * @param stbuf the stat struct that will be filled in with the file's statistics.
- * @returns 0 on success or negative error code on failure.
- */
-int ceph_stat(struct ceph_mount_info *cmount, const char *path, struct stat *stbuf);
-
-/**
- * Get a file's statistics and attributes, without following symlinks.
+ * ceph_stat() is deprecated, use ceph_statx() instead.
  *
  * @param cmount the ceph mount handle to use for performing the stat.
  * @param path the file or directory to get the statistics of.
  * @param stbuf the stat struct that will be filled in with the file's statistics.
  * @returns 0 on success or negative error code on failure.
  */
-int ceph_lstat(struct ceph_mount_info *cmount, const char *path, struct stat *stbuf);
+int ceph_stat(struct ceph_mount_info *cmount, const char *path, struct stat *stbuf)
+  LIBCEPHFS_DEPRECATED;
+
+/**
+ * Get a file's statistics and attributes, without following symlinks.
+ *
+ * ceph_lstat() is deprecated, use ceph_statx(.., AT_SYMLINK_NOFOLLOW) instead.
+ *
+ * @param cmount the ceph mount handle to use for performing the stat.
+ * @param path the file or directory to get the statistics of.
+ * @param stbuf the stat struct that will be filled in with the file's statistics.
+ * @returns 0 on success or negative error code on failure.
+ */
+int ceph_lstat(struct ceph_mount_info *cmount, const char *path, struct stat *stbuf)
+  LIBCEPHFS_DEPRECATED;
 
 /**
  * Get the open file's statistics.
+ *
+ * ceph_fstat() is deprecated, use ceph_fstatx() instead.
  *
  * @param cmount the ceph mount handle to use for performing the fstat.
  * @param fd the file descriptor of the file to get statistics of.
@@ -785,7 +790,8 @@ int ceph_lstat(struct ceph_mount_info *cmount, const char *path, struct stat *st
  *    function.
  * @returns 0 on success or a negative error code on failure
  */
-int ceph_fstat(struct ceph_mount_info *cmount, int fd, struct stat *stbuf);
+int ceph_fstat(struct ceph_mount_info *cmount, int fd, struct stat *stbuf)
+  LIBCEPHFS_DEPRECATED;
 
 /**
  * Set a file's attributes.
@@ -1785,7 +1791,6 @@ int ceph_ll_lazyio(struct ceph_mount_info *cmount, Fh *fh, int enable);
  * needs, but it should take care to choose a value that allows it to avoid
  * forcible eviction from the cluster in the event of an application bug.
  */
-typedef void (*ceph_deleg_cb_t)(struct Fh *fh, void *priv);
 
 /* Commands for manipulating delegation state */
 #ifndef CEPH_DELEGATION_NONE
@@ -1884,6 +1889,16 @@ int ceph_start_reclaim(struct ceph_mount_info *cmount,
  */
 void ceph_finish_reclaim(struct ceph_mount_info *cmount);
 
+/**
+ * Register a set of callbacks to be used with this cmount
+ * @param cmount the ceph mount handle on which the cb's should be registerd
+ * @param args   callback arguments to register with the cmount
+ *
+ * Any fields set to NULL will be ignored. There currently is no way to
+ * unregister these callbacks, so this is a one-way change.
+ */
+void ceph_ll_register_callbacks(struct ceph_mount_info *cmount,
+				struct ceph_client_callback_args *args);
 #ifdef __cplusplus
 }
 #endif

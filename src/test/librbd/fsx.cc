@@ -949,6 +949,7 @@ const struct rbd_operations librbd_operations = {
 int
 krbd_open(const char *name, struct rbd_ctx *ctx)
 {
+	char buf[1024];
 	char *devnode;
 	int fd;
 	int ret;
@@ -957,7 +958,14 @@ krbd_open(const char *name, struct rbd_ctx *ctx)
 	if (ret < 0)
 		return ret;
 
-	ret = krbd_map(krbd, pool, "", name, "", "", &devnode);
+	ret = rados_conf_get(cluster, "rbd_default_map_options", buf,
+			     sizeof(buf));
+	if (ret < 0) {
+		simple_err("Could not get rbd_default_map_options value", ret);
+		return ret;
+	}
+
+	ret = krbd_map(krbd, pool, "", name, "", buf, &devnode);
 	if (ret < 0) {
 		prt("krbd_map(%s) failed\n", name);
 		return ret;
@@ -2437,11 +2445,12 @@ void clone_filename(char *buf, size_t len, int clones)
 
 void clone_imagename(char *buf, size_t len, int clones)
 {
-	if (clones > 0)
+	if (clones > 0) {
 		snprintf(buf, len, "%s-clone%d", iname, clones);
-	else
-		strncpy(buf, iname, len);
-        buf[len - 1] = '\0';
+	} else {
+		strncpy(buf, iname, len - 1);
+		buf[len - 1] = '\0';
+	}
 }
 
 void replay_imagename(char *buf, size_t len, int clones)

@@ -11,18 +11,23 @@ import os
 import pkgutil
 import re
 import sys
+import urllib
 
-import six
-from six.moves.urllib.parse import unquote
+from functools import wraps
 
 # pylint: disable=wrong-import-position
 import cherrypy
 
 from ..security import Scope, Permission
-from ..tools import wraps, getargspec, TaskManager, get_request_body_params
+from ..tools import getargspec, TaskManager, get_request_body_params
 from ..exceptions import ScopeNotValid, PermissionNotValid
 from ..services.auth import AuthManager, JwtManager
 from ..plugins import PLUGIN_MANAGER
+
+try:
+    from typing import Any, List, Optional
+except ImportError:
+    pass  # For typing only
 
 
 def EndpointDoc(description="", group="", parameters=None, responses=None):  # noqa: N802
@@ -86,14 +91,14 @@ def EndpointDoc(description="", group="", parameters=None, responses=None):  # n
         return splitted
 
     def _split_list(data, nested):
-        splitted = []
+        splitted = []  # type: List[Any]
         for item in data:
             splitted.extend(_split_parameters(item, nested))
         return splitted
 
     # nested = True means parameters are inside a dict or array
     def _split_parameters(data, nested=False):
-        param_list = []
+        param_list = []  # type: List[Any]
         if isinstance(data, dict):
             param_list.extend(_split_dict(data, nested))
         elif isinstance(data, (list, tuple)):
@@ -286,7 +291,7 @@ def load_controllers():
     return controllers
 
 
-ENDPOINT_MAP = collections.defaultdict(list)
+ENDPOINT_MAP = collections.defaultdict(list)  # type: dict
 
 
 def generate_controller_routes(endpoint, mapper, base_url):
@@ -589,11 +594,11 @@ class BaseController(object):
     def __init__(self):
         logger = logging.getLogger('controller')
         logger.info('Initializing controller: %s -> %s',
-                    self.__class__.__name__, self._cp_path_)
+                    self.__class__.__name__, self._cp_path_)  # type: ignore
         super(BaseController, self).__init__()
 
     def _has_permissions(self, permissions, scope=None):
-        if not self._cp_config['tools.authenticate.on']:
+        if not self._cp_config['tools.authenticate.on']:  # type: ignore
             raise Exception("Cannot verify permission in non secured "
                             "controllers")
 
@@ -612,7 +617,7 @@ class BaseController(object):
     def get_path_param_names(cls, path_extension=None):
         if path_extension is None:
             path_extension = ""
-        full_path = cls._cp_path_[1:] + path_extension
+        full_path = cls._cp_path_[1:] + path_extension  # type: ignore
         path_params = []
         for step in full_path.split('/'):
             param = None
@@ -628,7 +633,7 @@ class BaseController(object):
 
     @classmethod
     def get_path(cls):
-        return cls._cp_path_
+        return cls._cp_path_  # type: ignore
 
     @classmethod
     def endpoints(cls):
@@ -650,8 +655,8 @@ class BaseController(object):
         @wraps(func)
         def inner(*args, **kwargs):
             for key, value in kwargs.items():
-                if isinstance(value, six.text_type):
-                    kwargs[key] = unquote(value)
+                if isinstance(value, str):
+                    kwargs[key] = urllib.parse.unquote(value)
 
             # Process method arguments.
             params = get_request_body_params(cherrypy.request)
@@ -712,6 +717,7 @@ class RESTController(BaseController):
     * bulk_delete()
     * get(key)
     * set(data, key)
+    * singleton_set(data)
     * delete(key)
 
     Test with curl:
@@ -728,7 +734,7 @@ class RESTController(BaseController):
     # to specify a composite id (two parameters) use '/'. e.g., "param1/param2".
     # If subclasses don't override this property we try to infer the structure
     # of the resource ID.
-    RESOURCE_ID = None
+    RESOURCE_ID = None  # type: Optional[str]
 
     _permission_map = {
         'GET': Permission.READ,
@@ -744,7 +750,8 @@ class RESTController(BaseController):
         ('bulk_delete', {'method': 'DELETE', 'resource': False, 'status': 204}),
         ('get', {'method': 'GET', 'resource': True, 'status': 200}),
         ('delete', {'method': 'DELETE', 'resource': True, 'status': 204}),
-        ('set', {'method': 'PUT', 'resource': True, 'status': 200})
+        ('set', {'method': 'PUT', 'resource': True, 'status': 200}),
+        ('singleton_set', {'method': 'PUT', 'resource': False, 'status': 200})
     ])
 
     @classmethod
@@ -777,7 +784,7 @@ class RESTController(BaseController):
             permission = None
 
             if func.__name__ in cls._method_mapping:
-                meth = cls._method_mapping[func.__name__]
+                meth = cls._method_mapping[func.__name__]  # type: dict
 
                 if meth['resource']:
                     if not res_id_params:

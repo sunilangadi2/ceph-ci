@@ -2,33 +2,23 @@ cmake_minimum_required(VERSION 3.10.2)
 # remove cmake/modules/FindPython* once 3.12 is required
 
 project(ceph
-  VERSION 15.1.0
+  VERSION 16.0.0
   LANGUAGES CXX C ASM)
 
-if(POLICY CMP0028)
-  cmake_policy(SET CMP0028 NEW)
-endif()
-if(POLICY CMP0046)
-  cmake_policy(SET CMP0046 NEW)
-endif()
-if(POLICY CMP0048)
-  cmake_policy(SET CMP0048 NEW)
-endif()
-if(POLICY CMP0054)
-  cmake_policy(SET CMP0054 NEW)
-endif()
-if(POLICY CMP0056)
-  cmake_policy(SET CMP0056 NEW)
-endif()
-if(POLICY CMP0065)
-  cmake_policy(SET CMP0065 NEW)
-endif()
-if(POLICY CMP0051)
-  cmake_policy(SET CMP0051 NEW)
-endif()
-if(POLICY CMP0075)
-  cmake_policy(SET CMP0075 NEW)
-endif()
+foreach(policy
+    CMP0028
+    CMP0046
+    CMP0048
+    CMP0051
+    CMP0054
+    CMP0056
+    CMP0065
+    CMP0075)
+  if(POLICY ${policy})
+    cmake_policy(SET ${policy} NEW)
+  endif()
+endforeach()
+
 list(APPEND CMAKE_MODULE_PATH "${CMAKE_SOURCE_DIR}/cmake/modules/")
 
 if(CMAKE_SYSTEM_NAME MATCHES "Linux")
@@ -55,16 +45,15 @@ endif()
 option(WITH_CCACHE "Build with ccache.")
 if(WITH_CCACHE)
   find_program(CCACHE_FOUND ccache)
-  if(CCACHE_FOUND)
-    message(STATUS "Building with ccache: ${CCACHE_FOUND}, CCACHE_DIR=$ENV{CCACHE_DIR}")
-    set_property(GLOBAL PROPERTY RULE_LAUNCH_COMPILE ccache)
-    # ccache does not accelerate link (ld), but let it handle it. by passing it
-    # along with cc to python's distutils, we are able to workaround
-    # https://bugs.python.org/issue8027.
-    set_property(GLOBAL PROPERTY RULE_LAUNCH_LINK ccache)
-  else(CCACHE_FOUND)
+  if(NOT CCACHE_FOUND)
     message(FATAL_ERROR "Can't find ccache. Is it installed?")
-  endif(CCACHE_FOUND)
+  endif()
+  message(STATUS "Building with ccache: ${CCACHE_FOUND}, CCACHE_DIR=$ENV{CCACHE_DIR}")
+  set_property(GLOBAL PROPERTY RULE_LAUNCH_COMPILE ccache)
+  # ccache does not accelerate link (ld), but let it handle it. by passing it
+  # along with cc to python's distutils, we are able to workaround
+  # https://bugs.python.org/issue8027.
+  set_property(GLOBAL PROPERTY RULE_LAUNCH_LINK ccache)
 endif(WITH_CCACHE)
 
 option(WITH_MANPAGE "Build man pages." ON)
@@ -79,6 +68,13 @@ endif(WITH_MANPAGE)
 include_directories(
   ${PROJECT_BINARY_DIR}/src/include
   ${PROJECT_SOURCE_DIR}/src)
+
+if(WIN32)
+  include_directories(
+  ${PROJECT_SOURCE_DIR}/src/include/win32)
+  # Boost complains if winsock2.h (or windows.h) is included before asio.hpp.
+  add_definitions(-include winsock_wrapper.h)
+endif()
 
 if(OFED_PREFIX)
   include_directories(SYSTEM ${OFED_PREFIX}/include)
@@ -97,6 +93,7 @@ set(CMAKE_ARCHIVE_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/lib)
 set(CMAKE_LIBRARY_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/lib)
 set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin)
 
+include(GNUInstallDirs)
 include(CephChecks)
 
 set(CEPH_MAN_DIR "share/man" CACHE STRING "Install location for man pages (relative to prefix).")
@@ -111,15 +108,14 @@ set(CMAKE_POSITION_INDEPENDENT_CODE ${ENABLE_SHARED})
 
 option(WITH_STATIC_LIBSTDCXX "Link against libstdc++ statically" OFF)
 if(WITH_STATIC_LIBSTDCXX)
-  if(CMAKE_COMPILER_IS_GNUCXX)
-    set(static_linker_flags "-static-libstdc++ -static-libgcc")
-    set(CMAKE_SHARED_LINKER_FLAGS "${CMAKE_SHARED_LINKER_FLAGS} ${static_linker_flags}")
-    set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} ${static_linker_flags}")
-    unset(static_linker_flags)
-    set(GPERFTOOLS_USE_STATIC_LIBS TRUE)
-  else()
+  if(NOT CMAKE_COMPILER_IS_GNUCXX)
     message(FATAL_ERROR "Please use GCC to enable WITH_STATIC_LIBSTDCXX")
   endif()
+  set(static_linker_flags "-static-libstdc++ -static-libgcc")
+  set(CMAKE_SHARED_LINKER_FLAGS "${CMAKE_SHARED_LINKER_FLAGS} ${static_linker_flags}")
+  set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} ${static_linker_flags}")
+  unset(static_linker_flags)
+  set(GPERFTOOLS_USE_STATIC_LIBS TRUE)
 endif()
 include(CheckCxxAtomic)
 if(NOT HAVE_CXX11_ATOMIC)
@@ -171,7 +167,7 @@ endif()
 
 option(WITH_FUSE "Fuse is here" ON)
 if(WITH_FUSE)
-  find_package(fuse)
+  find_package(FUSE)
   set(HAVE_LIBFUSE ${FUSE_FOUND})
 endif()
 
@@ -192,6 +188,8 @@ if(WITH_BLUESTORE)
   if(LINUX)
     find_package(aio)
     set(HAVE_LIBAIO ${AIO_FOUND})
+    find_package(zbc)
+    set(HAVE_LIBZBC ${ZBC_FOUND})
   elseif(FREEBSD)
     # POSIX AIO is integrated into FreeBSD kernel, and exposed by libc.
     set(HAVE_POSIXAIO ON)
@@ -199,9 +197,12 @@ if(WITH_BLUESTORE)
 endif()
 
 include(CMakeDependentOption)
-CMAKE_DEPENDENT_OPTION(WITH_LIBURING "Build with liburing library support" OFF
+CMAKE_DEPENDENT_OPTION(WITH_LIBURING "Enable io_uring bluestore backend" OFF
   "WITH_BLUESTORE;HAVE_LIBAIO" OFF)
 set(HAVE_LIBURING ${WITH_LIBURING})
+
+CMAKE_DEPENDENT_OPTION(WITH_SYSTEM_LIBURING "Require and build with system liburing" OFF
+  "HAVE_LIBAIO;WITH_BLUESTORE" OFF)
 
 CMAKE_DEPENDENT_OPTION(WITH_BLUESTORE_PMEM "Enable PMDK libraries" OFF
   "WITH_BLUESTORE" OFF)
@@ -351,6 +352,7 @@ endif()
 
 option(WITH_BLKIN "Use blkin to emit LTTng tracepoints for Zipkin" OFF)
 if(WITH_BLKIN)
+  find_package(LTTngUST REQUIRED)
   set(BLKIN_LIBRARIES blkin ${LTTNGUST_LIBRARIES} lttng-ust-fork)
   include_directories(SYSTEM src/blkin/blkin-lib)
 endif(WITH_BLKIN)
@@ -451,6 +453,11 @@ if(WITH_MGR)
   set(MGR_PYTHON_LIBRARIES ${Python3_LIBRARIES})
   set(MGR_PYTHON_VERSION_MAJOR ${Python3_VERSION_MAJOR})
   set(MGR_PYTHON_VERSION_MINOR ${Python3_VERSION_MINOR})
+  # https://tracker.ceph.com/issues/45147
+  if(Python3_VERSION VERSION_GREATER_EQUAL 3.8)
+    set(MGR_DISABLED_MODULES "diskprediction_local")
+    message(STATUS "mgr module disabled for ${Python3_VERSION}: ${MGR_DISABLED_MODULES}")
+  endif()
   # Boost dependency check deferred to Boost section
 endif(WITH_MGR)
 
@@ -547,8 +554,7 @@ endif()
 
 if(sanitizers)
   find_package(Sanitizers REQUIRED ${sanitizers})
-  set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} ${Sanitizers_COMPILE_OPTIONS}")
-  set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} ${Sanitizers_COMPILE_OPTIONS}")
+  add_compile_options(${Sanitizers_COMPILE_OPTIONS})
   set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} ${Sanitizers_COMPILE_OPTIONS}")
   set(CMAKE_SHARED_LINKER_FLAGS "${CMAKE_SHARED_LINKER_FLAGS} ${Sanitizers_COMPILE_OPTIONS}")
 endif()
@@ -603,7 +609,6 @@ else()
     COMPONENTS ${BOOST_COMPONENTS} ${BOOST_HEADER_COMPONENTS})
 endif()
 include_directories(BEFORE SYSTEM ${Boost_INCLUDE_DIRS})
-set(Boost_USE_MULTITHREADED ON)
 
 # dashboard angular2 frontend
 option(WITH_MGR_DASHBOARD_FRONTEND "Build the mgr/dashboard frontend using `npm`" ON)
@@ -668,6 +673,9 @@ if(WITH_GRAFANA)
   add_subdirectory(monitoring/grafana/dashboards)
 endif()
 
+CMAKE_DEPENDENT_OPTION(WITH_BOOST_VALGRIND "Boost support for valgrind" OFF
+  "NOT WITH_SYSTEM_BOOST" OFF)
+
 include(CTags)
 option(CTAG_EXCLUDES "Exclude files/directories when running ctag.")
 add_tags(ctags
@@ -677,6 +685,4 @@ add_tags(ctags
   EXCLUDES "*.js" "*.css")
 add_custom_target(tags DEPENDS ctags)
 
-find_package(CppCheck)
-find_package(IWYU)
-set(VERSION 15.1.0)
+set(VERSION 15.2.0)

@@ -208,6 +208,9 @@ static int parse_options(const char *data, struct ceph_mount_info *cmi)
 	int name_len = 0;
 	int name_pos = 0;
 
+	if (data == EMPTY_STRING)
+		goto out;
+
 	mount_ceph_debug("parsing options: %s\n", data);
 
 	do {
@@ -268,6 +271,13 @@ static int parse_options(const char *data, struct ceph_mount_info *cmi)
 			/* ignore */
 		} else if (strcmp(data, "nofail") == 0) {
 			/* ignore */
+		} else if (strcmp(data, "fs") == 0) {
+			if (!value || !*value) {
+				fprintf(stderr, "mount option fs requires a value.\n");
+				return -EINVAL;
+			}
+			data = "mds_namespace";
+			skip = false;
 		} else if (strcmp(data, "secretfile") == 0) {
 			int ret;
 
@@ -309,9 +319,8 @@ static int parse_options(const char *data, struct ceph_mount_info *cmi)
 			name = value;
 			skip = false;
 		} else {
+			/* unrecognized mount options, passing to kernel */
 			skip = false;
-			mount_ceph_debug("mount.ceph: unrecognized mount option \"%s\", passing to kernel.\n",
-					data);
 		}
 
 		/* Copy (possibly modified) option to out */
@@ -330,9 +339,14 @@ static int parse_options(const char *data, struct ceph_mount_info *cmi)
 		data = next_keyword;
 	} while (data);
 
+out:
 	name_pos = safe_cat(&cmi->cmi_name, &name_len, name_pos, "client.");
 	name_pos = safe_cat(&cmi->cmi_name, &name_len, name_pos,
 			    name ? name : CEPH_AUTH_NAME_DEFAULT);
+
+	if (cmi->cmi_opts)
+		mount_ceph_debug("mount.ceph: options \"%s\" will pass to kernel.\n",
+						 cmi->cmi_opts);
 
 	if (!cmi->cmi_opts) {
 		cmi->cmi_opts = strdup(EMPTY_STRING);

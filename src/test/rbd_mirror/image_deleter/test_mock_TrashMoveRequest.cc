@@ -74,7 +74,8 @@ struct ResetRequest<MockTestImageCtx> {
                               const std::string &image_id,
                               const std::string &client_id,
                               const std::string &mirror_uuid,
-                              ContextWQ *op_work_queue, Context *on_finish) {
+                              ContextWQ *op_work_queue,
+                              Context *on_finish) {
     ceph_assert(s_instance != nullptr);
     EXPECT_EQ(librbd::Journal<>::LOCAL_MIRROR_UUID, mirror_uuid);
     s_instance->on_finish = on_finish;
@@ -103,7 +104,7 @@ struct GetInfoRequest<librbd::MockTestImageCtx> {
   Context *on_finish = nullptr;
 
   static GetInfoRequest* create(librados::IoCtx& io_ctx,
-                                ContextWQ* context_wq,
+                                librbd::asio::ContextWQ* context_wq,
                                 const std::string& image_id,
                                 cls::rbd::MirrorImage *mirror_image,
                                 PromotionState *promotion_state,
@@ -200,7 +201,8 @@ public:
     encode(image_id, bl);
 
     EXPECT_CALL(get_mock_io_ctx(m_local_io_ctx),
-                exec(RBD_MIRRORING, _, StrEq("rbd"), StrEq("mirror_image_get_image_id"), _, _, _))
+                exec(RBD_MIRRORING, _, StrEq("rbd"),
+                     StrEq("mirror_image_get_image_id"), _, _, _, _))
       .WillOnce(DoAll(WithArg<5>(Invoke([bl](bufferlist *out_bl) {
                                           *out_bl = bl;
                                         })),
@@ -233,7 +235,9 @@ public:
 
   void expect_open(librbd::MockTestImageCtx &mock_image_ctx, int r) {
     EXPECT_CALL(*mock_image_ctx.state, open(true, _))
-      .WillOnce(WithArg<1>(Invoke([this, r](Context* ctx) {
+      .WillOnce(WithArg<1>(Invoke([this, &mock_image_ctx, r](Context* ctx) {
+                             EXPECT_EQ(0U, mock_image_ctx.read_only_mask &
+                                             librbd::IMAGE_READ_ONLY_FLAG_NON_PRIMARY);
                              m_threads->work_queue->queue(ctx, r);
                            })));
   }
@@ -269,14 +273,14 @@ public:
 
     EXPECT_CALL(get_mock_io_ctx(m_local_io_ctx),
                 exec(RBD_MIRRORING, _, StrEq("rbd"),
-                     StrEq("mirror_image_set"), ContentsEqual(bl), _, _))
+                     StrEq("mirror_image_set"), ContentsEqual(bl), _, _, _))
       .WillOnce(Return(r));
   }
 
   void expect_mirror_image_remove(librados::IoCtx &ioctx, int r) {
     EXPECT_CALL(get_mock_io_ctx(ioctx),
-                exec(StrEq("rbd_mirroring"), _, StrEq("rbd"), StrEq("mirror_image_remove"),
-                     _, _, _))
+                exec(StrEq("rbd_mirroring"), _, StrEq("rbd"),
+                     StrEq("mirror_image_remove"), _, _, _, _))
       .WillOnce(Return(r));
   }
 

@@ -6,11 +6,10 @@ import { forkJoin as observableForkJoin, Observable, of as observableOf } from '
 import { mergeMap } from 'rxjs/operators';
 
 import { cdEncode } from '../decorators/cd-encode';
-import { ApiModule } from './api.module';
 
 @cdEncode
 @Injectable({
-  providedIn: ApiModule
+  providedIn: 'root'
 })
 export class RgwUserService {
   private url = 'api/rgw/user';
@@ -56,7 +55,7 @@ export class RgwUserService {
     return this.http.get(`${this.url}/${uid}/quota`);
   }
 
-  create(args: Record<string, string>) {
+  create(args: Record<string, any>) {
     let params = new HttpParams();
     _.keys(args).forEach((key) => {
       params = params.append(key, args[key]);
@@ -64,7 +63,7 @@ export class RgwUserService {
     return this.http.post(this.url, null, { params: params });
   }
 
-  update(uid: string, args: Record<string, string>) {
+  update(uid: string, args: Record<string, any>) {
     let params = new HttpParams();
     _.keys(args).forEach((key) => {
       params = params.append(key, args[key]);

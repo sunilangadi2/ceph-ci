@@ -1,0 +1,32 @@
+use_shaman: True
+tasks:
+- install:
+    packages:
+      rpm:
+      - tcmu-runner
+    project: tcmu-runner
+    sha1: latest
+- install:
+    packages:
+      rpm:
+      - ceph-iscsi
+    shaman:
+      force_noarch: True
+    project: ceph-iscsi
+    sha1: latest
+- install:
+    extra_packages:
+      - iscsi-initiator-utils
+      - device-mapper-multipath
+- ceph_iscsi:
+    gateways: [gateway.0, gateway.1]
+    clients: [client.0]
+- cram:
+    clients:
+      gateway.0:
+      - src/test/cli-integration/rbd/gwcli_create.t
+      client.0:
+      - src/test/cli-integration/rbd/gwcli_client.t
+      gateway.0:
+      - src/test/cli-integration/rbd/gwcli_delete.t
+      parallel: False

@@ -1984,7 +1984,7 @@ void RocksDBStore::compact_thread_entry()
               << pretty_binary_string(s)
               << dendl;
           } else {
-            dout(20) << __func__ << " rm range "
+            dout(20) << __func__ << " rm first range "
               << p << " "
               << pretty_binary_string(s) << "-"
               << pretty_binary_string(e)
@@ -2039,8 +2039,8 @@ void RocksDBStore::compact_thread_entry()
                   << dendl;
                 dout(20) << __func__ << " rm range "
                   << p << " "
-                  << pretty_binary_string(s1) << "-"
-                  << pretty_binary_string(e1)
+                  << pretty_binary_string(s) << "-"
+                  << pretty_binary_string(e)
                   << dendl;
                 t->rm_range_keys_unconditionally(p1, s1, e1);
                 i = compact_queue_clone.erase(i);

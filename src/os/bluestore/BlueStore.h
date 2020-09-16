@@ -1074,6 +1074,7 @@ public:
 
     bluestore_onode_t onode;  ///< metadata stored as value in kv store
     bool exists;              ///< true if object logically exists
+    bool reclaimed;           ///< true if object just has been reclaimed
     bool cached;              ///< Onode is logically in the cache
                               /// (it can be pinned and hence physically out
                               /// of it at the moment though)
@@ -1096,6 +1097,7 @@ public:
 	oid(o),
 	key(k),
 	exists(false),
+        reclaimed(false),
         cached(false),
         pinned(false),
 	extent_map(this) {
@@ -1107,6 +1109,7 @@ public:
       oid(o),
       key(k),
       exists(false),
+      reclaimed(false),
       cached(false),
       pinned(false),
       extent_map(this) {
@@ -1118,6 +1121,7 @@ public:
       oid(o),
       key(k),
       exists(false),
+      reclaimed(false),
       cached(false),
       pinned(false),
       extent_map(this) {
@@ -3264,11 +3268,13 @@ private:
 		   CollectionRef& c,
 		   OnodeRef o,
 		   uint64_t offset,
-		   std::set<SharedBlob*> *maybe_unshared_blobs=0);
+		   std::set<SharedBlob*> *maybe_unshared_blobs=0,
+                   bool reclaim_mode = false);
   int _truncate(TransContext *txc,
 		CollectionRef& c,
 		OnodeRef& o,
-		uint64_t offset);
+		uint64_t offset,
+                bool reclaim_mode = false);
   int _remove(TransContext *txc,
 	      CollectionRef& c,
 	      OnodeRef& o);

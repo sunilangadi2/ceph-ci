@@ -1067,12 +1067,25 @@ struct LruOnodeCacheShard : public BlueStore::OnodeCacheShard {
     ++num_pinned;
     dout(20) << __func__ << this << " " << " " << " " << o->oid << " pinned" << dendl;
   }
-  void _unpin(BlueStore::Onode* o) override
+  void _unpin(BlueStore::Onode* o, bool trim) override
   {
-    lru.push_front(*o);
     ceph_assert(num_pinned);
     --num_pinned;
-    dout(20) << __func__ << this << " " << " " << " " << o->oid << " unpinned" << dendl;
+    if (!trim) {
+      lru.push_front(*o);
+      dout(20) << __func__ << this << " " << " " << " " << o->oid
+               << " unpinned "
+               << dendl;
+    } else {
+      auto unpinned = o->pop_cache();
+      ceph_assert(unpinned);
+      --num;
+      dout(20) << __func__ << this << " " << " " << " " << o->oid
+               << " unpinned and trimmed"
+               << dendl;
+      o->c->onode_map._remove(o->oid);
+      // onode might be removed beyond this point
+    }
   }
 
   void _trim_to(uint64_t new_size) override
@@ -1932,10 +1945,13 @@ bool BlueStore::OnodeSpace::map_any(std::function<bool(OnodeRef)> f)
 {
   std::lock_guard l(cache->lock);
   ldout(cache->cct, 20) << __func__ << dendl;
-  for (auto& i : onode_map) {
-    if (f(i.second)) {
+  auto i = onode_map.begin();
+  while (i != onode_map.end()) {
+    OnodeRef o = i->second; // ++ref count to make sure i isn't invalidated
+    if (f(o)) {
       return true;
     }
+    ++i;
   }
   return false;
 }
@@ -3517,12 +3533,16 @@ void BlueStore::Onode::put() {
         bool was_pinned = pinned;
         pinned = pinned && nref > 2; // intentionally use > not >= as we have
                                      // +1 due to pinned state
-        bool r = was_pinned && !pinned;
+        bool new_unpin = was_pinned && !pinned;
+        auto r = !cached || !new_unpin ?
+          OnodeCacheShard::UNPIN_SKIP :
+          exists ?
+            OnodeCacheShard::UNPIN_PROCEED_CACHING :
+            OnodeCacheShard::UNPIN_PROCEED_TRIM;
         // additional decrement for newly unpinned instance
-        if (r) {
-          n = --nref;
-        }
-        return cached && r;
+        if (new_unpin)
+          n = --nref; // after this point Onode might be removed
+        return r;
       });
   }
   if (n == 0) {

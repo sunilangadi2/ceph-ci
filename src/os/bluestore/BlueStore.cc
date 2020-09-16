@@ -12792,6 +12792,11 @@ void BlueStore::_txc_add_transaction(TransContext *txc, Transaction *t)
 			    op->hint);
       }
       break;
+    case Transaction::OP_RECLAIM_SPACE:
+      {
+	r = _truncate(txc, c, o, 0);
+      }
+      break;
 
     default:
       derr << __func__ << " bad op " << op->op << dendl;
@@ -14380,7 +14385,8 @@ int BlueStore::_do_zero(TransContext *txc,
 
 void BlueStore::_do_truncate(
   TransContext *txc, CollectionRef& c, OnodeRef o, uint64_t offset,
-  set<SharedBlob*> *maybe_unshared_blobs)
+  set<SharedBlob*> *maybe_unshared_blobs,
+  bool reclaim_mode)
 {
   dout(15) << __func__ << " " << c->cid << " " << o->oid
 	   << " 0x" << std::hex << offset << std::dec << dendl;
@@ -14399,7 +14405,10 @@ void BlueStore::_do_truncate(
     _wctx_finish(txc, c, o, &wctx, maybe_unshared_blobs);
 
     // if we have shards past EOF, ask for a reshard
-    if (!o->onode.extent_map_shards.empty() &&
+    if (reclaim_mode) {
+      o->reclaimed = true;
+    } else if (!reclaim_mode &&
+        !o->onode.extent_map_shards.empty() &&
 	o->onode.extent_map_shards.back().offset >= offset) {
       dout(10) << __func__ << "  request reshard past EOF" << dendl;
       if (offset) {
@@ -14426,16 +14435,18 @@ void BlueStore::_do_truncate(
 int BlueStore::_truncate(TransContext *txc,
 			 CollectionRef& c,
 			 OnodeRef& o,
-			 uint64_t offset)
+			 uint64_t offset,
+                         bool reclaim_mode)
 {
   dout(15) << __func__ << " " << c->cid << " " << o->oid
 	   << " 0x" << std::hex << offset << std::dec
+           << " reclaim " << reclaim_mode
 	   << dendl;
   int r = 0;
   if (offset >= OBJECT_MAX_SIZE) {
     r = -E2BIG;
   } else {
-    _do_truncate(txc, c, o, offset);
+    _do_truncate(txc, c, o, offset, nullptr, reclaim_mode);
   }
   dout(10) << __func__ << " " << c->cid << " " << o->oid
 	   << " 0x" << std::hex << offset << std::dec

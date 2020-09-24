@@ -1332,6 +1332,7 @@ public:
       ceph::make_shared_mutex("BlueStore::Collection::lock", true, false);
 
     bool exists;
+    std::atomic<bool> bulk_rm_locked = false;
 
     SharedBlobSet shared_blob_set;      ///< open SharedBlobs
 
@@ -2863,6 +2864,7 @@ public:
                              int max,
                              std::vector<ghobject_t> *ls,
                              ghobject_t *next) override;
+  int collection_bulk_remove_lock(CollectionHandle& c) override;
 
   int omap_get(
     CollectionHandle &c,     ///< [in] Collection containing oid

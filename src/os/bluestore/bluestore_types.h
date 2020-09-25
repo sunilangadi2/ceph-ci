@@ -52,12 +52,16 @@ std::ostream& operator<<(std::ostream& out, const bluestore_bdev_label_t& l);
 /// collection metadata
 struct bluestore_cnode_t {
   uint32_t bits;   ///< how many bits of coll pgid are significant
+  bool pending_removal = false;
 
   explicit bluestore_cnode_t(int b=0) : bits(b) {}
 
   DENC(bluestore_cnode_t, v, p) {
-    DENC_START(1, 1, p);
+    DENC_START(2, 1, p);
     denc(v.bits, p);
+    if (struct_v >= 2) {
+      denc(v.pending_removal, p);
+    }
     DENC_FINISH(p);
   }
   void dump(ceph::Formatter *f) const;
@@ -961,9 +965,10 @@ struct bluestore_onode_t {
   uint8_t flags = 0;
 
   enum {
-    FLAG_OMAP = 1,       ///< object may have omap data
+    FLAG_OMAP = 1,         ///< object may have omap data
     FLAG_PGMETA_OMAP = 2,  ///< omap data is in meta omap prefix
     FLAG_PERPOOL_OMAP = 4, ///< omap data is in per-pool prefix; per-pool keys
+    FLAG_PERPG_OMAP = 8,   ///< omap data is in per-pg prefix; per-pg keys
   };
 
   std::string get_flags_string() const {
@@ -975,7 +980,10 @@ struct bluestore_onode_t {
       s += "+pgmeta_omap";
     }
     if (flags & FLAG_PERPOOL_OMAP) {
-      s += "+perpool_omap";
+      s += "+per_pool_omap";
+    }
+    if (flags & FLAG_PERPG_OMAP) {
+      s += "+per_pg_omap";
     }
     return s;
   }
@@ -1001,9 +1009,12 @@ struct bluestore_onode_t {
   bool is_perpool_omap() const {
     return has_flag(FLAG_PERPOOL_OMAP);
   }
+  bool is_perpg_omap() const {
+    return has_flag(FLAG_PERPG_OMAP);
+  }
 
   void set_omap_flags() {
-    set_flag(FLAG_OMAP | FLAG_PERPOOL_OMAP);
+    set_flag(FLAG_OMAP | FLAG_PERPOOL_OMAP | FLAG_PERPG_OMAP);
   }
   void set_omap_flags_pgmeta() {
     set_flag(FLAG_OMAP | FLAG_PGMETA_OMAP);

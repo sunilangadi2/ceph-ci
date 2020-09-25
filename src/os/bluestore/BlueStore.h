@@ -1667,6 +1667,9 @@ public:
       delete deferred_txn;
     }
 
+    void register_on_commit(Context* ctx) {
+      oncommits.push_back(ctx);
+    }
     void write_onode(OnodeRef &o) {
       onodes.insert(o);
     }
@@ -1963,7 +1966,7 @@ public:
 	qcond.wait(l);
 	--kv_submitted_waiters;
       }
-    }
+      }
 
     bool flush_commit(Context *c) {
       std::lock_guard l(qlock);
@@ -2162,7 +2165,12 @@ private:
 		std::numeric_limits<decltype(min_alloc_size)>::digits,
 		"not enough bits for min_alloc_size");
 
-  bool per_pool_omap = false;
+  enum {
+    // Please preserve the order since it's DB persistent
+    OMAP_UNSORTED = 0,
+    OMAP_PER_POOL = 1,
+    OMAP_PER_PG = 2,
+    } per_pool_omap = OMAP_UNSORTED;
 
   ///< maximum allocation unit (power of 2)
   std::atomic<uint64_t> max_alloc_size = {0};
@@ -2415,7 +2423,7 @@ private:
   int _create_alloc();
   int _init_alloc();
   void _close_alloc();
-  int _open_collections();
+  int _open_collections(bool allow_removal);
   void _fsck_collections(int64_t* errors);
   void _close_collections();
 
@@ -3068,7 +3076,7 @@ private:
   std::set<std::string> failed_compressors;
   std::string spillover_alert;
   std::string legacy_statfs_alert;
-  std::string no_per_pool_omap_alert;
+  std::string no_per_pg_omap_alert;
   std::string disk_size_mismatch_alert;
   std::string spurious_read_errors_alert;
 
@@ -3098,7 +3106,7 @@ private:
   }
 
   void _check_legacy_statfs_alert();
-  void _check_no_per_pool_omap_alert();
+  void _check_no_per_pg_omap_alert();
   void _set_disk_size_mismatch_alert(const std::string& s) {
     std::lock_guard l(qlock);
     disk_size_mismatch_alert = s;
@@ -3636,7 +3644,7 @@ public:
     }
   };
 public:
-  void fix_per_pool_omap(KeyValueDB *db);
+  void fix_per_pool_omap(KeyValueDB *db, int val);
   bool remove_key(KeyValueDB *db, const std::string& prefix, const std::string& key);
   bool fix_shared_blob(KeyValueDB *db,
 		         uint64_t sbid,

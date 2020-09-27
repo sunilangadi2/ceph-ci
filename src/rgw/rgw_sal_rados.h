@@ -18,6 +18,7 @@
 #include "rgw_sal.h"
 #include "rgw_rados.h"
 #include "rgw_notify.h"
+#include "rgw_cache.h"
 #include "cls/lock/cls_lock_client.h"
 
 namespace rgw { namespace sal {
@@ -193,7 +194,7 @@ class RGWRadosObject : public RGWObject {
 			   uint64_t olh_epoch,
 			   const DoutPrefixProvider *dpp,
 			   optional_yield y) override;
-    virtual int get_max_chunk_size(const DoutPrefixProvider *dpp, 
+    virtual int get_max_chunk_size(const DoutPrefixProvider *dpp,
                                    rgw_placement_rule placement_rule,
 				   uint64_t *max_chunk_size,
 				   uint64_t *alignment = nullptr) override;
@@ -371,7 +372,7 @@ class RGWRadosStore : public RGWStore {
     virtual int get_bucket(const DoutPrefixProvider *dpp, RGWUser* u, const rgw_bucket& b, std::unique_ptr<RGWBucket>* bucket, optional_yield y) override;
     virtual int get_bucket(RGWUser* u, const RGWBucketInfo& i, std::unique_ptr<RGWBucket>* bucket) override;
     virtual int get_bucket(const DoutPrefixProvider *dpp, RGWUser* u, const std::string& tenant, const std::string&name, std::unique_ptr<RGWBucket>* bucket, optional_yield y) override;
-    virtual int create_bucket(const DoutPrefixProvider *dpp, 
+    virtual int create_bucket(const DoutPrefixProvider *dpp,
                             RGWUser& u, const rgw_bucket& b,
                             const std::string& zonegroup_id,
                             rgw_placement_rule& placement_rule,

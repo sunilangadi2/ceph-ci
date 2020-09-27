@@ -27,6 +27,7 @@
 #include "rgw_bucket.h"
 #include "rgw_multi.h"
 #include "rgw_acl_s3.h"
+#include "rgw_d3n_datacache.h"
 
 #include "rgw_zone.h"
 #include "rgw_rest_conn.h"
@@ -1005,7 +1006,7 @@ int RGWRadosStore::cluster_stat(RGWClusterStat& stats)
   return ret;
 }
 
-int RGWRadosStore::create_bucket(const DoutPrefixProvider *dpp, 
+int RGWRadosStore::create_bucket(const DoutPrefixProvider *dpp,
                                  RGWUser& u, const rgw_bucket& b,
 				 const string& zonegroup_id,
 				 rgw_placement_rule& placement_rule,
@@ -1275,15 +1276,22 @@ LCSerializer* RadosLifecycle::get_serializer(const std::string& lock_name, const
 
 } // namespace rgw::sal
 
-rgw::sal::RGWRadosStore *RGWStoreManager::init_storage_provider(const DoutPrefixProvider *dpp, CephContext *cct, bool use_gc_thread, bool use_lc_thread, bool quota_threads, bool run_sync_thread, bool run_reshard_thread, bool use_cache)
+rgw::sal::RGWRadosStore *RGWStoreManager::init_storage_provider(const DoutPrefixProvider *dpp, CephContext *cct, bool use_gc_thread, bool use_lc_thread, bool quota_threads, bool run_sync_thread, bool run_reshard_thread, bool use_metacache, bool use_datacache)
 {
-  RGWRados *rados = new RGWRados;
+  RGWRados *rados{nullptr};
+  lsubdout(g_ceph_context, rgw_datacache, 5) << "D3nDataCache: " << __func__ << "(): use_datacache=" << use_datacache << dendl;
+  if (use_datacache) {
+    rados = new D3nRGWDataCache<RGWRados>;
+  } else {
+    rados = new RGWRados;
+  }
   rgw::sal::RGWRadosStore *store = new rgw::sal::RGWRadosStore();
 
   store->setRados(rados);
   rados->set_store(store);
 
-  if ((*rados).set_use_cache(use_cache)
+  if ((*rados).set_use_cache(use_metacache)
+              .set_use_datacache(use_datacache)
               .set_run_gc_thread(use_gc_thread)
               .set_run_lc_thread(use_lc_thread)
               .set_run_quota_threads(quota_threads)

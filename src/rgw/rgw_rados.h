@@ -7,6 +7,7 @@
 #include <functional>
 #include <boost/container/flat_map.hpp>
 
+
 #include "include/rados/librados.hpp"
 #include "include/Context.h"
 #include "common/RefCountedObj.h"
@@ -27,9 +28,16 @@
 #include "rgw_trim_bilog.h"
 #include "rgw_service.h"
 #include "rgw_sal.h"
+#include "rgw_aio.h"
+#include "rgw_d3n_cacherequest.h"
 
 #include "services/svc_rados.h"
 #include "services/svc_bi_rados.h"
+#include "common/Throttle.h"
+#include "common/ceph_mutex.h"
+#include "rgw_cache.h"
+
+struct D3nDataCache;
 
 class RGWWatcher;
 class SafeTimer;
@@ -49,6 +57,7 @@ class RGWReshard;
 class RGWReshardWait;
 
 class RGWSysObjectCtx;
+struct get_obj_data;
 
 /* flags for put_obj_meta() */
 #define PUT_OBJ_CREATE      0x01
@@ -166,6 +175,7 @@ struct RGWObjState {
   string write_tag;
   bool fake_tag{false};
   std::optional<RGWObjManifest> manifest;
+
   string shadow_obj;
   bool has_data{false};
   bufferlist data;
@@ -337,7 +347,6 @@ struct objexp_hint_entry {
 };
 WRITE_CLASS_ENCODER(objexp_hint_entry)
 
-class RGWDataChangesLog;
 class RGWMetaSyncStatusManager;
 class RGWDataSyncStatusManager;
 class RGWCoroutinesManagerRegistry;
@@ -470,7 +479,6 @@ class RGWRados
                          bool follow_olh, optional_yield y, bool assume_noent = false);
   int append_atomic_test(const DoutPrefixProvider *dpp, RGWObjectCtx *rctx, const RGWBucketInfo& bucket_info, const rgw_obj& obj,
                          librados::ObjectOperation& op, RGWObjState **state, optional_yield y);
-  int append_atomic_test(const RGWObjState* astate, librados::ObjectOperation& op);
 
   int update_placement_map();
   int store_bucket_info(RGWBucketInfo& info, map<string, bufferlist> *pattrs, RGWObjVersionTracker *objv_tracker, bool exclusive);
@@ -506,6 +514,7 @@ protected:
   RGWIndexCompletionManager *index_completion_manager{nullptr};
 
   bool use_cache{false};
+  bool use_datacache{false};
 
   int get_obj_head_ioctx(const RGWBucketInfo& bucket_info, const rgw_obj& obj, librados::IoCtx *ioctx);
 public:
@@ -525,6 +534,15 @@ public:
   RGWRados& set_use_cache(bool status) {
     use_cache = status;
     return *this;
+  }
+
+  RGWRados& set_use_datacache(bool status) {
+    use_datacache = status;
+    return *this;
+  }
+
+  bool get_use_datacache() {
+    return use_datacache;
   }
 
   RGWLC *get_lc() {
@@ -631,7 +649,7 @@ public:
   /** Initialize the RADOS instance and prepare to do other ops */
   int init_svc(bool raw, const DoutPrefixProvider *dpp);
   int init_ctl(const DoutPrefixProvider *dpp);
-  int init_rados();
+  virtual int init_rados();
   int init_complete(const DoutPrefixProvider *dpp);
   int initialize(const DoutPrefixProvider *dpp);
   void finalize();
@@ -828,7 +846,7 @@ public:
 
       explicit Write(RGWRados::Object *_target) : target(_target) {}
 
-      int _do_write_meta(const DoutPrefixProvider *dpp, 
+      int _do_write_meta(const DoutPrefixProvider *dpp,
                      uint64_t size, uint64_t accounted_size,
                      map<std::string, bufferlist>& attrs,
                      bool modify_tail, bool assume_noent,
@@ -984,7 +1002,7 @@ public:
                    const string& storage_class,
                    bufferlist *acl_bl, RGWObjCategory category,
 		   list<rgw_obj_index_key> *remove_objs, const string *user_data = nullptr, bool appendable = false);
-      int complete_del(const DoutPrefixProvider *dpp, 
+      int complete_del(const DoutPrefixProvider *dpp,
                        int64_t poolid, uint64_t epoch,
                        ceph::real_time& removed_mtime, /* mtime of removed object */
                        list<rgw_obj_index_key> *remove_objs);
@@ -1004,13 +1022,13 @@ public:
       RGWRados::Bucket *target;
       rgw_obj_key next_marker;
 
-      int list_objects_ordered(const DoutPrefixProvider *dpp, 
+      int list_objects_ordered(const DoutPrefixProvider *dpp,
                                int64_t max,
 			       vector<rgw_bucket_dir_entry> *result,
 			       map<string, bool> *common_prefixes,
 			       bool *is_truncated,
                                optional_yield y);
-      int list_objects_unordered(const DoutPrefixProvider *dpp, 
+      int list_objects_unordered(const DoutPrefixProvider *dpp,
                                  int64_t max,
 				 vector<rgw_bucket_dir_entry> *result,
 				 map<string, bool> *common_prefixes,
@@ -1059,7 +1077,7 @@ public:
     }; // class List
   }; // class Bucket
 
-  int on_last_entry_in_listing(const DoutPrefixProvider *dpp, 
+  int on_last_entry_in_listing(const DoutPrefixProvider *dpp,
                                RGWBucketInfo& bucket_info,
                                const std::string& obj_prefix,
                                const std::string& obj_delim,
@@ -1092,6 +1110,8 @@ public:
     ATTRSMOD_REPLACE = 1,
     ATTRSMOD_MERGE   = 2
   };
+
+  D3nDataCache* d3n_datacache{nullptr};
 
   int rewrite_obj(RGWBucketInfo& dest_bucket_info, rgw::sal::RGWObject* obj, const DoutPrefixProvider *dpp, optional_yield y);
 
@@ -1266,7 +1286,7 @@ public:
     return get_obj_state(dpp, rctx, bucket_info, obj, state, true, y);
   }
 
-  using iterate_obj_cb = int (*)(const rgw_raw_obj&, off_t, off_t,
+  using iterate_obj_cb = int (*)(const DoutPrefixProvider*, const rgw_raw_obj&, off_t, off_t,
                                  off_t, bool, RGWObjState*, void*);
 
   int iterate_obj(const DoutPrefixProvider *dpp, RGWObjectCtx& ctx, const RGWBucketInfo& bucket_info,
@@ -1274,11 +1294,12 @@ public:
                   uint64_t max_chunk_size, iterate_obj_cb cb, void *arg,
                   optional_yield y);
 
-  int get_obj_iterate_cb(const rgw_raw_obj& read_obj, off_t obj_ofs,
+  int append_atomic_test(const RGWObjState* astate, librados::ObjectOperation& op);
+
+  virtual int flush_read_list(const DoutPrefixProvider *dpp, struct get_obj_data* d);
+  virtual int get_obj_iterate_cb(const DoutPrefixProvider *dpp, const rgw_raw_obj& read_obj, off_t obj_ofs,
                          off_t read_ofs, off_t len, bool is_head_obj,
                          RGWObjState *astate, void *arg);
-
-  void get_obj_aio_completion_cb(librados::completion_t cb, void *arg);
 
   /**
    * a simple object read without keeping state
@@ -1291,7 +1312,7 @@ public:
   int obj_operate(const RGWBucketInfo& bucket_info, const rgw_obj& obj, librados::ObjectWriteOperation *op);
   int obj_operate(const RGWBucketInfo& bucket_info, const rgw_obj& obj, librados::ObjectReadOperation *op);
 
-  int guard_reshard(const DoutPrefixProvider *dpp, 
+  int guard_reshard(const DoutPrefixProvider *dpp,
                     BucketShard *bs,
 		    const rgw_obj& obj_instance,
 		    const RGWBucketInfo& bucket_info,
@@ -1305,7 +1326,7 @@ public:
   void bucket_index_guard_olh_op(RGWObjState& olh_state, librados::ObjectOperation& op);
   int olh_init_modification(const RGWBucketInfo& bucket_info, RGWObjState& state, const rgw_obj& olh_obj, string *op_tag);
   int olh_init_modification_impl(const RGWBucketInfo& bucket_info, RGWObjState& state, const rgw_obj& olh_obj, string *op_tag);
-  int bucket_index_link_olh(const DoutPrefixProvider *dpp, 
+  int bucket_index_link_olh(const DoutPrefixProvider *dpp,
                             const RGWBucketInfo& bucket_info, RGWObjState& olh_state,
                             const rgw_obj& obj_instance, bool delete_marker,
                             const string& op_tag, struct rgw_bucket_dir_entry_meta *meta,
@@ -1514,7 +1535,7 @@ public:
    * and -errno on other failures. (-ENOENT is not a failure, and it
    * will encode that info as a suggested update.)
    */
-  int check_disk_state(const DoutPrefixProvider *dpp, 
+  int check_disk_state(const DoutPrefixProvider *dpp,
                        librados::IoCtx io_ctx,
                        const RGWBucketInfo& bucket_info,
                        rgw_bucket_dir_entry& list_state,
@@ -1566,5 +1587,71 @@ public:
   static uint32_t calc_ordered_bucket_list_per_shard(uint32_t num_entries,
 						     uint32_t num_shards);
 };
+
+
+struct get_obj_data {
+  RGWRados* rgwrados;
+  RGWGetDataCB* client_cb = nullptr;
+  rgw::Aio* aio;
+  uint64_t offset; // next offset to write to client
+  rgw::AioResultList completed; // completed read results, sorted by offset
+  optional_yield yield;
+
+  get_obj_data(RGWRados* rgwrados, RGWGetDataCB* cb, rgw::Aio* aio,
+               uint64_t offset, optional_yield yield)
+               : rgwrados(rgwrados), client_cb(cb), aio(aio), offset(offset), yield(yield) {}
+
+  std::mutex d3n_datacache_lock;
+  std::list<bufferlist> d3n_read_list;
+  std::list<string> d3n_pending_oid_list;
+  void d3n_add_pending_oid(std::string oid);
+  std::string d3n_get_pending_oid();
+
+  int flush(rgw::AioResultList&& results) {
+    int r = rgw::check_for_errors(results);
+    if (r < 0) {
+      return r;
+    }
+    std::list<bufferlist> bl_list;
+
+    auto cmp = [](const auto& lhs, const auto& rhs) { return lhs.id < rhs.id; };
+    results.sort(cmp); // merge() requires results to be sorted first
+    completed.merge(results, cmp); // merge results in sorted order
+
+    while (!completed.empty() && completed.front().id == offset) {
+      auto bl = std::move(completed.front().data);
+      completed.pop_front_and_dispose(std::default_delete<rgw::AioResultEntry>{});
+
+      bl_list.push_back(bl);
+      offset += bl.length();
+      int r = client_cb->handle_data(bl, 0, bl.length());
+      if (r < 0) {
+        return r;
+      }
+    }
+
+    d3n_read_list.splice(d3n_read_list.end(), bl_list);
+    return 0;
+  }
+
+  void cancel() {
+    // wait for all completions to drain and ignore the results
+    aio->drain();
+  }
+
+  int drain() {
+    auto c = aio->wait();
+    while (!c.empty()) {
+      int r = flush(std::move(c));
+      if (r < 0) {
+        cancel();
+        return r;
+      }
+      c = aio->wait();
+    }
+    return flush(std::move(c));
+  }
+};
+
 
 #endif

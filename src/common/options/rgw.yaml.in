@@ -2879,6 +2879,57 @@ options:
   enum_values:
   - fifo
   - omap
+- name: rgw_d3n_l1_local_datacache_enabled
+  type: bool
+  level: advanced
+  desc: Enable datacenter-scale dataset delivery local cache
+  default: false
+  services:
+  - rgw
+  with_legacy: true
+- name: rgw_d3n_l1_datacache_persistent_path
+  type: str
+  level: advanced
+  desc: path for the directory for storing the local cache objects data
+  default: /tmp/rgw_datacache/
+  services:
+  - rgw
+  with_legacy: true
+- name: rgw_d3n_l1_datacache_size
+  type: size
+  level: advanced
+  desc: datacache maximum size on disk in bytes
+  default: 1048576
+  services:
+  - rgw
+  with_legacy: true
+- name: rgw_d3n_l1_evict_cache_on_start
+  type: bool
+  level: advanced
+  desc: clear the content of the persistent data cache directory on start
+  default: true
+  services:
+  - rgw
+  with_legacy: true
+- name: rgw_d3n_l1_fadvise
+  type: int
+  level: advanced
+  desc: posix_fadvise() flag for access pattern of cache files
+  default: 4  # #define POSIX_FADV_DONTNEED 4   /* [MC1] don't need these pages */
+  services:
+  - rgw
+  with_legacy: true
+- name: rgw_d3n_l1_eviction_policy
+  type: str
+  level: advanced
+  desc: select the d3n cache eviction policy
+  default: lru
+  services:
+  - rgw
+  enum_values:
+  - lru
+  - random
+  with_legacy: true
 - name: rgw_luarocks_location
   type: str
   level: advanced

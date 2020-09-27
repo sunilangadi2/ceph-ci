@@ -14,6 +14,7 @@
 #include "librados_fwd.hpp"
 #include "rados_types.hpp"
 
+class CacheRequest;
 namespace libradosstriper
 {
   class RadosStriper;
@@ -1161,6 +1162,7 @@ inline namespace v14_2_0 {
     int operate(const std::string& oid, ObjectReadOperation *op, bufferlist *pbl, int flags);
     int aio_operate(const std::string& oid, AioCompletion *c, ObjectWriteOperation *op);
     int aio_operate(const std::string& oid, AioCompletion *c, ObjectWriteOperation *op, int flags);
+    int cache_aio_notifier(const std::string& oid, CacheRequest *cc);
     /**
      * Schedule an async write operation with explicit snapshot parameters
      *

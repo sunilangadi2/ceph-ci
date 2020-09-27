@@ -95,6 +95,8 @@ class Aio {
                             optional_yield y);
   static OpFunc librados_op(librados::ObjectWriteOperation&& op,
                             optional_yield y);
+  static OpFunc d3n_cache_op(librados::ObjectReadOperation&& op, optional_yield y,
+                         off_t obj_ofs, off_t read_ofs, off_t read_len, std::string& location, std::mutex* d_lock);
 };
 
 } // namespace rgw

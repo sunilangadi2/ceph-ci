@@ -17,6 +17,7 @@
 
 #include "rgw_sal.h"
 #include "rgw_rados.h"
+#include "rgw_cache.h"
 #include "cls/lock/cls_lock_client.h"
 
 namespace rgw { namespace sal {
@@ -144,7 +145,7 @@ class RGWRadosObject : public RGWObject {
 			   uint64_t olh_epoch,
 			   const DoutPrefixProvider *dpp,
 			   optional_yield y) override;
-    virtual int get_max_chunk_size(const DoutPrefixProvider *dpp, 
+    virtual int get_max_chunk_size(const DoutPrefixProvider *dpp,
                                    rgw_placement_rule placement_rule,
 				   uint64_t *max_chunk_size,
 				   uint64_t *alignment = nullptr) override;
@@ -279,7 +280,7 @@ class RGWRadosStore : public RGWStore {
     virtual int get_bucket(const DoutPrefixProvider *dpp, RGWUser* u, const rgw_bucket& b, std::unique_ptr<RGWBucket>* bucket, optional_yield y) override;
     virtual int get_bucket(RGWUser* u, const RGWBucketInfo& i, std::unique_ptr<RGWBucket>* bucket) override;
     virtual int get_bucket(const DoutPrefixProvider *dpp, RGWUser* u, const std::string& tenant, const std::string&name, std::unique_ptr<RGWBucket>* bucket, optional_yield y) override;
-    virtual int create_bucket(const DoutPrefixProvider *dpp, 
+    virtual int create_bucket(const DoutPrefixProvider *dpp,
                             RGWUser& u, const rgw_bucket& b,
                             const std::string& zonegroup_id,
                             rgw_placement_rule& placement_rule,
@@ -389,16 +390,16 @@ class RGWStoreManager {
 public:
   RGWStoreManager() {}
   static rgw::sal::RGWRadosStore *get_storage(const DoutPrefixProvider *dpp, CephContext *cct, bool use_gc_thread, bool use_lc_thread, bool quota_threads,
-			       bool run_sync_thread, bool run_reshard_thread, bool use_cache = true) {
+			       bool run_sync_thread, bool run_reshard_thread, bool use_metacache = true, bool use_datacache = false) {
     rgw::sal::RGWRadosStore *store = init_storage_provider(dpp, cct, use_gc_thread, use_lc_thread,
-	quota_threads, run_sync_thread, run_reshard_thread, use_cache);
+	quota_threads, run_sync_thread, run_reshard_thread, use_metacache, use_datacache);
     return store;
   }
   static rgw::sal::RGWRadosStore *get_raw_storage(const DoutPrefixProvider *dpp, CephContext *cct) {
     rgw::sal::RGWRadosStore *rados = init_raw_storage_provider(dpp, cct);
     return rados;
   }
-  static rgw::sal::RGWRadosStore *init_storage_provider(const DoutPrefixProvider *dpp, CephContext *cct, bool use_gc_thread, bool use_lc_thread, bool quota_threads, bool run_sync_thread, bool run_reshard_thread, bool use_metadata_cache);
+  static rgw::sal::RGWRadosStore *init_storage_provider(const DoutPrefixProvider *dpp, CephContext *cct, bool use_gc_thread, bool use_lc_thread, bool quota_threads, bool run_sync_thread, bool run_reshard_thread, bool use_metadata_cache, bool use_data_cache = false);
   static rgw::sal::RGWRadosStore *init_raw_storage_provider(const DoutPrefixProvider *dpp, CephContext *cct);
   static void close_storage(rgw::sal::RGWRadosStore *store);
 

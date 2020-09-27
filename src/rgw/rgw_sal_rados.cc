@@ -1930,6 +1930,8 @@ const string& RadosZone::get_current_period_id()
 
 } // namespace rgw::sal
 
+
+
 extern "C" {
 
 void *newRGWStore(void)

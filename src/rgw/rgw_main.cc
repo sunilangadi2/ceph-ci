@@ -322,15 +322,25 @@ int radosgw_Main(int argc, const char **argv)
   rgw_init_resolver();
   rgw::curl::setup_curl(fe_map);
   rgw_http_client_init(g_ceph_context);
-  
+
 #if defined(WITH_RADOSGW_FCGI_FRONTEND)
   FCGX_Init();
 #endif
 
+
+  lsubdout(cct, rgw_datacache, 1) << "rgw_d3n: rgw_d3n_l1_local_datacache_enabled=" << cct->_conf->rgw_d3n_l1_local_datacache_enabled << dendl;
+  lsubdout(cct, rgw_datacache, 2) << "rgw_d3n: rgw_d3n_l1_datacache_persistent_path='" << cct->_conf->rgw_d3n_l1_datacache_persistent_path << "'" << dendl;
+  lsubdout(cct, rgw_datacache, 2) << "rgw_d3n: rgw_d3n_l1_datacache_size=" << cct->_conf->rgw_d3n_l1_datacache_size << dendl;
+  lsubdout(cct, rgw_datacache, 2) << "rgw_d3n: rgw_enable_ops_log=" << cct->_conf->rgw_enable_ops_log << dendl;
+  lsubdout(cct, rgw_datacache, 5) << "rgw_d3n: rgw_d3n_l1_evict_cache_on_start=" << cct->_conf->rgw_d3n_l1_evict_cache_on_start << dendl;
+  lsubdout(cct, rgw_datacache, 5) << "rgw_d3n: rgw_d3n_l1_libaio_read=" << cct->_conf->rgw_d3n_l1_libaio_read << dendl;
+  lsubdout(cct, rgw_datacache, 5) << "rgw_d3n: rgw_d3n_l1_fadvise=" << cct->_conf->rgw_d3n_l1_fadvise << dendl;
+  lsubdout(cct, rgw_datacache, 5) << "rgw_d3n: rgw_d3n_l1_eviction_policy=" << cct->_conf->rgw_d3n_l1_eviction_policy << dendl;
+  bool rgw_d3n_datacache_enabled = cct->_conf->rgw_d3n_l1_local_datacache_enabled;
   const DoutPrefix dp(cct.get(), dout_subsys, "rgw main: ");
   rgw::sal::RGWStore *store =
     RGWStoreManager::get_storage(&dp, g_ceph_context,
-				 "rados",
+				 (!rgw_d3n_datacache_enabled) ? "rados" : "d3n",
 				 g_conf()->rgw_enable_gc_threads,
 				 g_conf()->rgw_enable_lc_threads,
 				 g_conf()->rgw_enable_quota_threads,

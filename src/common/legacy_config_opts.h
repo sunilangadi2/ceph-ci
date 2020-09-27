@@ -1558,3 +1558,10 @@ OPTION(debug_allow_any_pool_priority, OPT_BOOL)
 OPTION(rgw_gc_max_deferred_entries_size, OPT_U64) // GC deferred entries size in queue head
 OPTION(rgw_gc_max_queue_size, OPT_U64) // GC max queue size
 OPTION(rgw_gc_max_deferred, OPT_U64) // GC max number of deferred entries
+
+OPTION(rgw_d3n_l1_local_datacache_enabled, OPT_BOOL)
+OPTION(rgw_d3n_l1_datacache_persistent_path, OPT_STR)
+OPTION(rgw_d3n_l1_datacache_size, OPT_LONGLONG)
+OPTION(rgw_d3n_l1_evict_cache_on_start, OPT_BOOL)
+OPTION(rgw_d3n_l1_fadvise, OPT_INT)
+OPTION(rgw_d3n_l1_eviction_policy, OPT_STR)

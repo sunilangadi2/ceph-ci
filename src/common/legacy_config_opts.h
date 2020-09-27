@@ -1550,3 +1550,10 @@ OPTION(debug_allow_any_pool_priority, OPT_BOOL)
 OPTION(rgw_gc_max_deferred_entries_size, OPT_U64) // GC deferred entries size in queue head
 OPTION(rgw_gc_max_queue_size, OPT_U64) // GC max queue size
 OPTION(rgw_gc_max_deferred, OPT_U64) // GC max number of deferred entries
+
+OPTION(rgw_datacache_persistent_path, OPT_STR)
+OPTION(rgw_datacache_size, OPT_LONGLONG)
+OPTION(rgw_datacache_local_enabled, OPT_BOOL)
+OPTION(rgw_datacache_distributed_enabled, OPT_BOOL)
+OPTION(rgw_l2_request_thread_num, OPT_INT)
+OPTION(rgw_l2_hosts, OPT_STR)

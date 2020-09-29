@@ -1204,7 +1204,7 @@ public:
                string *petag,
                const DoutPrefixProvider *dpp,
                optional_yield y);
-  
+
   int transition_obj(RGWObjectCtx& obj_ctx,
                      rgw::sal::RGWBucket* bucket,
                      rgw::sal::RGWObject& obj,
@@ -1278,7 +1278,7 @@ public:
 
   int append_atomic_test(const RGWObjState* astate, librados::ObjectOperation& op);
 
-  virtual int flush_read_list(struct get_obj_data *d);
+  virtual int flush_read_list(struct get_obj_data* d);
   //virtual int get_obj_iterate_cb(const rgw_raw_obj& read_obj, off_t obj_ofs,
   virtual int get_obj_iterate_cb(const rgw_raw_obj& read_obj, off_t obj_ofs,
                                  off_t read_ofs, off_t len, bool is_head_obj,
@@ -1566,7 +1566,7 @@ public:
 
 
 struct get_obj_aio_data {
-  struct get_obj_data *op_data;
+  struct get_obj_data* op_data;
   off_t ofs;
   off_t len;
 };
@@ -1577,10 +1577,10 @@ struct get_obj_io {
 };
 
 struct get_obj_data : public RefCountedObject{
-  CephContext* cct; 
+  CephContext* cct;
   RGWRados* store;
   RGWGetDataCB* client_cb;
-  RGWObjectCtx* ctx; 
+  RGWObjectCtx* ctx;
   librados::IoCtx io_ctx;
   rgw::Aio* aio;
   uint64_t offset; // next offset to write to client
@@ -1605,7 +1605,7 @@ struct get_obj_data : public RefCountedObject{
   std::map<off_t, librados::AioCompletion *> completion_map;
 
   char *tmp_data;
-  
+
 
   get_obj_data(CephContext *_cct);
 
@@ -1613,11 +1613,11 @@ struct get_obj_data : public RefCountedObject{
                uint64_t offset, optional_yield yield, Throttle throttle)
                : store(store), client_cb(cb), aio(aio), offset(offset), yield(yield),
                throttle(cct, "get_obj_data", cct->_conf->rgw_get_obj_window_size, false) {}
-  
+
 
   ~get_obj_data();
 
-  void add_pending_oid(std::string oid); 
+  void add_pending_oid(std::string oid);
   void set_cancelled(int r);
   bool is_cancelled();
   int get_err_code();
@@ -1631,7 +1631,7 @@ struct get_obj_data : public RefCountedObject{
   string get_pending_oid();
   bool deterministic_hash_is_local(string oid);
   string deterministic_hash(string oid);
-  int add_l1_request(struct L1CacheRequest **cc, bufferlist *pbl, string oid,
+  int add_l1_request(struct L1CacheRequest** cc, bufferlist *pbl, string oid,
       size_t len, off_t ofs, off_t read_ofs, string key, librados::AioCompletion *lc);
   int add_l2_request(struct L2CacheRequest **cc, bufferlist *pbl, string oid,
       off_t obj_ofs, off_t read_ofs, size_t len, string key, librados::AioCompletion *lc);
@@ -1639,10 +1639,10 @@ struct get_obj_data : public RefCountedObject{
   void cache_aio_completion_cb(CacheRequest *c);
   void cache_unmap_io(off_t ofs);
 
-  int submit_l1_aio_read(L1CacheRequest *cc);
+  int submit_l1_aio_read(L1CacheRequest* cc);
   int submit_l1_io_read(bufferlist *bl, int len, string oid);
 
-  
+
   int flush(rgw::AioResultList&& results) {
     int r = rgw::check_for_errors(results);
     if (r < 0) {
@@ -1665,7 +1665,7 @@ struct get_obj_data : public RefCountedObject{
     }
     return 0;
   }
-  
+
   void cancel() {
     // wait for all completions to drain and ignore the results
     aio->drain();

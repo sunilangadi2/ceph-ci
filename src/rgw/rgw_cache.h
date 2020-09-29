@@ -51,8 +51,8 @@ struct ChunkDataInfo : public LRUObject {
 	string address;
 	string oid;
 	bool complete;
-	struct ChunkDataInfo *lru_prev;
-	struct ChunkDataInfo *lru_next;	
+	struct ChunkDataInfo* lru_prev;
+	struct ChunkDataInfo* lru_next;
 
 	ChunkDataInfo(): size(0) {}
 
@@ -64,22 +64,22 @@ struct ChunkDataInfo : public LRUObject {
 	static void generate_test_instances(list<ChunkDataInfo*>& o);
 };
 
-struct cacheAioWriteRequest{
+struct CacheAioWriteRequest{
 	string oid;
 	void *data;
 	int fd;
 	struct aiocb *cb;
 	DataCache *priv_data;
 	CephContext *cct;
-	
-	cacheAioWriteRequest(CephContext *_cct) : cct(_cct) {}
+
+	CacheAioWriteRequest(CephContext *_cct) : cct(_cct) {}
 	int create_io(bufferlist& bl, unsigned int len, string oid);
-	
+
 	void release() {
 		::close(fd);
-		cb->aio_buf = NULL;
+		cb->aio_buf = nullptr;
 		free(data);
-		data = NULL;
+		data = nullptr;
 		free(cb);
 		free(this);
 	}
@@ -95,20 +95,20 @@ private:
   std::mutex cache_lock;
   std::mutex req_lock;
   std::mutex eviction_lock;
- 
+
   CephContext *cct;
-  enum _io_type { 
+  enum _io_type {
     SYNC_IO = 1,
     ASYNC_IO = 2,
     SEND_FILE = 3
   } io_type;
 
   struct sigaction action;
-  long long free_data_cache_size = 0;
-  long long outstanding_write_size;
+  uint64_t free_data_cache_size = 0;
+  uint64_t outstanding_write_size = 0;
   L2CacheThreadPool *tp;
-  struct ChunkDataInfo *head;
-  struct ChunkDataInfo *tail;
+  struct ChunkDataInfo* head;
+  struct ChunkDataInfo* tail;
 
 private:
   void add_io();
@@ -118,28 +118,28 @@ public:
   ~DataCache() {}
 
   bool get(string oid);
-  void put(bufferlist& bl, unsigned int len, string obj_key);
+  void put(bufferlist& bl, unsigned int len, string& obj_key);
   int io_write(bufferlist& bl, unsigned int len, std::string oid);
   int create_aio_write_request(bufferlist& bl, unsigned int len, std::string oid);
-  void cache_aio_write_completion_cb(cacheAioWriteRequest *c);
+  void cache_aio_write_completion_cb(CacheAioWriteRequest* c);
   size_t random_eviction();
   size_t lru_eviction();
   std::string hash_uri(std::string dest);
   std::string deterministic_hash(std::string oid);
-  void remote_io(struct L2CacheRequest *l2request); 
+  void remote_io(struct L2CacheRequest *l2request);
   void init_l2_request_cb(librados::completion_t c, void *arg);
   void push_l2_request(L2CacheRequest *l2request);
   void l2_http_request(off_t ofs , off_t len, std::string oid);
   void init(CephContext *_cct) {
     cct = _cct;
     free_data_cache_size = cct->_conf->rgw_datacache_size;
-    head = NULL;
-    tail = NULL;
+    head = nullptr;
+    tail = nullptr;
   }
 
-  void lru_insert_head(struct ChunkDataInfo *o) {
+  void lru_insert_head(struct ChunkDataInfo* o) {
     o->lru_next = head;
-    o->lru_prev = NULL;
+    o->lru_prev = nullptr;
     if (head) {
       head->lru_prev = o;
     } else {
@@ -147,8 +147,8 @@ public:
     }
     head = o;
   }
-  void lru_insert_tail(struct ChunkDataInfo *o) {
-    o->lru_next = NULL;
+  void lru_insert_tail(struct ChunkDataInfo* o) {
+    o->lru_next = nullptr;
     o->lru_prev = tail;
     if (tail) {
       tail->lru_next = o;
@@ -158,7 +158,7 @@ public:
     tail = o;
   }
 
-  void lru_remove(struct ChunkDataInfo *o) {
+  void lru_remove(struct ChunkDataInfo* o) {
     if (o->lru_next)
       o->lru_next->lru_prev = o->lru_prev;
     else
@@ -167,7 +167,7 @@ public:
       o->lru_prev->lru_next = o->lru_next;
     else
       head = o->lru_next;
-    o->lru_next = o->lru_prev = NULL;
+    o->lru_next = o->lru_prev = nullptr;
   }
 };
 
@@ -382,7 +382,7 @@ public:
     return 0;
   }
 
-  int flush_read_list(struct get_obj_data *d);
+  int flush_read_list(struct get_obj_data* d);
   int get_obj_iterate_cb(const rgw_raw_obj& read_obj, off_t obj_ofs,
                          off_t read_ofs, off_t len, bool is_head_obj,
                          RGWObjState *astate, void *arg) override;
@@ -390,7 +390,7 @@ public:
 
 
 template<typename T>
-int RGWDataCache<T>::flush_read_list(struct get_obj_data *d) {
+int RGWDataCache<T>::flush_read_list(struct get_obj_data* d) {
 
   d->data_lock.lock();
   std::list<bufferlist> l;
@@ -431,7 +431,7 @@ int RGWDataCache<T>::get_obj_iterate_cb(const rgw_raw_obj& read_obj, off_t obj_o
                                  RGWObjState *astate, void *arg) {
 
   librados::ObjectReadOperation op;
-  struct get_obj_data *d = (struct get_obj_data *)arg;
+  struct get_obj_data* d = static_cast<struct get_obj_data*>(arg);
   string oid, key;
   bufferlist *pbl;
   librados::AioCompletion *c;
@@ -480,7 +480,7 @@ int RGWDataCache<T>::get_obj_iterate_cb(const rgw_raw_obj& read_obj, off_t obj_o
   d->add_pending_oid(read_obj.oid);
 
   if (data_cache.get(read_obj.oid)) {
-    L1CacheRequest *cc;
+    L1CacheRequest* cc;
     d->add_l1_request(&cc, pbl, read_obj.oid, len, obj_ofs, read_ofs, key, c);
     r = io_ctx.cache_aio_notifier(read_obj.oid, dynamic_cast<CacheRequest*>(cc));
     r = d->submit_l1_aio_read(cc);

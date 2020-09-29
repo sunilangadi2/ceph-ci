@@ -1282,7 +1282,7 @@ public:
 
   int append_atomic_test(const RGWObjState* astate, librados::ObjectOperation& op);
 
-  virtual int flush_read_list(struct get_obj_data *d);
+  virtual int flush_read_list(struct get_obj_data* d);
   //virtual int get_obj_iterate_cb(const rgw_raw_obj& read_obj, off_t obj_ofs,
   virtual int get_obj_iterate_cb(const rgw_raw_obj& read_obj, off_t obj_ofs,
                          off_t read_ofs, off_t len, bool is_head_obj,
@@ -1570,7 +1570,7 @@ public:
 
 
 struct get_obj_aio_data {
-  struct get_obj_data *op_data;
+  struct get_obj_data* op_data;
   off_t ofs;
   off_t len;
 };
@@ -1635,7 +1635,7 @@ struct get_obj_data : public RefCountedObject{
   string get_pending_oid();
   bool deterministic_hash_is_local(string oid);
   string deterministic_hash(string oid);
-  int add_l1_request(struct L1CacheRequest **cc, bufferlist *pbl, string oid,
+  int add_l1_request(struct L1CacheRequest** cc, bufferlist *pbl, string oid,
       size_t len, off_t ofs, off_t read_ofs, string key, librados::AioCompletion *lc);
   int add_l2_request(struct L2CacheRequest **cc, bufferlist *pbl, string oid,
       off_t obj_ofs, off_t read_ofs, size_t len, string key, librados::AioCompletion *lc);
@@ -1643,7 +1643,7 @@ struct get_obj_data : public RefCountedObject{
   void cache_aio_completion_cb(CacheRequest *c);
   void cache_unmap_io(off_t ofs);
 
-  int submit_l1_aio_read(L1CacheRequest *cc);
+  int submit_l1_aio_read(L1CacheRequest* cc);
   int submit_l1_io_read(bufferlist *bl, int len, string oid);
 
   

@@ -362,7 +362,8 @@ ObjectCache::~ObjectCache()
   }
 }
 
-int cacheAioWriteRequest::create_io(bufferlist& bl, unsigned int len, string oid) {
+int CacheAioWriteRequest::create_io(bufferlist& bl, unsigned int len, string oid)
+{
   std::string location = cct->_conf->rgw_datacache_persistent_path + oid;
   int r = 0;
 
@@ -370,27 +371,24 @@ int cacheAioWriteRequest::create_io(bufferlist& bl, unsigned int len, string oid
   mode_t mode = S_IRUSR | S_IWUSR | S_IRGRP | S_IROTH;
   memset(cb, 0, sizeof(struct aiocb));
   r = fd = ::open(location.c_str(), O_WRONLY | O_CREAT | O_TRUNC, mode);
-  if (fd < 0)
-  {
+  if (fd < 0) {
     ldout(cct, 0) << "ERROR: create_aio_write_request: open file failed, " << errno << "\tlocation: " << location.c_str() <<dendl;
     goto done;
   }
   cb->aio_fildes = fd;
 
   data = malloc(len);
-  if(!data)
-  {
+  if (!data) {
     ldout(cct, 0) << "ERROR: create_aio_write_request: memory allocation failed" << dendl;
     goto close_file;
   }
   cb->aio_buf = data;
-  memcpy((void *)data, bl.c_str(), len);
+  memcpy((void*)data, bl.c_str(), len);
   cb->aio_nbytes = len;
-  goto done;	
-free_buf:
-  cb->aio_buf = NULL;
+  goto done;
+  cb->aio_buf = nullptr;
   free(data);
-  data = NULL;
+  data = nullptr;
 
 close_file:
   ::close(fd);
@@ -398,23 +396,22 @@ done:
   return r;
 }
 
-DataCache::DataCache ()
-  : index(0), cct(NULL), io_type(ASYNC_IO), free_data_cache_size(0), outstanding_write_size (0)
+DataCache::DataCache()
+  : index(0), cct(NULL), io_type(ASYNC_IO), free_data_cache_size(0), outstanding_write_size(0)
 {
   tp = new L2CacheThreadPool(32);
 }
 
-int DataCache::io_write(bufferlist& bl ,unsigned int len, std::string oid) {
-
-  ChunkDataInfo*  chunk_info = new ChunkDataInfo;
+int DataCache::io_write(bufferlist& bl ,unsigned int len, std::string oid)
+{
+  ChunkDataInfo* chunk_info = new ChunkDataInfo;
 
   std::string location = cct->_conf->rgw_datacache_persistent_path + oid; /* replace tmp with the correct path from config file*/
   FILE *cache_file = 0;
   int r = 0;
 
   cache_file = fopen(location.c_str(),"w+");
-  if (cache_file != nullptr)
-  {
+  if (cache_file != nullptr) {
     ldout(cct, 0) << "ERROR: DataCache::open file has return error " << r << dendl;
     return -1;
   }
@@ -437,16 +434,16 @@ int DataCache::io_write(bufferlist& bl ,unsigned int len, std::string oid) {
   return r;
 }
 
-void _cache_aio_write_completion_cb(sigval_t sigval) {
-
-  cacheAioWriteRequest *c = (cacheAioWriteRequest *)sigval.sival_ptr;
+void _cache_aio_write_completion_cb(sigval_t sigval)
+{
+  CacheAioWriteRequest* c = static_cast<CacheAioWriteRequest*>(sigval.sival_ptr);
   c->priv_data->cache_aio_write_completion_cb(c);
 }
 
 
-void DataCache::cache_aio_write_completion_cb(cacheAioWriteRequest *c){
-
-  ChunkDataInfo  *chunk_info = NULL;
+void DataCache::cache_aio_write_completion_cb(CacheAioWriteRequest* c)
+{
+  ChunkDataInfo* chunk_info{nullptr};
 
   ldout(cct, 0) << "DataCache: cache_aio_write_completion_cb oid:" << c->oid <<dendl;
 
@@ -463,15 +460,15 @@ void DataCache::cache_aio_write_completion_cb(cacheAioWriteRequest *c){
   /*update free size*/
   eviction_lock.lock();
   free_data_cache_size -= c->cb->aio_nbytes;
-  outstanding_write_size -=  c->cb->aio_nbytes;
+  outstanding_write_size -= c->cb->aio_nbytes;
   lru_insert_head(chunk_info);
   eviction_lock.unlock();
   c->release();
 }
 
-int DataCache::create_aio_write_request(bufferlist& bl, unsigned int len, std::string oid){
-
-  struct cacheAioWriteRequest *wr= new struct cacheAioWriteRequest(cct);
+int DataCache::create_aio_write_request(bufferlist& bl, unsigned int len, std::string oid)
+{
+  struct CacheAioWriteRequest* wr = new struct CacheAioWriteRequest(cct);
   int r=0;
   if (wr->create_io(bl, len, oid) < 0) {
     ldout(cct, 0) << "DataCache: Error create_aio_write_request" << dendl;
@@ -479,12 +476,12 @@ int DataCache::create_aio_write_request(bufferlist& bl, unsigned int len, std::s
   }
   wr->cb->aio_sigevent.sigev_notify = SIGEV_THREAD;
   wr->cb->aio_sigevent.sigev_notify_function = _cache_aio_write_completion_cb;
-  wr->cb->aio_sigevent.sigev_notify_attributes = NULL;
-  wr->cb->aio_sigevent.sigev_value.sival_ptr = (void*)wr;
+  wr->cb->aio_sigevent.sigev_notify_attributes = nullptr;
+  wr->cb->aio_sigevent.sigev_value.sival_ptr = wr;
   wr->oid = oid;
   wr->priv_data = this;
 
-  if((r= ::aio_write(wr->cb)) != 0) {
+  if ((r= ::aio_write(wr->cb)) != 0) {
     ldout(cct, 0) << "ERROR: aio_write "<< r << dendl;
     goto error;
   }
@@ -496,14 +493,14 @@ done:
   return r;
 }
 
-void DataCache::put(bufferlist& bl, unsigned int len, std::string oid){
-
+void DataCache::put(bufferlist& bl, unsigned int len, std::string& oid)
+{
   int r = 0;
-  long long freed_size = 0, _free_data_cache_size = 0, _outstanding_write_size = 0;
+  uint64_t freed_size = 0, _free_data_cache_size = 0, _outstanding_write_size = 0;
 
   ldout(cct, 20) << "DataCache: We are in DataCache::put() and oid is: " << oid <<dendl;
   cache_lock.lock();
-  map<string, ChunkDataInfo *>::iterator iter = cache_map.find(oid);
+  map<string, ChunkDataInfo*>::iterator iter = cache_map.find(oid);
   if (iter != cache_map.end()) {
     cache_lock.unlock();
     ldout(cct, 10) << "DataCache: Warning: data already cached, no rewrite" << dendl;
@@ -524,10 +521,10 @@ void DataCache::put(bufferlist& bl, unsigned int len, std::string oid){
   eviction_lock.unlock();
 
   ldout(cct, 20) << "DataCache: Before eviction _free_data_cache_size:" << _free_data_cache_size << ", _outstanding_write_size:" << _outstanding_write_size << "freed_size:" << freed_size << dendl;
-  while (len >= (_free_data_cache_size - _outstanding_write_size + freed_size)){
+  while (len >= (_free_data_cache_size - _outstanding_write_size + freed_size)) {
     ldout(cct, 20) << "DataCache: enter eviction, r=" << r << dendl;
     r = lru_eviction();
-    if(r < 0)
+    if (r < 0)
       return;
     freed_size += r;
   }
@@ -546,16 +543,16 @@ void DataCache::put(bufferlist& bl, unsigned int len, std::string oid){
   eviction_lock.unlock();
 }
 
-bool DataCache::get(string oid) { 
-
+bool DataCache::get(string oid)
+{
   bool exist = false;
   string location = cct->_conf->rgw_datacache_persistent_path + oid;
   cache_lock.lock();
   map<string, ChunkDataInfo*>::iterator iter = cache_map.find(oid);
-  if (!(iter == cache_map.end())){
+  if (!(iter == cache_map.end())) {
     // check inside cache whether file exists or not!!!! then make exist true;
-    struct ChunkDataInfo *chdo = iter->second;
-    if(access(location.c_str(), F_OK ) != -1 ) { // file exists
+    struct ChunkDataInfo* chdo = iter->second;
+    if (access(location.c_str(), F_OK ) != -1 ) { // file exists
       exist = true;
       {
         /*LRU*/
@@ -565,7 +562,7 @@ bool DataCache::get(string oid) {
         lru_insert_head(chdo);
         eviction_lock.unlock();
       }
-    } else {	
+    } else {
       cache_map.erase(oid);
       lru_remove(chdo);
       exist = false;
@@ -575,17 +572,17 @@ bool DataCache::get(string oid) {
   return exist;
 }
 
-size_t DataCache::random_eviction(){
-
+size_t DataCache::random_eviction()
+{
   int n_entries = 0;
   int random_index = 0;
   size_t freed_size = 0;
-  ChunkDataInfo *del_entry;
+  ChunkDataInfo* del_entry;
   string del_oid, location;
 
   cache_lock.lock();
   n_entries = cache_map.size();
-  if (n_entries <= 0){
+  if (n_entries <= 0) {
     cache_lock.unlock();
     return -1;
   }
@@ -598,7 +595,7 @@ size_t DataCache::random_eviction(){
   ldout(cct, 20) << "INFO::random_eviction index:"<< random_index << ", free size:0x" << std::hex << del_entry->size << dendl;
   freed_size = del_entry->size;
   free(del_entry);
-  del_entry = NULL;
+  del_entry = nullptr;
   cache_map.erase(del_oid); // oid
   cache_lock.unlock();
 
@@ -607,11 +604,11 @@ size_t DataCache::random_eviction(){
   return freed_size;
 }
 
-size_t DataCache::lru_eviction(){
-
+size_t DataCache::lru_eviction()
+{
   int n_entries = 0;
   size_t freed_size = 0;
-  ChunkDataInfo *del_entry;
+  ChunkDataInfo* del_entry;
   string del_oid, location;
 
   eviction_lock.lock();
@@ -621,10 +618,10 @@ size_t DataCache::lru_eviction(){
 
   cache_lock.lock();
   n_entries = cache_map.size();
-  if (n_entries <= 0){
+  if (n_entries <= 0) {
     cache_lock.unlock();
     return -1;
-    }
+  }
   del_oid = del_entry->oid;
   ldout(cct, 20) << "DataCache: lru_eviction: oid to remove" << del_oid << dendl;
   map<string, ChunkDataInfo*>::iterator iter = cache_map.find(del_entry->oid);
@@ -640,13 +637,15 @@ size_t DataCache::lru_eviction(){
 }
 
 
-void DataCache::remote_io(L2CacheRequest *l2request ) {
+void DataCache::remote_io(L2CacheRequest *l2request )
+{
   ldout(cct, 20) << "DataCache: Add task to remote IO" << dendl;
   tp->addTask(new HttpL2Request(l2request, cct));
 }
 
 
-std::vector<string> split(const std::string &s, char * delim) {
+std::vector<string> split(const std::string &s, char * delim)
+{
   stringstream ss(s);
   std::string item;
   std::vector<string> tokens;
@@ -656,45 +655,46 @@ std::vector<string> split(const std::string &s, char * delim) {
   return tokens;
 }
 
-void DataCache::push_l2_request(L2CacheRequest *l2request ) {
+void DataCache::push_l2_request(L2CacheRequest *l2request )
+{
   tp->addTask(new HttpL2Request(l2request, cct));
 }
 
-static size_t _l2_response_cb(void *ptr, size_t size, size_t nmemb, void* param) {
-  L2CacheRequest *req = static_cast<L2CacheRequest *>(param);
+static size_t _l2_response_cb(void *ptr, size_t size, size_t nmemb, void* param)
+{
+  L2CacheRequest* req = static_cast<L2CacheRequest*>(param);
   req->pbl->append((char *)ptr, size*nmemb);
   return size*nmemb;
 }
 
-void HttpL2Request::run() {
-
-  get_obj_data *d = (get_obj_data *)req->op_data;
-  int n_retries =  cct->_conf->rgw_l2_request_thread_num;
+void HttpL2Request::run()
+{
+  get_obj_data* d = static_cast<get_obj_data*>(req->op_data);
+  int n_retries = cct->_conf->rgw_l2_request_thread_num;
   int r = 0;
-  
-  for (int i=0; i<n_retries; i++ ){
-    if(!(r = submit_http_request())){
+
+  for (int i=0; i<n_retries; i++ ) {
+    if (!(r = submit_http_request())) {
       d->cache_aio_completion_cb(req);
       return;
     }
     if (r == ECANCELED) {
       return;
     }
-
   }
 }
 
-int HttpL2Request::submit_http_request () {
-
+int HttpL2Request::submit_http_request()
+{
   CURLcode res;
   string auth_token;
   string range = std::to_string(req->ofs + req->read_ofs)+ "-"+ std::to_string(req->ofs + req->read_ofs + req->len - 1);
-  struct curl_slist *header = NULL;
-  get_obj_data *d = (get_obj_data *)req->op_data;
-  
+  struct curl_slist* header{nullptr};
+  //get_obj_data* d = static_cast<get_obj_data*>(req->op_data);
+
   string req_uri;
   string uri,dest;
-  //((RGWGetObj_CB *)(d->client_cb))->get_req_info(dest, req_uri, auth_token);
+  //(static_cast<RGWGetObj_CB*>(d->client_cb))->get_req_info(dest, req_uri, auth_token);
   uri = "http://" + req->dest + req_uri;
 
   /*FIXME: fix the S3 protocol support, currntly only Swift is supported*/
@@ -725,9 +725,9 @@ int HttpL2Request::submit_http_request () {
     }
    RGWAccessKey& key = iter->second;
    sign_request(key, env, info);
-  } 
+  }
   else if (s->dialect == "swift")*/
-  if(true) {
+  if (true) {
     header = curl_slist_append(header, auth_token.c_str());
   } else {
     ldout(cct, 10) << "DataCache: curl_easy_perform() failed " << dendl;
@@ -735,20 +735,19 @@ int HttpL2Request::submit_http_request () {
   }
 
 
-  if(curl_handle) {
+  if (curl_handle) {
     curl_easy_setopt(curl_handle, CURLOPT_RANGE, range.c_str());
-    curl_easy_setopt(curl_handle, CURLOPT_HTTPHEADER, header); 
+    curl_easy_setopt(curl_handle, CURLOPT_HTTPHEADER, header);
     curl_easy_setopt(curl_handle, CURLOPT_URL, uri.c_str());
-    curl_easy_setopt(curl_handle, CURLOPT_FOLLOWLOCATION, 1L); 
+    curl_easy_setopt(curl_handle, CURLOPT_FOLLOWLOCATION, 1L);
     curl_easy_setopt(curl_handle, CURLOPT_VERBOSE, 1L);
     curl_easy_setopt(curl_handle, CURLOPT_WRITEFUNCTION, _l2_response_cb);
     curl_easy_setopt(curl_handle, CURLOPT_WRITEDATA, (void*)req);
-    res = curl_easy_perform(curl_handle); 
+    res = curl_easy_perform(curl_handle);
     curl_easy_reset(curl_handle);
     curl_slist_free_all(header);
   }
-  if(res != CURLE_OK)
-  {
+  if (res != CURLE_OK) {
     ldout(cct, 10) << "DataCache: curl_easy_perform() failed " << curl_easy_strerror(res) << " oid " << req->oid << " offset " << req->ofs + req->read_ofs  <<dendl;
     return -1;
   }
@@ -758,15 +757,15 @@ int HttpL2Request::submit_http_request () {
 /*FIXME: This function should be changed the authentication for S3 has been changed*/
 int HttpL2Request::sign_request(RGWAccessKey& key, RGWEnv& env, req_info& info)
 {
-  // don't sign if no key is provided 
+  // don't sign if no key is provided
   if (key.key.empty()) {
     return 0;
   }
 
   if (cct->_conf->subsys.should_gather(ceph_subsys_rgw, 20)) {
-    for (const auto& i: env.get_map()) {
-      //FIXME: ditto ldout(cct, 20) << "> " << i.first << " -> " << rgw::crypt_sanitize::x_meta_map{i.first, i.second} << dendl; 
-    }
+    //for (const auto& i: env.get_map()) {
+      //FIXME: ditto ldout(cct, 20) << "> " << i.first << " -> " << rgw::crypt_sanitize::x_meta_map{i.first, i.second} << dendl;
+    //}
   }
 
   std::string canonical_header;

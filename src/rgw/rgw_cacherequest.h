@@ -4,6 +4,7 @@
 #ifndef RGW_CACHEREQUEST_H
 #define RGW_CACHEREQUEST_H
 
+#include <stdlib.h>
 #include <aio.h>
 
 #include "include/rados/librados.hpp"
@@ -13,17 +14,17 @@ class CacheRequest {
   public:
     std::mutex lock;
     int sequence;
-    buffer::list *pbl;
-    struct get_obj_data *op_data;
+    buffer::list* pbl;
+    struct get_obj_data* op_data;
     std::string oid;
     off_t ofs;
     off_t len;
-    librados::AioCompletion *lc;
+    librados::AioCompletion* lc;
     std::string key;
     off_t read_ofs;
     Context *onack;
-    CephContext *cct;
-    CacheRequest(CephContext *_cct) : sequence(0), pbl(NULL), op_data(NULL), ofs(0), lc(NULL), read_ofs(0), cct(_cct) {};
+    CephContext* cct;
+    CacheRequest(CephContext* _cct) : sequence(0), pbl(nullptr), op_data(nullptr), ofs(0), lc(nullptr), read_ofs(0), cct(_cct) {};
     virtual ~CacheRequest(){};
     virtual void release()=0;
     virtual void cancel_io()=0;
@@ -31,14 +32,14 @@ class CacheRequest {
     virtual void finish()=0;
 };
 
-struct L1CacheRequest : public CacheRequest{
+struct L1CacheRequest : public CacheRequest {
   int stat;
-  struct aiocb *paiocb;
-  L1CacheRequest(CephContext *_cct) :  CacheRequest(_cct), stat(-1), paiocb(NULL) {}
+  struct aiocb* paiocb;
+  L1CacheRequest(CephContext* _cct) :  CacheRequest(_cct), stat(-1), paiocb(NULL) {}
   ~L1CacheRequest(){}
   void release (){
     lock.lock();
-    delete(paiocb->aio_buf);
+    free((void*)paiocb->aio_buf);
     paiocb->aio_buf = nullptr;
     ::close(paiocb->aio_fildes);
     delete(paiocb);

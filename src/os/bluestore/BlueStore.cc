@@ -3579,7 +3579,7 @@ void BlueStore::Onode::put() {
       n = --nref;
     }
     if (cached && r) {
-      if (exists) {
+      if (exists && !reclaimed) {
         ocs->_unpin(this);
       } else {
         ocs->_unpin_and_rm(this);
@@ -10576,6 +10576,15 @@ out:
 int BlueStore::collection_bulk_remove_lock(CollectionHandle& c_)
 {
   if (!db->is_async_remove_supported()) {
+    dout(10) << __func__
+             << " bulk removal not supported in KV"
+             << dendl;
+    return -ENOTSUP;
+  }
+  if (_use_rotational_settings()) {
+    dout(10) << __func__
+             << " bulk removal not supported for KV on a spinner drive"
+             << dendl;
     return -ENOTSUP;
   }
   Collection* c = static_cast<Collection*>(c_.get());

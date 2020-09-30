@@ -79,7 +79,7 @@ struct L2CacheRequest : public CacheRequest {
   int stat;
   void *tp;
   string dest;
-  L2CacheRequest(CephContext *_cct) : CacheRequest(_cct), read(0), stat(-1) {}
+  L2CacheRequest(CephContext* _cct) : CacheRequest(_cct), read(0), stat(-1) {}
   ~L2CacheRequest(){}
   void release (){
     lock.lock();

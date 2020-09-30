@@ -6300,12 +6300,15 @@ static void _get_obj_aio_completion_cb(completion_t cb, void *arg);
 
 get_obj_data::get_obj_data(CephContext *_cct)
   : cct(_cct),
-  store(NULL), ctx(NULL),
-  total_read(0), lock(), data_lock(),
+  store(NULL),
   client_cb(NULL),
+  ctx(NULL),
+  total_read(0),
+  yield(yield),
+  lock(),
+  data_lock(),
   cache_lock(), 
   l2_lock(),
-  yield(yield),
   throttle(cct, "get_obj_data", cct->_conf->rgw_get_obj_window_size, false)
 {
 }
@@ -6359,7 +6362,7 @@ int get_obj_data::wait_next_io(bool *done)
       return r;
 }
 
-void get_obj_data::add_io(off_t ofs, off_t len, bufferlist **pbl, AioCompletion **pc)
+void get_obj_data::add_io(off_t ofs, off_t len, bufferlist** pbl, AioCompletion** pc)
 {
   std::lock_guard<std::mutex> l(lock);
 
@@ -6378,9 +6381,9 @@ void get_obj_data::add_io(off_t ofs, off_t len, bufferlist **pbl, AioCompletion 
 
   aio_data.push_back(aio);
 
-  struct get_obj_aio_data *paio_data =  &aio_data.back(); // last element
+  struct get_obj_aio_data* paio_data =  &aio_data.back(); // last element
 
-  librados::AioCompletion *c = librados::Rados::aio_create_completion((void *)paio_data, NULL, _get_obj_aio_completion_cb);
+  librados::AioCompletion* c = librados::Rados::aio_create_completion((void*)paio_data, NULL, _get_obj_aio_completion_cb);
   completion_map[ofs] = c;
 
   *pc = c;
@@ -6514,10 +6517,10 @@ string get_obj_data::get_pending_oid()
   return str;
 }
 
-int get_obj_data::add_l2_request(struct L2CacheRequest **cc, bufferlist *pbl, string oid,
-                off_t obj_ofs, off_t read_ofs, size_t len, string key, librados::AioCompletion *lc)
+int get_obj_data::add_l2_request(struct L2CacheRequest** cc, bufferlist* pbl, string oid,
+                off_t obj_ofs, off_t read_ofs, size_t len, string key, librados::AioCompletion* lc)
 {
-  L2CacheRequest *l2request = new L2CacheRequest(cct);
+  L2CacheRequest* l2request = new L2CacheRequest(cct);
   l2request->sequence = sequence; sequence+=1;
   l2request->ofs = obj_ofs;
   l2request->len = len;
@@ -6577,7 +6580,7 @@ int get_obj_data::add_l1_request(struct L1CacheRequest** cc, bufferlist *pbl, st
   return 0;
 }
 
-int get_obj_data::submit_l1_io_read(bufferlist *bl, int len, string oid)
+int get_obj_data::submit_l1_io_read(bufferlist* pbl, int len, string oid)
 {
   std::string location = cct->_conf->rgw_datacache_persistent_path + oid; 
   int cache_file = -1;
@@ -6594,7 +6597,7 @@ int get_obj_data::submit_l1_io_read(bufferlist *bl, int len, string oid)
     dout(0) << "ERROR: get_obj_data::cache_io_read, read failed. errno " << r << dendl;
     goto END;
   }
-  bl->append(tmp_data, len);
+  pbl->append(tmp_data, len);
 
 END:
   ::close(cache_file);
@@ -6612,11 +6615,11 @@ int get_obj_data::submit_l1_aio_read(L1CacheRequest* cc)
 
 void _cache_aio_completion_cb(sigval_t sigval)
 { 
-  CacheRequest *c = static_cast<CacheRequest *>(sigval.sival_ptr);
+  CacheRequest* c = static_cast<CacheRequest*>(sigval.sival_ptr);
   c->op_data->cache_aio_completion_cb(c);
 }
 
-void get_obj_data::cache_aio_completion_cb(CacheRequest *c)
+void get_obj_data::cache_aio_completion_cb(CacheRequest* c)
 {
   int status = c->status();
   if (status == ECANCELED) {
@@ -6636,7 +6639,7 @@ void get_obj_data::cache_unmap_io(off_t ofs)
 {
 	
   cache_lock.lock();
-  map<off_t, struct CacheRequest *>::iterator iter = cache_aio_map.find(ofs);
+  map<off_t, struct CacheRequest*>::iterator iter = cache_aio_map.find(ofs);
   if (iter == cache_aio_map.end()) {
     cache_lock.unlock();
     return;
@@ -6645,16 +6648,9 @@ void get_obj_data::cache_unmap_io(off_t ofs)
   cache_lock.unlock();
 }
 
-int get_obj_data::add_cache_notifier(std::string oid, librados::AioCompletion *lc)
-{
-  //Context *onack = new IoCtxImpl::C_aio_Complete(lc->pc);
-  //librados::IoCtxImpl::C_aio_Complete *m_safe = new librados::IoCtxImpl::C_aio_Complete(lc->pc);
-  return 0;
-}
-
 static void _get_obj_aio_completion_cb(completion_t cb, void *arg)
 {
-  struct get_obj_aio_data *aio_data = (struct get_obj_aio_data *)arg;
+  struct get_obj_aio_data* aio_data = (struct get_obj_aio_data*)arg;
   struct get_obj_data* d = aio_data->op_data;
 
   d->store->get_obj_aio_completion_cb(cb, arg);
@@ -6671,7 +6667,7 @@ static int _get_obj_iterate_cb(const rgw_raw_obj& read_obj, off_t obj_ofs,
 
 void RGWRados::get_obj_aio_completion_cb(completion_t c, void *arg)
 {
-  struct get_obj_aio_data *aio_data = (struct get_obj_aio_data *)arg;
+  struct get_obj_aio_data* aio_data = (struct get_obj_aio_data*)arg;
   struct get_obj_data* d = aio_data->op_data;
   off_t ofs = aio_data->ofs;
   off_t len = aio_data->len;

@@ -13,6 +13,7 @@
 #include "rgw_rest_client.h"
 #include "rgw_auth_s3.h"
 #include "rgw_op.h"
+#include "rgw_crypt_sanitize.h"
 
 class RGWGetObj_CB;
 
@@ -402,7 +403,7 @@ DataCache::DataCache()
   tp = new L2CacheThreadPool(32);
 }
 
-int DataCache::io_write(bufferlist& bl ,unsigned int len, std::string oid)
+int DataCache::io_write(bufferlist& bl, unsigned int len, std::string oid)
 {
   ChunkDataInfo* chunk_info = new ChunkDataInfo;
 
@@ -543,7 +544,7 @@ void DataCache::put(bufferlist& bl, unsigned int len, std::string& oid)
   eviction_lock.unlock();
 }
 
-bool DataCache::get(string oid)
+bool DataCache::get(const string& oid)
 {
   bool exist = false;
   string location = cct->_conf->rgw_datacache_persistent_path + oid;
@@ -637,7 +638,7 @@ size_t DataCache::lru_eviction()
 }
 
 
-void DataCache::remote_io(L2CacheRequest *l2request )
+void DataCache::remote_io(L2CacheRequest* l2request )
 {
   ldout(cct, 20) << "DataCache: Add task to remote IO" << dendl;
   tp->addTask(new HttpL2Request(l2request, cct));
@@ -655,7 +656,7 @@ std::vector<string> split(const std::string &s, char * delim)
   return tokens;
 }
 
-void DataCache::push_l2_request(L2CacheRequest *l2request )
+void DataCache::push_l2_request(L2CacheRequest* l2request )
 {
   tp->addTask(new HttpL2Request(l2request, cct));
 }
@@ -690,15 +691,14 @@ int HttpL2Request::submit_http_request()
   string auth_token;
   string range = std::to_string(req->ofs + req->read_ofs)+ "-"+ std::to_string(req->ofs + req->read_ofs + req->len - 1);
   struct curl_slist* header{nullptr};
-  //get_obj_data* d = static_cast<get_obj_data*>(req->op_data);
+  get_obj_data* d = static_cast<get_obj_data*>(req->op_data);
 
   string req_uri;
   string uri,dest;
-  //(static_cast<RGWGetObj_CB*>(d->client_cb))->get_req_info(dest, req_uri, auth_token);
+  (static_cast<RGWGetObj_CB*>(d->client_cb))->get_req_info(dest, req_uri, auth_token);
   uri = "http://" + req->dest + req_uri;
 
-  /*FIXME: fix the S3 protocol support, currntly only Swift is supported*/
-  /*struct req_state *s;
+  struct req_state *s;
   ((RGWGetObj_CB *)(d->client_cb))->get_req_info(req->dest, s->info.request_uri, auth_token);
 
   if (s->dialect == "s3") {
@@ -708,26 +708,25 @@ int HttpL2Request::submit_http_request()
     memcpy(&env, s->info.env, sizeof(env));
     info.env = &env;
     std::string access_key_id;
-    if (true) { //(!s->http_auth || !(*s->http_auth)) { FIXME: The S3 Authentication has been changed! FIX IT
+    const char* http_auth = s->info.env->get("HTTP_AUTHORIZATION");
+    if (! http_auth || http_auth[0] == '\0') {
       access_key_id = s->info.args.get("AWSAccessKeyId");
     } else {
-      //string auth_str(s->http_auth + 4); FIXME: The S3 Authentication has been changed! FIX IT
       string auth_str("auth");
       int pos = auth_str.rfind(':');
       if (pos < 0)
         return -EINVAL;
       access_key_id = auth_str.substr(0, pos);
     }
-    map<string, RGWAccessKey>::iterator iter = s->user->access_keys.find(access_key_id);
-    if (iter == s->user->access_keys.end()) {
+    map<string, RGWAccessKey>::iterator iter = s->user->get_info().access_keys.find(access_key_id);
+    if (iter == s->user->get_info().access_keys.end()) {
       ldout(cct, 1) << "ERROR: access key not encoded in user info" << dendl;
       return -EPERM;
     }
    RGWAccessKey& key = iter->second;
    sign_request(key, env, info);
   }
-  else if (s->dialect == "swift")*/
-  if (true) {
+  else if (s->dialect == "swift") {
     header = curl_slist_append(header, auth_token.c_str());
   } else {
     ldout(cct, 10) << "DataCache: curl_easy_perform() failed " << dendl;
@@ -754,7 +753,6 @@ int HttpL2Request::submit_http_request()
   return 0;
 }
 
-/*FIXME: This function should be changed the authentication for S3 has been changed*/
 int HttpL2Request::sign_request(RGWAccessKey& key, RGWEnv& env, req_info& info)
 {
   // don't sign if no key is provided
@@ -763,9 +761,9 @@ int HttpL2Request::sign_request(RGWAccessKey& key, RGWEnv& env, req_info& info)
   }
 
   if (cct->_conf->subsys.should_gather(ceph_subsys_rgw, 20)) {
-    //for (const auto& i: env.get_map()) {
-      //FIXME: ditto ldout(cct, 20) << "> " << i.first << " -> " << rgw::crypt_sanitize::x_meta_map{i.first, i.second} << dendl;
-    //}
+    for (const auto& i: env.get_map()) {
+      ldout(cct, 20) << "> " << i.first << " -> " << rgw::crypt_sanitize::x_meta_map{i.first, i.second} << dendl;
+    }
   }
 
   std::string canonical_header;
@@ -777,8 +775,9 @@ int HttpL2Request::sign_request(RGWAccessKey& key, RGWEnv& env, req_info& info)
   ldout(cct, 20) << "generated canonical header: " << canonical_header << dendl;
 
   std::string digest;
-  int ret = 0; // FIXME ditto Commented rgw_get_s3_header_digest(canonical_header, key.key, digest);
-  if (ret < 0) {
+  try {
+    digest = rgw::auth::s3::get_v2_signature(cct, key.key, canonical_header);
+  } catch (int ret) {
     return ret;
   }
 

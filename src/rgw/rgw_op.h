@@ -357,14 +357,16 @@ public:
   virtual int get_params(optional_yield y) = 0;
   virtual int send_response_data_error(optional_yield y) = 0;
 
-  int submit_l2_request(string dest, off_t obj_ofs, size_t len, off_t read_ofs, void* args, size_t (*write_cb)(void *, size_t, size_t, void *)){
+  int submit_l2_request(string dest, off_t obj_ofs, size_t len, off_t read_ofs, void* args, size_t (*write_cb)(void *, size_t, size_t, void *)) {
     return s->submit_http_req(dest, obj_ofs, len, read_ofs, args, write_cb);
   }
+
   int get_req_info(string dest, string& uri, string& auth_token) {
     return s->get_req_info(dest, uri, auth_token);
   }
+
   bool get_cache_request() {
-    char *oid =(char *)s->info.env->get("HTTP_D3N");
+    const char* oid = s->info.env->get("HTTP_D3N");
     if (!oid)
       return false;
     return !strcmp(oid, "yes") ? true : false;
@@ -397,7 +399,7 @@ public:
     return op->get_data_cb(bl, bl_ofs, bl_len);
   }
 
-  int submit_l2_request(string dest, off_t obj_ofs, size_t len, off_t read_ofs, void* args, size_t (*write_cb)(void *, size_t, size_t, void *)){
+  int submit_l2_request(string dest, off_t obj_ofs, size_t len, off_t read_ofs, void* args, size_t (*write_cb)(void *, size_t, size_t, void *)) {
     return (op->submit_l2_request(dest, obj_ofs, len, read_ofs, args, write_cb));
   }
 

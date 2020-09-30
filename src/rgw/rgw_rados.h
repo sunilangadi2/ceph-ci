@@ -1622,7 +1622,7 @@ struct get_obj_data : public RefCountedObject{
   bool is_cancelled();
   int get_err_code();
   int wait_next_io(bool *done);
-  void add_io(off_t ofs, off_t len, bufferlist **pbl, librados::AioCompletion **pc);
+  void add_io(off_t ofs, off_t len, bufferlist** pbl, librados::AioCompletion** pc);
   void cancel_io(off_t ofs);
   void cancel_all_io();
 
@@ -1631,16 +1631,15 @@ struct get_obj_data : public RefCountedObject{
   string get_pending_oid();
   bool deterministic_hash_is_local(string oid);
   string deterministic_hash(string oid);
-  int add_l1_request(struct L1CacheRequest** cc, bufferlist *pbl, string oid,
+  int add_l1_request(struct L1CacheRequest** cc, bufferlist* pbl, string oid,
       size_t len, off_t ofs, off_t read_ofs, string key, librados::AioCompletion *lc);
-  int add_l2_request(struct L2CacheRequest **cc, bufferlist *pbl, string oid,
+  int add_l2_request(struct L2CacheRequest** cc, bufferlist* pbl, string oid,
       off_t obj_ofs, off_t read_ofs, size_t len, string key, librados::AioCompletion *lc);
-  int add_cache_notifier(std::string oid, librados::AioCompletion *lc);
-  void cache_aio_completion_cb(CacheRequest *c);
+  void cache_aio_completion_cb(CacheRequest* c);
   void cache_unmap_io(off_t ofs);
 
   int submit_l1_aio_read(L1CacheRequest* cc);
-  int submit_l1_io_read(bufferlist *bl, int len, string oid);
+  int submit_l1_io_read(bufferlist* pbl, int len, string oid);
 
 
   int flush(rgw::AioResultList&& results) {

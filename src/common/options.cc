@@ -8208,6 +8208,7 @@ std::vector<Option> get_mds_options() {
 
     Option("mds_bal_export_pin", Option::TYPE_BOOL, Option::LEVEL_ADVANCED)
     .set_default(true)
+    .set_flag(Option::FLAG_RUNTIME)
     .set_description("allow setting directory export pins to particular ranks"),
 
     Option("mds_export_ephemeral_random", Option::TYPE_BOOL, Option::LEVEL_ADVANCED)
@@ -8237,39 +8238,48 @@ std::vector<Option> get_mds_options() {
 
     Option("mds_bal_sample_interval", Option::TYPE_FLOAT, Option::LEVEL_ADVANCED)
     .set_default(3.0)
+    .set_flag(Option::FLAG_RUNTIME)
     .set_description("interval in seconds between balancer ticks"),
 
     Option("mds_bal_replicate_threshold", Option::TYPE_FLOAT, Option::LEVEL_ADVANCED)
     .set_default(8000)
+    .set_flag(Option::FLAG_RUNTIME)
     .set_description("hot popularity threshold to replicate a subtree"),
 
     Option("mds_bal_unreplicate_threshold", Option::TYPE_FLOAT, Option::LEVEL_ADVANCED)
     .set_default(0)
+    .set_flag(Option::FLAG_RUNTIME)
     .set_description("cold popularity threshold to merge subtrees"),
 
     Option("mds_bal_split_size", Option::TYPE_INT, Option::LEVEL_ADVANCED)
     .set_default(10000)
+    .set_flag(Option::FLAG_RUNTIME)
     .set_description("minimum size of directory fragment before splitting"),
 
     Option("mds_bal_split_rd", Option::TYPE_FLOAT, Option::LEVEL_ADVANCED)
     .set_default(25000)
+    .set_flag(Option::FLAG_RUNTIME)
     .set_description("hot read popularity threshold for splitting a directory fragment"),
 
     Option("mds_bal_split_wr", Option::TYPE_FLOAT, Option::LEVEL_ADVANCED)
     .set_default(10000)
+    .set_flag(Option::FLAG_RUNTIME)
     .set_description("hot write popularity threshold for splitting a directory fragment"),
 
     Option("mds_bal_split_bits", Option::TYPE_INT, Option::LEVEL_ADVANCED)
     .set_default(3)
+    .set_flag(Option::FLAG_RUNTIME)
     .set_min_max(1, 24)
     .set_description("power of two child fragments for a fragment on split"),
 
     Option("mds_bal_merge_size", Option::TYPE_INT, Option::LEVEL_ADVANCED)
     .set_default(50)
+    .set_flag(Option::FLAG_RUNTIME)
     .set_description("size of fragments where merging should occur"),
 
     Option("mds_bal_interval", Option::TYPE_INT, Option::LEVEL_ADVANCED)
     .set_default(10)
+    .set_flag(Option::FLAG_RUNTIME) 
     .set_description("interval between MDS balancer cycles"),
 
     Option("mds_bal_fragment_interval", Option::TYPE_INT, Option::LEVEL_ADVANCED)
@@ -8278,10 +8288,12 @@ std::vector<Option> get_mds_options() {
 
     Option("mds_bal_fragment_size_max", Option::TYPE_INT, Option::LEVEL_ADVANCED)
     .set_default(10000*10)
+    .set_flag(Option::FLAG_RUNTIME)
     .set_description("maximum size of a directory fragment before new creat/links fail"),
 
     Option("mds_bal_fragment_fast_factor", Option::TYPE_FLOAT, Option::LEVEL_ADVANCED)
     .set_default(1.5)
+    .set_flag(Option::FLAG_RUNTIME)
     .set_description("ratio of mds_bal_split_size at which fast fragment splitting occurs"),
 
     Option("mds_bal_fragment_dirs", Option::TYPE_BOOL, Option::LEVEL_ADVANCED)
@@ -8291,46 +8303,57 @@ std::vector<Option> get_mds_options() {
 
     Option("mds_bal_idle_threshold", Option::TYPE_FLOAT, Option::LEVEL_ADVANCED)
     .set_default(0)
+    .set_flag(Option::FLAG_RUNTIME)
     .set_description("idle metadata popularity threshold before rebalancing"),
 
     Option("mds_bal_max", Option::TYPE_INT, Option::LEVEL_DEV)
     .set_default(-1)
+    .set_flag(Option::FLAG_RUNTIME)
     .set_description(""),
 
     Option("mds_bal_max_until", Option::TYPE_INT, Option::LEVEL_DEV)
     .set_default(-1)
+    .set_flag(Option::FLAG_RUNTIME)
     .set_description(""),
 
     Option("mds_bal_mode", Option::TYPE_INT, Option::LEVEL_DEV)
     .set_default(0)
+    .set_flag(Option::FLAG_RUNTIME)
     .set_description(""),
 
     Option("mds_bal_min_rebalance", Option::TYPE_FLOAT, Option::LEVEL_DEV)
     .set_default(.1)
+    .set_flag(Option::FLAG_RUNTIME)
     .set_description("amount overloaded over internal target before balancer begins offloading"),
 
     Option("mds_bal_min_start", Option::TYPE_FLOAT, Option::LEVEL_DEV)
     .set_default(.2)
+    .set_flag(Option::FLAG_RUNTIME)
     .set_description(""),
 
     Option("mds_bal_need_min", Option::TYPE_FLOAT, Option::LEVEL_DEV)
     .set_default(.8)
+    .set_flag(Option::FLAG_RUNTIME)
     .set_description(""),
 
     Option("mds_bal_need_max", Option::TYPE_FLOAT, Option::LEVEL_DEV)
     .set_default(1.2)
+    .set_flag(Option::FLAG_RUNTIME)
     .set_description(""),
 
     Option("mds_bal_midchunk", Option::TYPE_FLOAT, Option::LEVEL_DEV)
     .set_default(.3)
+    .set_flag(Option::FLAG_RUNTIME)
     .set_description(""),
 
     Option("mds_bal_minchunk", Option::TYPE_FLOAT, Option::LEVEL_DEV)
     .set_default(.001)
+    .set_flag(Option::FLAG_RUNTIME)
     .set_description(""),
 
     Option("mds_bal_target_decay", Option::TYPE_FLOAT, Option::LEVEL_ADVANCED)
     .set_default(10.0)
+    .set_flag(Option::FLAG_RUNTIME)
     .set_description("rate of decay for export targets communicated to clients"),
 
     Option("mds_oft_prefetch_dirfrags", Option::TYPE_BOOL, Option::LEVEL_ADVANCED)

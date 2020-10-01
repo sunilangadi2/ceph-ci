@@ -425,27 +425,6 @@ OPTION(mds_log_events_per_segment, OPT_INT)
 OPTION(mds_log_segment_size, OPT_INT)  // segment size for mds log, default to default file_layout_t
 OPTION(mds_log_max_segments, OPT_U32)
 OPTION(mds_bal_export_pin, OPT_BOOL)  // allow clients to pin directory trees to ranks
-OPTION(mds_bal_sample_interval, OPT_DOUBLE)  // every 3 seconds
-OPTION(mds_bal_replicate_threshold, OPT_FLOAT)
-OPTION(mds_bal_unreplicate_threshold, OPT_FLOAT)
-OPTION(mds_bal_split_size, OPT_INT)
-OPTION(mds_bal_split_rd, OPT_FLOAT)
-OPTION(mds_bal_split_wr, OPT_FLOAT)
-OPTION(mds_bal_split_bits, OPT_INT)
-OPTION(mds_bal_merge_size, OPT_INT)
-OPTION(mds_bal_fragment_size_max, OPT_INT) // order of magnitude higher than split size
-OPTION(mds_bal_fragment_fast_factor, OPT_FLOAT) // multiple of size_max that triggers immediate split
-OPTION(mds_bal_idle_threshold, OPT_FLOAT)
-OPTION(mds_bal_max, OPT_INT)
-OPTION(mds_bal_max_until, OPT_INT)
-OPTION(mds_bal_mode, OPT_INT)
-OPTION(mds_bal_min_rebalance, OPT_FLOAT)  // must be this much above average before we export anything
-OPTION(mds_bal_min_start, OPT_FLOAT)      // if we need less than this, we don't do anything
-OPTION(mds_bal_need_min, OPT_FLOAT)       // take within this range of what we need
-OPTION(mds_bal_need_max, OPT_FLOAT)
-OPTION(mds_bal_midchunk, OPT_FLOAT)       // any sub bigger than this taken in full
-OPTION(mds_bal_minchunk, OPT_FLOAT)     // never take anything smaller than this
-OPTION(mds_bal_target_decay, OPT_DOUBLE) // target decay half-life in MDSMap (2x larger is approx. 2x slower)
 OPTION(mds_replay_interval, OPT_FLOAT) // time to wait before starting replay again
 OPTION(mds_shutdown_check, OPT_INT)
 OPTION(mds_thrash_exports, OPT_INT)

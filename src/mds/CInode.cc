@@ -5204,7 +5204,7 @@ void CInode::queue_export_pin(mds_rank_t export_pin)
 
 void CInode::maybe_export_pin(bool update)
 {
-  if (!g_conf()->mds_bal_export_pin)
+  if (!mdcache->mds->get_bal_export_pin())
     return;
   if (!is_dir() || !is_normal())
     return;

@@ -325,6 +325,14 @@ public:
     }
   }
 
+  template <typename Func>
+  [[gnu::always_inline]]
+  auto then_unpack_interruptible(Func&& func) {
+    return then_interruptible([func=std::forward<Func>(func)](T&& tuple) {
+      return std::apply(std::forward<Func>(func), std::move(tuple));
+    });
+  }
+
   template <typename Func,
 	    typename Result =interrupt_futurize_t<
 		std::result_of_t<Func(std::exception_ptr)>>>
@@ -392,6 +400,14 @@ public:
     });
   }
 
+
+  using my_type = interruptible_future_detail<InterruptCond, seastar::future<T>>;
+
+  template <typename Func>
+  [[gnu::always_inline]]
+  my_type finally(Func&& func) {
+    return core_type::finally(std::forward<Func>(func));
+  }
 private:
   seastar::future<T> to_future() {
     return static_cast<core_type&&>(std::move(*this));
@@ -716,6 +732,13 @@ public:
 	std::forward<ErrorFuncHead>(error_func_head),
 	std::forward<ErrorFuncTail>(error_func_tail)...));
   }
+
+  template <typename Func>
+  [[gnu::always_inline]]
+  auto finally(Func&& func) {
+    auto fut = core_type::finally(std::forward<Func>(func));
+    return (interrupt_futurize_t<decltype(fut)>)(std::move(fut));
+  }
 private:
   ErroratedFuture<::crimson::errorated_future_marker<T>>
   to_future() {
@@ -854,6 +877,17 @@ public:
 	disable_interruption();
       }
       return fut;
+  }
+
+  template <typename Func>
+  [[gnu::always_inline]]
+  static auto wrap_function(Func&& func) {
+    return [func=std::forward<Func>(func),
+	    interrupt_condition=interrupt_cond<InterruptCond>]() mutable {
+	      return call_with_interruption(
+		  interrupt_condition,
+		  std::forward<Func>(func));
+	    };
   }
 
   template <typename Iterator, typename AsyncAction,
@@ -1122,6 +1156,12 @@ public:
   template <typename... FutOrFuncs>
   static inline auto when_all(FutOrFuncs&&... fut_or_funcs) noexcept {
     return ::seastar::internal::when_all_impl(
+	futurize_invoke_if_func(std::forward<FutOrFuncs>(fut_or_funcs))...);
+  }
+
+  template <typename.. FutOrFuncs>
+  static inline auto when_all_succeed(FutOrFuncs&&... fut_or_funcs) noexcept {
+    return ::seastar::internal::when_all_succeed_impl(
 	futurize_invoke_if_func(std::forward<FutOrFuncs>(fut_or_funcs))...);
   }
 private:

@@ -544,7 +544,7 @@ seastar::future<> PG::WaitForActiveBlocker::stop()
   return seastar::now();
 }
 
-seastar::future<> PG::submit_transaction(const OpInfo& op_info,
+PG::interruptible_future<> PG::submit_transaction(const OpInfo& op_info,
 					 const std::vector<OSDOp>& ops,
 					 ObjectContextRef&& obc,
 					 ceph::os::Transaction&& txn,
@@ -586,7 +586,7 @@ seastar::future<> PG::submit_transaction(const OpInfo& op_info,
 				std::move(osd_op_p),
 				peering_state.get_last_peering_reset(),
 				map_epoch,
-				std::move(log_entries)).then(
+				std::move(log_entries)).then_interruptible(
     [this, last_complete=peering_state.get_info().last_complete,
       at_version=osd_op_p.at_version](auto acked) {
     for (const auto& peer : acked) {
@@ -614,7 +614,7 @@ osd_op_params_t&& PG::fill_op_params_bump_pg_version(
   return std::move(osd_op_p);
 }
 
-seastar::future<Ref<MOSDOpReply>> PG::handle_failed_op(
+PG::interruptible_future<Ref<MOSDOpReply>> PG::handle_failed_op(
   const std::error_code& e,
   ObjectContextRef obc,
   const OpsExecuter& ox,
@@ -650,8 +650,8 @@ seastar::future<Ref<MOSDOpReply>> PG::handle_failed_op(
     e.message(),
     need_reload_obc);
   return (need_reload_obc ? reload_obc(*obc)
-                          : load_obc_ertr::now()
-  ).safe_then([&e, &m, obc = std::move(obc), this] {
+                          : interruptor::make_interruptible(load_obc_ertr::now())
+  ).safe_then_interruptible([&e, &m, obc = std::move(obc), this] {
     auto reply = make_message<MOSDOpReply>(
       &m, -e.value(), get_osdmap_epoch(), 0, false);
     reply->set_enoent_reply_versions(
@@ -661,7 +661,7 @@ seastar::future<Ref<MOSDOpReply>> PG::handle_failed_op(
   }, load_obc_ertr::assert_all{ "can't live with object state messed up" });
 }
 
-seastar::future<Ref<MOSDOpReply>> PG::do_osd_ops(
+PG::interruptible_future<Ref<MOSDOpReply>> PG::do_osd_ops(
   Ref<MOSDOp> m,
   ObjectContextRef obc,
   const OpInfo &op_info)
@@ -670,36 +670,38 @@ seastar::future<Ref<MOSDOpReply>> PG::do_osd_ops(
     throw crimson::common::system_shutdown_exception();
   }
 
+  using interruptible_osd_op_errorator =
+    OpsExecuter::interruptible_osd_op_errorator;
   using osd_op_errorator = OpsExecuter::osd_op_errorator;
   const auto oid = m->get_snapid() == CEPH_SNAPDIR ? m->get_hobj().get_head()
                                                    : m->get_hobj();
   auto ox = std::make_unique<OpsExecuter>(
     obc, op_info, get_pool().info, get_backend(), *m);
-  return crimson::do_for_each(
-    m->ops, [obc, m, ox = ox.get()](OSDOp& osd_op) {
+  return interruptor::do_for_each(
+    m->ops.begin(), m->ops.end(), [obc, m, ox = ox.get()](OSDOp& osd_op) {
     logger().debug(
       "do_osd_ops: {} - object {} - handling op {}",
       *m,
       obc->obs.oi.soid,
       ceph_osd_op_name(osd_op.op.op));
     return ox->execute_op(osd_op);
-  }).safe_then([this, obc, m, ox = ox.get(), &op_info] {
+  }).safe_then_interruptible([this, obc, m, ox = ox.get(), &op_info] {
     logger().debug(
       "do_osd_ops: {} - object {} all operations successful",
       *m,
       obc->obs.oi.soid);
     return std::move(*ox).flush_changes(
-      [m] (auto&& obc) -> osd_op_errorator::future<> {
+      [m] (auto&& obc) -> interruptible_osd_op_errorator::future<> {
 	logger().debug(
 	  "do_osd_ops: {} - object {} txn is empty, bypassing mutate",
 	  *m,
 	  obc->obs.oi.soid);
-        return osd_op_errorator::now();
+        return interruptible_osd_op_errorator::now();
       },
       [this, m, &op_info] (auto&& txn,
 			   auto&& obc,
 			   auto&& osd_op_p,
-                           bool user_modify) -> osd_op_errorator::future<> {
+                           bool user_modify) -> interruptible_osd_op_errorator::future<> {
 	logger().debug(
 	  "do_osd_ops: {} - object {} submitting txn",
 	  *m,
@@ -715,7 +717,7 @@ seastar::future<Ref<MOSDOpReply>> PG::do_osd_ops(
           std::move(txn),
           std::move(filled_osd_op_p));
       });
-  }).safe_then([this,
+  }).safe_then_interruptible([this,
                 m,
                 obc,
                 rvec = op_info.allows_returnvec()] {
@@ -735,23 +737,22 @@ seastar::future<Ref<MOSDOpReply>> PG::do_osd_ops(
       "do_osd_ops: {} - object {} sending reply",
       *m,
       obc->obs.oi.soid);
-    return seastar::make_ready_future<Ref<MOSDOpReply>>(std::move(reply));
+    return interruptor::make_interruptible(
+	seastar::make_ready_future<Ref<MOSDOpReply>>(std::move(reply)));
   }, osd_op_errorator::all_same_way([ox = ox.get(),
                                      m,
                                      obc,
                                      this] (const std::error_code& e) {
     return handle_failed_op(e, std::move(obc), *ox, *m);
-  })).handle_exception_type([ox_deleter = std::move(ox),
-                             m,
-                             obc,
-                             this] (const crimson::osd::error& e) {
+  })).handle_exception_type_interruptible(
+    [ox_deleter = std::move(ox), m, obc, this] (const crimson::osd::error& e) {
     // we need this handler because throwing path which aren't errorated yet.
     logger().debug("encountered the legacy error handling path!");
     return handle_failed_op(e.code(), std::move(obc), *ox_deleter, *m);
   });
 }
 
-seastar::future<Ref<MOSDOpReply>> PG::do_pg_ops(Ref<MOSDOp> m)
+PG::interruptible_future<Ref<MOSDOpReply>> PG::do_pg_ops(Ref<MOSDOp> m)
 {
   if (__builtin_expect(stopping, false)) {
     throw crimson::common::system_shutdown_exception();
@@ -759,15 +760,15 @@ seastar::future<Ref<MOSDOpReply>> PG::do_pg_ops(Ref<MOSDOp> m)
 
   auto ox = std::make_unique<PgOpsExecuter>(std::as_const(*this),
                                             std::as_const(*m));
-  return seastar::do_for_each(m->ops, [ox = ox.get()](OSDOp& osd_op) {
+  return interruptor::do_for_each(m->ops, [ox = ox.get()](OSDOp& osd_op) {
     logger().debug("will be handling pg op {}", ceph_osd_op_name(osd_op.op.op));
     return ox->execute_op(osd_op);
-  }).then([m, this, ox = std::move(ox)] {
+  }).then_interruptible([m, this, ox = std::move(ox)] {
     auto reply = make_message<MOSDOpReply>(m.get(), 0, get_osdmap_epoch(),
                                            CEPH_OSD_FLAG_ACK | CEPH_OSD_FLAG_ONDISK,
                                            false);
     return seastar::make_ready_future<Ref<MOSDOpReply>>(std::move(reply));
-  }).handle_exception_type([=](const crimson::osd::error& e) {
+  }).handle_exception_type_interruptible([=](const crimson::osd::error& e) {
     auto reply = make_message<MOSDOpReply>(
       m.get(), -e.code().value(), get_osdmap_epoch(), 0, false);
     reply->set_enoent_reply_versions(peering_state.get_info().last_update,
@@ -829,36 +830,36 @@ std::optional<hobject_t> PG::resolve_oid(
 }
 
 template<RWState::State State>
-PG::load_obc_ertr::future<>
+PG::interruptible_load_obc_ertr::future<>
 PG::with_head_obc(hobject_t oid, with_obc_func_t&& func)
 {
   assert(oid.is_head());
   auto [obc, existed] = shard_services.obc_registry.get_cached_obc(oid);
-  return obc->with_lock<State>(
+  return obc->with_lock<State, IOInterruptCondition>(
     [oid=std::move(oid), existed=existed, obc=std::move(obc),
      func=std::move(func), this] {
-    auto loaded = load_obc_ertr::make_ready_future<ObjectContextRef>(obc);
+    auto loaded = interruptible_load_obc_ertr::make_ready_future<ObjectContextRef>(obc);
     if (existed) {
       logger().debug("with_head_obc: found {} in cache", oid);
     } else {
       logger().debug("with_head_obc: cache miss on {}", oid);
-      loaded = obc->with_promoted_lock<State>([this, obc] {
+      loaded = obc->with_promoted_lock<State, IOInterruptCondition>([this, obc] {
         return load_head_obc(obc);
       });
     }
-    return loaded.safe_then([func=std::move(func)](auto obc) {
+    return loaded.safe_then_interruptible([func = std::move(func)](auto obc) {
       return func(std::move(obc));
     });
   });
 }
 
 template<RWState::State State>
-PG::load_obc_ertr::future<>
+PG::interruptible_load_obc_ertr::future<>
 PG::with_clone_obc(hobject_t oid, with_obc_func_t&& func)
 {
   assert(!oid.is_head());
   return with_head_obc<RWState::RWREAD>(oid.get_head(),
-    [oid, func=std::move(func), this](auto head) -> load_obc_ertr::future<> {
+    [oid, func=std::move(func), this](auto head) -> interruptible_load_obc_ertr::future<> {
     auto coid = resolve_oid(head->get_ro_ss(), oid);
     if (!coid) {
       // TODO: return crimson::ct_error::enoent::make();
@@ -869,22 +870,22 @@ PG::with_clone_obc(hobject_t oid, with_obc_func_t&& func)
     return clone->template with_lock<State>(
       [coid=*coid, existed=existed,
        head=std::move(head), clone=std::move(clone),
-       func=std::move(func), this]() -> load_obc_ertr::future<> {
-      auto loaded = load_obc_ertr::make_ready_future<ObjectContextRef>(clone);
+       func=std::move(func), this]() -> interruptible_load_obc_ertr::future<> {
+      auto loaded = interruptible_load_obc_ertr::make_ready_future<ObjectContextRef>(clone);
       if (existed) {
         logger().debug("with_clone_obc: found {} in cache", coid);
       } else {
         logger().debug("with_clone_obc: cache miss on {}", coid);
         loaded = clone->template with_promoted_lock<State>(
           [coid, clone, head, this] {
-          return backend->load_metadata(coid).safe_then(
+          return backend->load_metadata(coid).safe_then_interruptible(
             [coid, clone=std::move(clone), head=std::move(head)](auto md) mutable {
             clone->set_clone_state(std::move(md->os), std::move(head));
             return clone;
           });
         });
       }
-      return loaded.safe_then([func=std::move(func)](auto clone) {
+      return loaded.safe_then_interruptible([func = std::move(func)](auto clone) {
         return func(std::move(clone));
       });
     });
@@ -892,14 +893,15 @@ PG::with_clone_obc(hobject_t oid, with_obc_func_t&& func)
 }
 
 // explicitly instantiate the used instantiations
-template PG::load_obc_ertr::future<>
+template PG::interruptible_load_obc_ertr::future<>
 PG::with_head_obc<RWState::RWNONE>(hobject_t, with_obc_func_t&&);
 
-PG::load_obc_ertr::future<crimson::osd::ObjectContextRef>
+PG::interruptible_load_obc_ertr::future<crimson::osd::ObjectContextRef>
 PG::load_head_obc(ObjectContextRef obc)
 {
   hobject_t oid = obc->get_oid();
-  return backend->load_metadata(oid).safe_then([obc=std::move(obc)](auto md)
+  return backend->load_metadata(oid).safe_then_interruptible(
+    [obc=std::move(obc)](auto md)
     -> load_obc_ertr::future<crimson::osd::ObjectContextRef> {
     const hobject_t& oid = md->os.oi.soid;
     logger().debug(
@@ -918,11 +920,11 @@ PG::load_head_obc(ObjectContextRef obc)
   });
 }
 
-PG::load_obc_ertr::future<>
+PG::interruptible_load_obc_ertr::future<>
 PG::reload_obc(crimson::osd::ObjectContext& obc) const
 {
   assert(obc.is_head());
-  return backend->load_metadata(obc.get_oid()).safe_then([&obc](auto md)
+  return backend->load_metadata(obc.get_oid()).safe_then_interruptible<false>([&obc](auto md)
     -> load_obc_ertr::future<> {
     logger().debug(
       "{}: reloaded obs {} for {}",
@@ -941,7 +943,7 @@ PG::reload_obc(crimson::osd::ObjectContext& obc) const
   });
 }
 
-PG::load_obc_ertr::future<>
+PG::interruptible_load_obc_ertr::future<>
 PG::with_locked_obc(Ref<MOSDOp> &m, const OpInfo &op_info,
 		    Operation *op, PG::with_obc_func_t &&f)
 {
@@ -973,7 +975,7 @@ PG::with_locked_obc(Ref<MOSDOp> &m, const OpInfo &op_info,
   };
 }
 
-seastar::future<> PG::handle_rep_op(Ref<MOSDRepOp> req)
+PG::interruptible_future<> PG::handle_rep_op(Ref<MOSDRepOp> req)
 {
   if (__builtin_expect(stopping, false)) {
     return seastar::make_exception_future<>(
@@ -992,8 +994,9 @@ seastar::future<> PG::handle_rep_op(Ref<MOSDRepOp> req)
   decode(log_entries, p);
   peering_state.append_log(std::move(log_entries), req->pg_trim_to,
       req->version, req->min_last_complete_ondisk, txn, !txn.empty(), false);
-  return shard_services.get_store().do_transaction(coll_ref, std::move(txn))
-    .then([req, lcod=peering_state.get_info().last_complete, this] {
+  return interruptor::make_interruptible(shard_services.get_store().do_transaction(
+	coll_ref, std::move(txn))).then_interruptible(
+      [req, lcod=peering_state.get_info().last_complete, this] {
       peering_state.update_last_complete_ondisk(lcod);
       const auto map_epoch = get_osdmap_epoch();
       auto reply = make_message<MOSDRepOpReply>(

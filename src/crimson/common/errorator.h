@@ -10,6 +10,13 @@
 
 #include "include/ceph_assert.h"
 
+namespace crimson::interruptible {
+
+template <typename, typename>
+class interruptible_future_detail;
+
+}
+
 namespace crimson {
 
 template<typename Iterator, typename AsyncAction>
@@ -311,10 +318,11 @@ static constexpr auto composer(FuncHead&& head, FuncTail&&... tail) {
 template <class ValueT>
 struct errorated_future_marker{};
 
+template <class T>
+static inline constexpr bool is_error_v = std::is_base_of_v<error_t<T>, T>;
+
 template <class... AllowedErrors>
 struct errorator {
-  template <class T>
-  static inline constexpr bool is_error_v = std::is_base_of_v<error_t<T>, T>;
 
   static_assert((... && is_error_v<AllowedErrors>),
                 "errorator expects presence of ::is_error in all error types");
@@ -373,6 +381,16 @@ private:
     };
     template <class T>
     using get_errorator_t = typename get_errorator<T>::type;
+
+    template <typename T>
+    struct futurized_error {
+      using ErrorT = T;
+    };
+
+    template <typename T>
+    struct futurized_error<seastar::future<T>> {
+      using ErrorT = T;
+    };
 
     template <class ValueFuncErroratorT, class... ErrorVisitorRetsT>
     struct make_errorator {
@@ -520,7 +538,8 @@ private:
       // to next continuation.
       using return_errorator_t = make_errorator_t<
         value_func_errorator_t,
-        std::decay_t<std::invoke_result_t<ErrorVisitorT, AllowedErrors>>...>;
+        std::decay_t<typename futurized_error<std::invoke_result_t<
+		      ErrorVisitorT, AllowedErrors>>::ErrorT>...>;
       // OK, now we know about all errors next continuation must take
       // care about. If Visitor handled everything and the Value Func
       // doesn't return any, we'll finish with errorator<>::future
@@ -650,7 +669,8 @@ private:
                     "provided Error Visitor is not exhaustive");
       using return_errorator_t = make_errorator_t<
         errorator<>,
-        std::decay_t<std::invoke_result_t<ErrorVisitorT, AllowedErrors>>...>;
+        std::decay_t<typename futurized_error<std::invoke_result_t<
+		      ErrorVisitorT, AllowedErrors>>::ErrorT>...>;
       using futurator_t = \
         typename return_errorator_t::template futurize<::seastar::future<ValueT>>;
       return this->then_wrapped(
@@ -664,6 +684,7 @@ private:
           }
         });
     }
+
     template <class ErrorFuncHead,
               class... ErrorFuncTail>
     auto handle_error(ErrorFuncHead&& error_func_head,
@@ -696,6 +717,8 @@ private:
     friend inline auto ::seastar::internal::do_with_impl(T&& rvalue, F&& f);
     template<typename T1, typename T2, typename T3_or_F, typename... More>
     friend inline auto ::seastar::internal::do_with_impl(T1&& rv1, T2&& rv2, T3_or_F&& rv3, More&&... more);
+    template<typename, typename>
+    friend class ::crimson::interruptible::interruptible_future_detail;
   };
 
   class Enabler {};
@@ -927,6 +950,59 @@ private:
     }
   };
 
+  template <typename InterruptCond, typename FutureType>
+  class futurize<
+	  ::crimson::interruptible::interruptible_future_detail<
+	    InterruptCond, FutureType>> {
+  public:
+    using type = ::crimson::interruptible::interruptible_future_detail<
+	    InterruptCond, typename futurize<FutureType>::type>;
+
+    template <typename Func, typename... Args>
+    static type apply(Func&& func, std::tuple<Args...>&& args) {
+      try {
+	return ::seastar::futurize_apply(std::forward<Func>(func),
+					 std::forward<std::tuple<Args...>>(args));
+      } catch (...) {
+	return seastar::futurize<
+	  ::crimson::interruptible::interruptible_future_detail<
+	    InterruptCond, FutureType>>::make_exception_future(
+		std::current_exception());
+      }
+    }
+
+    template <typename Func, typename... Args>
+    static type invoke(Func&& func, Args&&... args) {
+      try {
+	return ::seastar::futurize_invoke(std::forward<Func>(func),
+					  std::forward<Args>(args)...);
+      } catch(...) {
+	return seastar::futurize<
+	  ::crimson::interruptible::interruptible_future_detail<
+	    InterruptCond, FutureType>>::make_exception_future(
+		std::current_exception());
+      }
+    }
+    template <typename Func>
+    static type invoke(Func&& func, seastar::internal::monostate) {
+      try {
+	return ::seastar::futurize_invoke(std::forward<Func>(func));
+      } catch(...) {
+	return seastar::futurize<
+	  ::crimson::interruptible::interruptible_future_detail<
+	    InterruptCond, FutureType>>::make_exception_future(
+		std::current_exception());
+      }
+    }
+    template <typename Arg>
+    static type make_exception_future(Arg&& arg) {
+      return ::seastar::futurize<
+	::crimson::interruptible::interruptible_future_detail<
+	  InterruptCond, FutureType>>::make_exception_future(
+	      std::forward<Arg>(arg));
+    }
+  };
+
   template <class ErrorT>
   static std::exception_ptr make_exception_ptr(ErrorT&& e) {
     // calling via interface class due to encapsulation and friend relations.
@@ -941,6 +1017,8 @@ private:
   // we were exploiting before.
   template <class...>
   friend class errorator;
+  template<typename, typename>
+  friend class ::crimson::interruptible::interruptible_future_detail;
 }; // class errorator, generic template
 
 // no errors? errorator<>::future is plain seastar::future then!

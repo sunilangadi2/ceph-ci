@@ -60,9 +60,11 @@ public:
   seastar::future<> start();
 
 private:
-  seastar::future<> process_pg_op(
+  ::crimson::interruptible::interruptible_future<
+    ::crimson::osd::IOInterruptCondition> process_pg_op(
     Ref<PG> &pg);
-  seastar::future<> process_op(
+  ::crimson::interruptible::interruptible_future<
+    ::crimson::osd::IOInterruptCondition> process_op(
     Ref<PG> &pg);
   bool is_pg_op() const;
 

@@ -57,72 +57,90 @@ seastar::future<> ClientRequest::start()
   logger().debug("{}: start", *this);
 
   IRef opref = this;
-  return crimson::common::handle_system_shutdown(
-    [this, opref=std::move(opref)]() mutable {
-    return seastar::repeat([this, opref]() mutable {
+  return seastar::repeat([this, opref]() mutable {
       return with_blocking_future(handle.enter(cp().await_map))
       .then([this]() {
-	return with_blocking_future(osd.osdmap_gate.wait_for_map(m->get_min_epoch()));
+	return with_blocking_future(
+	    osd.osdmap_gate.wait_for_map(
+	      m->get_min_epoch()));
       }).then([this](epoch_t epoch) {
 	return with_blocking_future(handle.enter(cp().get_pg));
       }).then([this] {
 	return with_blocking_future(osd.wait_for_pg(m->get_spg()));
       }).then([this, opref](Ref<PG> pgref) {
-	PG &pg = *pgref;
-	if (pg.can_discard_op(*m)) {
-	  return osd.send_incremental_map(conn, m->get_map_epoch());
-	}
-	return with_blocking_future(
-	  handle.enter(pp(pg).await_map)
-	).then([this, &pg]() mutable {
-	  return with_blocking_future(
-	    pg.osdmap_gate.wait_for_map(m->get_min_epoch()));
-	}).then([this, &pg](auto map) mutable {
-	  return with_blocking_future(
-	    handle.enter(pp(pg).wait_for_active));
-	}).then([this, &pg]() mutable {
-	  return with_blocking_future(pg.wait_for_active_blocker.wait());
-	}).then([this, pgref=std::move(pgref)]() mutable {
-	  if (m->finish_decode()) {
-	    m->clear_payload();
+	return interruptor::with_interruption([this, opref, pgref] {
+	  return [this, opref, pgref]() -> interruptible_future<> {
+	    PG &pg = *pgref;
+	    if (pg.can_discard_op(*m)) {
+	      return osd.send_incremental_map(conn, m->get_map_epoch());
+	    }
+	    return with_blocking_future_interruptible<IOInterruptCondition>(
+	      handle.enter(pp(pg).await_map)
+	    ).then_interruptible([this, &pg]() mutable {
+	      return with_blocking_future_interruptible<IOInterruptCondition>(
+		  pg.osdmap_gate.wait_for_map(m->get_min_epoch()));
+	    }).then_interruptible([this, &pg](auto map) mutable {
+	      return with_blocking_future_interruptible<IOInterruptCondition>(
+		  handle.enter(pp(pg).wait_for_active));
+	    }).then_interruptible([this, &pg]() mutable {
+	      return with_blocking_future_interruptible<IOInterruptCondition>(
+		  pg.wait_for_active_blocker.wait());
+	    }).then_interruptible([this, pgref=std::move(pgref)]() mutable {
+	      if (m->finish_decode()) {
+		m->clear_payload();
+	      }
+	      if (is_pg_op()) {
+		return process_pg_op(pgref);
+	      } else {
+		return process_op(pgref);
+	      }
+	    });
+	  }().then_interruptible([] {
+	    return seastar::stop_iteration::yes;
+	  });
+	}, [this](std::exception_ptr eptr) {
+	  if (*eptr.__cxa_exception_type() ==
+	      typeid(::crimson::common::actingset_changed)) {
+	    try {
+	      std::rethrow_exception(eptr);
+	    } catch(::crimson::common::actingset_changed& e) {
+	      if (e.is_primary()) {
+		logger().debug("{} operation restart, acting set changed", *this);
+		return seastar::stop_iteration::no;
+	      } else {
+		logger().debug("{} operation abort, up primary changed", *this);
+		return seastar::stop_iteration::yes;
+	      }
+	    }
 	  }
-	  if (is_pg_op()) {
-	    return process_pg_op(pgref);
-	  } else {
-	    return process_op(pgref);
-	  }
-	});
-      }).then([] {
-	return seastar::stop_iteration::yes;
-      }).handle_exception_type([](crimson::common::actingset_changed& e) {
-	if (e.is_primary()) {
-	  logger().debug("operation restart, acting set changed");
-	  return seastar::stop_iteration::no;
-	} else {
-	  logger().debug("operation abort, up primary changed");
+	  assert(*eptr.__cxa_exception_type() ==
+	  typeid(crimson::common::system_shutdown_exception));
+	  crimson::get_logger(ceph_subsys_osd).debug(
+	      "{} operation skipped, system shutdown", *this);
 	  return seastar::stop_iteration::yes;
-	}
+	}, pgref);
       });
     });
-  });
 }
 
-seastar::future<> ClientRequest::process_pg_op(
+ClientRequest::interruptible_future<>
+ClientRequest::process_pg_op(
   Ref<PG> &pg)
 {
   return pg->do_pg_ops(m)
-    .then([this, pg=std::move(pg)](Ref<MOSDOpReply> reply) {
+    .then_interruptible([this, pg=std::move(pg)](Ref<MOSDOpReply> reply) {
       return conn->send(reply);
     });
 }
 
-seastar::future<> ClientRequest::process_op(
+ClientRequest::interruptible_future<>
+ClientRequest::process_op(
   Ref<PG> &pgref)
 {
   PG& pg = *pgref;
-  return with_blocking_future(
-    handle.enter(pp(pg).recover_missing)
-  ).then([this, &pg, pgref] {
+  return with_blocking_future_interruptible<IOInterruptCondition>(
+      handle.enter(pp(pg).recover_missing)
+  ).then_interruptible([this, &pg, pgref] {
     eversion_t ver;
     const hobject_t& soid = m->get_hobj();
     logger().debug("{} check for recovery, {}", *this, soid);
@@ -138,14 +156,16 @@ seastar::future<> ClientRequest::process_op(
       }
     }
     return seastar::now();
-  }).then([this, &pg] {
+  }).then_interruptible([this, &pg] {
     return with_blocking_future(handle.enter(pp(pg).get_obc));
-  }).then([this, &pg]() -> PG::load_obc_ertr::future<> {
+  }).then_interruptible([this, &pg]() -> PG::interruptible_load_obc_ertr::future<> {
+    logger().debug("{} to do ops", *this);
     op_info.set_from_op(&*m, *pg.get_osdmap());
     return pg.with_locked_obc(m, op_info, this, [this, &pg](auto obc) {
-      return with_blocking_future(
+      return with_blocking_future_interruptible<IOInterruptCondition>(
         handle.enter(pp(pg).process)
-      ).then([this, &pg, obc] {
+      ).then_interruptible([this, &pg, obc]()
+	-> interruptible_future<Ref<MOSDOpReply>> {
         if (!pg.is_primary()) {
            // primary can handle both normal ops and balanced reads
           if (is_misdirected(pg)) {
@@ -161,7 +181,7 @@ seastar::future<> ClientRequest::process_op(
           }
         }
         return pg.do_osd_ops(m, obc, op_info);
-      }).then([this](Ref<MOSDOpReply> reply) {
+      }).then_interruptible([this](Ref<MOSDOpReply> reply) {
         if (reply) {
           return conn->send(std::move(reply));
         } else {
@@ -169,7 +189,7 @@ seastar::future<> ClientRequest::process_op(
         }
       });
     });
-  }).safe_then([pgref=std::move(pgref)] {
+  }).safe_then_interruptible([pgref=std::move(pgref)] {
     return seastar::now();
   }, PG::load_obc_ertr::all_same_way([](auto &code) {
     logger().error("ClientRequest saw error code {}", code);

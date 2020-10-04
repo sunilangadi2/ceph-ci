@@ -392,6 +392,14 @@ public:
     });
   }
 
+
+  using my_type = interruptible_future_detail<InterruptCond, seastar::future<T>>;
+
+  template <typename Func>
+  [[gnu::always_inline]]
+  my_type finally(Func&& func) {
+    return core_type::finally(std::forward<Func>(func));
+  }
 private:
   seastar::future<T> to_future() {
     return static_cast<core_type&&>(std::move(*this));
@@ -716,6 +724,13 @@ public:
 	std::forward<ErrorFuncHead>(error_func_head),
 	std::forward<ErrorFuncTail>(error_func_tail)...));
   }
+
+  template <typename Func>
+  [[gnu::always_inline]]
+  auto finally(Func&& func) {
+    auto fut = core_type::finally(std::forward<Func>(func));
+    return (interrupt_futurize_t<decltype(fut)>)(std::move(fut));
+  }
 private:
   ErroratedFuture<::crimson::errorated_future_marker<T>>
   to_future() {
@@ -854,6 +869,17 @@ public:
 	disable_interruption();
       }
       return fut;
+  }
+
+  template <typename Func>
+  [[gnu::always_inline]]
+  static auto wrap_function(Func&& func) {
+    return [func=std::forward<Func>(func),
+	    interrupt_condition=interrupt_cond<InterruptCond>]() mutable {
+	      return call_with_interruption(
+		  interrupt_condition,
+		  std::forward<Func>(func));
+	    };
   }
 
   template <typename Iterator, typename AsyncAction,

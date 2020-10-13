@@ -132,6 +132,17 @@ vstart_runner.py primarily does three things -
     and without admin socket and ``LocalCephCluster`` provides methods to set
     or clear ``ceph.conf``.
 
+.. note:: vstart_runner.py deletes "adjust-ulimits" and "ceph-coverage" from
+          the command arguments unconditionally since they are not applicable
+          when tests are run on a developer's machine.
+
+.. note:: "omit_sudo" is re-set to False unconditionally in cases of commands
+          "passwd" and "chown".
+
+.. note:: The presence of binary file named after the first argument is
+          checked in ``<ceph-repo-root>/build/bin/``. If present, the first
+          argument is replaced with the path to binary file.
+
 .. _test_reconnect_timeout: https://github.com/ceph/ceph/blob/master/qa/tasks/cephfs/test_client_recovery.py#L133
 .. _TestClientRecovery: https://github.com/ceph/ceph/blob/master/qa/tasks/cephfs/test_client_recovery.py#L86
 .. _teuthology: https://github.com/ceph/teuthology

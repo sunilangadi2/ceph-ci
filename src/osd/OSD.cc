@@ -2887,6 +2887,10 @@ will start to track new ops received afterwards.";
 
   else if (prefix == "heap") {
     ret = ceph::osd_cmds::heap(*cct, cmdmap, *f, ss);
+    if (ret != 0) {
+      outbl.append(ss);
+      ss.str("");
+    }
   }
 
   else if (prefix == "debug dump_missing") {

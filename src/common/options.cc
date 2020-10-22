@@ -2228,6 +2228,12 @@ std::vector<Option> get_global_options() {
 		     "only be rejected later, when they are used.")
     .set_flag(Option::FLAG_RUNTIME),
 
+    Option("mon_use_min_delay_socket", Option::TYPE_BOOL, Option::LEVEL_ADVANCED)
+    .set_default(false)
+    .set_description("priority packets between mons")
+    .add_service("mon")
+    .add_see_also("osd_heartbeat_use_min_delay_socket"),
+
     // PAXOS
 
     Option("paxos_stash_full_interval", Option::TYPE_INT, Option::LEVEL_ADVANCED)

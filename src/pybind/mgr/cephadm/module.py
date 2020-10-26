@@ -25,7 +25,7 @@ from ceph.deployment import inventory
 from ceph.deployment.drive_group import DriveGroupSpec
 from ceph.deployment.service_spec import \
     NFSServiceSpec, ServiceSpec, PlacementSpec, assert_valid_host, \
-    CustomContainerSpec, HostPlacementSpec
+    CustomContainerSpec, HostPlacementSpec, HA_RGWSpec
 from cephadm.serve import CephadmServe
 from cephadm.services.cephadmservice import CephadmDaemonSpec
 
@@ -44,6 +44,7 @@ from .services.cephadmservice import MonService, MgrService, MdsService, RgwServ
     RbdMirrorService, CrashService, CephadmService, CephadmExporter, CephadmExporterConfig
 from .services.container import CustomContainerService
 from .services.iscsi import IscsiService
+from .services.ha_rgw import HA_RGWService, HAproxyService, KeepAlivedService
 from .services.nfs import NFSService
 from .services.osd import RemoveUtil, OSDQueue, OSDService, OSD, NotFoundError
 from .services.monitoring import GrafanaService, AlertmanagerService, PrometheusService, \
@@ -202,6 +203,16 @@ class CephadmOrchestrator(orchestrator.Orchestrator, MgrModule,
             desc='Prometheus container image',
         ),
         Option(
+            'container_image_haproxy',
+            default='haproxy',
+            desc='HAproxy container image',
+        ),
+        Option(
+            'container_image_keepalived',
+            default='arcts/keepalived',
+            desc='Keepalived container image',
+        ),
+        Option(
             'warn_on_stray_hosts',
             type='bool',
             default=True,
@@ -321,6 +332,8 @@ class CephadmOrchestrator(orchestrator.Orchestrator, MgrModule,
             self.container_image_grafana = ''
             self.container_image_alertmanager = ''
             self.container_image_node_exporter = ''
+            self.container_image_haproxy = ''
+            self.container_image_keepalived = ''
             self.warn_on_stray_hosts = True
             self.warn_on_stray_daemons = True
             self.warn_on_failed_host_check = True
@@ -401,6 +414,9 @@ class CephadmOrchestrator(orchestrator.Orchestrator, MgrModule,
         self.node_exporter_service = NodeExporterService(self)
         self.crash_service = CrashService(self)
         self.iscsi_service = IscsiService(self)
+        self.ha_rgw_service = HA_RGWService(self)
+        self.haproxy_service = HAproxyService(self)
+        self.keepalived_service = KeepAlivedService(self)
         self.container_service = CustomContainerService(self)
         self.cephadm_exporter_service = CephadmExporter(self)
         self.cephadm_services = {
@@ -417,6 +433,9 @@ class CephadmOrchestrator(orchestrator.Orchestrator, MgrModule,
             'node-exporter': self.node_exporter_service,
             'crash': self.crash_service,
             'iscsi': self.iscsi_service,
+            'ha-rgw': self.ha_rgw_service,
+            'haproxy': self.haproxy_service,
+            'keepalived': self.keepalived_service,
             'container': self.container_service,
             'cephadm-exporter': self.cephadm_exporter_service,
         }
@@ -1171,6 +1190,10 @@ To check that the host is reachable:
             image = self.container_image_alertmanager
         elif daemon_type == 'node-exporter':
             image = self.container_image_node_exporter
+        elif daemon_type == 'haproxy':
+            image = self.container_image_haproxy
+        elif daemon_type == 'keepalived':
+            image = self.container_image_keepalived
         elif daemon_type == CustomContainerService.TYPE:
             # The image can't be resolved, the necessary information
             # is only available when a container is deployed (given
@@ -1479,6 +1502,9 @@ To check that the host is reachable:
                     sm[n].container_image_id = 'mix'
                 if sm[n].container_image_name != dd.container_image_name:
                     sm[n].container_image_name = 'mix'
+                if dd.daemon_type == 'haproxy' or dd.daemon_type == 'keepalived':
+                    # ha-rgw has 2 daemons running per host
+                    sm[n].size = sm[n].size*2
         for n, spec in self.spec_store.specs.items():
             if n in sm:
                 continue
@@ -1495,6 +1521,9 @@ To check that the host is reachable:
             if service_type == 'nfs':
                 spec = cast(NFSServiceSpec, spec)
                 sm[n].rados_config_location = spec.rados_config_location()
+            if spec.service_type == 'ha-rgw':
+                # ha-rgw has 2 daemons running per host
+                sm[n].size = sm[n].size*2
         return list(sm.values())
 
     @trivial_completion
@@ -1866,6 +1895,16 @@ To check that the host is reachable:
                         self.log.warning(msg)
                         return msg
 
+            if daemon_spec.daemon_type == 'haproxy':
+                haspec = cast(HA_RGWSpec, daemon_spec.spec)
+                if haspec.haproxy_container_image:
+                    image = haspec.haproxy_container_image
+
+            if daemon_spec.daemon_type == 'keepalived':
+                haspec = cast(HA_RGWSpec, daemon_spec.spec)
+                if haspec.keepalived_container_image:
+                    image = haspec.keepalived_container_image
+
             cephadm_config, deps = self.cephadm_services[daemon_spec.daemon_type].generate_config(
                 daemon_spec)
 
@@ -2115,6 +2154,7 @@ To check that the host is reachable:
                 'mgr': PlacementSpec(count=2),
                 'mds': PlacementSpec(count=2),
                 'rgw': PlacementSpec(count=2),
+                'ha-rgw': PlacementSpec(count=2),
                 'iscsi': PlacementSpec(count=1),
                 'rbd-mirror': PlacementSpec(count=2),
                 'nfs': PlacementSpec(count=1),
@@ -2170,6 +2210,10 @@ To check that the host is reachable:
 
     @trivial_completion
     def apply_rgw(self, spec: ServiceSpec) -> str:
+        return self._apply(spec)
+
+    @trivial_completion
+    def apply_ha_rgw(self, spec: ServiceSpec) -> str:
         return self._apply(spec)
 
     @trivial_completion

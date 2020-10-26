@@ -413,6 +413,7 @@ class HostCache():
         return r
 
     def get_daemon(self, daemon_name: str) -> orchestrator.DaemonDescription:
+        assert not daemon_name.startswith('ha-rgw.')
         for _, dm in self.daemons.items():
             for _, dd in dm.items():
                 if dd.name() == daemon_name:
@@ -433,6 +434,9 @@ class HostCache():
 
     def get_daemons_by_service(self, service_name):
         # type: (str) -> List[orchestrator.DaemonDescription]
+        assert not service_name.startswith('keepalived.')
+        assert not service_name.startswith('haproxy.')
+
         result = []   # type: List[orchestrator.DaemonDescription]
         for host, dm in self.daemons.items():
             for name, d in dm.items():
@@ -442,6 +446,8 @@ class HostCache():
 
     def get_daemons_by_type(self, service_type):
         # type: (str) -> List[orchestrator.DaemonDescription]
+        assert service_type not in ['keepalived', 'haproxy']
+
         result = []   # type: List[orchestrator.DaemonDescription]
         for host, dm in self.daemons.items():
             for name, d in dm.items():
@@ -567,6 +573,8 @@ class HostCache():
         self.daemons[host][dd.name()] = dd
 
     def rm_daemon(self, host: str, name: str) -> None:
+        assert not name.startswith('ha-rgw.')
+
         if host in self.daemons:
             if name in self.daemons[host]:
                 del self.daemons[host][name]
@@ -583,6 +591,8 @@ class HostCache():
                    for h in self.get_hosts())
 
     def schedule_daemon_action(self, host: str, daemon_name: str, action: str) -> None:
+        assert not daemon_name.startswith('ha-rgw.')
+
         priorities = {
             'start': 1,
             'restart': 2,
@@ -608,6 +618,8 @@ class HostCache():
                 del self.scheduled_daemon_actions[host]
 
     def get_scheduled_daemon_action(self, host: str, daemon: str) -> Optional[str]:
+        assert not daemon.startswith('ha-rgw.')
+
         return self.scheduled_daemon_actions.get(host, {}).get(daemon)
 
 

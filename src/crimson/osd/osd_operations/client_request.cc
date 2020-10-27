@@ -23,7 +23,7 @@ namespace crimson::osd {
 
 ClientRequest::ClientRequest(
   OSD &osd, crimson::net::ConnectionRef conn, Ref<MOSDOp> &&m)
-  : osd(osd), conn(conn), m(m)
+  : osd(osd), conn(conn), m(m), ors(get_osd_priv(conn.get()).opSequencer)
 {}
 
 void ClientRequest::print(std::ostream &lhs) const
@@ -57,7 +57,8 @@ seastar::future<> ClientRequest::start()
   logger().debug("{}: start", *this);
 
   IRef opref = this;
-  return seastar::repeat([this, opref]() mutable {
+  return ors.repeat(opref, [this, opref]() mutable {
+      logger().debug("{}: in repeat", *this);
       return with_blocking_future(handle.enter(cp().await_map))
       .then([this]() {
 	return with_blocking_future(

@@ -243,7 +243,79 @@ join_blocking_interruptible_futures(T&& t) {
       }));
 }
 
+template <typename>
+struct OperationComparator;
 
+template <typename T>
+class OperationRepeatSequencer {
+public:
+  using OpRef = boost::intrusive_ptr<T>;
+  using ops_sequence_t = std::map<OpRef, seastar::promise<>>;
+  template <typename Func>
+  seastar::future<> repeat(OpRef& op, Func&& func) {
+    return seastar::repeat(
+      [this, func=std::forward<Func>(func), op]() mutable {
+      return retry(op, std::forward<Func>(func));
+    }).then([this, op] {
+      ops.erase(*(op->pos));
+    });
+  }
+private:
+  template <typename Func>
+  seastar::future<seastar::stop_iteration> retry(OpRef& op, Func&& func) {
+    op->new_retry();
+    if (!op->pos) {
+      assert(!op->get_retries());
+      auto [it, inserted] = ops.emplace(op, seastar::promise<>());
+      assert(inserted);
+      assert(std::next(it) == ops.end());
+      op->pos = it;
+      if (it == ops.begin()
+	  || (--it)->first->is_retry_started()) {
+	op->retry_start();
+	return seastar::futurize_invoke(std::forward<Func>(func));
+      } else {
+	auto it2 = *(op->pos);
+	return (--it2)->second.get_future().then(
+	  [op, func=std::forward<Func>(func)]() mutable {
+	  op->retry_start();
+	  auto fut = seastar::futurize_invoke(std::forward<Func>(func));
+	  (*(op->pos))->second.set_value();
+	  return fut;
+	});
+      }
+    } else {
+      assert(op->get_retries());
+      auto it = *(op->pos);
+      if (it == ops.begin()
+	  || ((--it)->first->is_retry_started()
+	    && it->first->get_retries()
+		>= op->get_retries())) {
+	// if this is an old retry and prev retry is new and already started,
+	// catch this retry
+	op->set_retry(std::prev(*(op->pos))->first->get_retries());
+	op->retry_start();
+	return seastar::futurize_invoke(std::forward<Func>(func));
+      } else {
+	auto it2 = *(op->pos);
+	return (--it2)->second.get_future().then(
+	  [op, func=std::forward<Func>(func)]() mutable {
+	  op->retry_start();
+	  auto fut = seastar::futurize_invoke(std::forward<Func>(func));
+	  std::next(*(op->pos))->second.set_value();
+	  return fut;
+	});
+      }
+    }
+  }
+  std::map<OpRef, seastar::promise<>, OperationComparator<T>> ops;
+};
+template <typename T>
+struct OperationComparator {
+  bool operator()(
+    const typename OperationRepeatSequencer<T>::OpRef& left,
+    const typename OperationRepeatSequencer<T>::OpRef& right) const;
+};
 /**
  * Common base for all crimson-osd operations.  Mainly provides
  * an interface for registering ops in flight and dumping
@@ -252,6 +324,10 @@ join_blocking_interruptible_futures(T&& t) {
 class Operation : public boost::intrusive_ref_counter<
   Operation, boost::thread_unsafe_counter> {
  public:
+  struct retry {
+    uint64_t retries = -1;
+    bool started = false;
+  };
   uint64_t get_id() const {
     return id;
   }
@@ -320,6 +396,23 @@ class Operation : public boost::intrusive_ref_counter<
     id = in_id;
   }
 
+  struct retry rty;
+  uint64_t get_retries() const {
+    return rty.retries;
+  }
+  uint64_t new_retry() {
+    rty.started = false;
+    return ++rty.retries;
+  }
+  bool is_retry_started() const {
+    return rty.started;
+  }
+  void retry_start() {
+    rty.started = true;
+  }
+  void set_retry(uint64_t retries) {
+    rty.retries = retries;
+  }
   void add_blocker(Blocker *b) {
     blockers.push_back(b);
   }
@@ -332,6 +425,8 @@ class Operation : public boost::intrusive_ref_counter<
   }
 
   friend class OperationRegistry;
+  template <typename>
+  friend class OperationRepeatSequencer;
 };
 using OperationRef = boost::intrusive_ptr<Operation>;
 
@@ -361,8 +456,18 @@ public:
   virtual ~OperationT() = default;
 
 private:
+  std::optional<typename OperationRepeatSequencer<T>::ops_sequence_t::iterator> pos;
   virtual void dump_detail(ceph::Formatter *f) const = 0;
+  template <typename>
+  friend class OperationRepeatSequencer;
 };
+
+template <typename T>
+bool OperationComparator<T>::operator()(
+  const typename OperationRepeatSequencer<T>::OpRef& left,
+  const typename OperationRepeatSequencer<T>::OpRef& right) const {
+  return left->get_id() < right->get_id();
+}
 
 /**
  * Maintains a set of lists of all active ops.

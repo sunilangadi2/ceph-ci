@@ -87,6 +87,8 @@ using namespace librados;
 
 #include "compressor/Compressor.h"
 
+#include "rgw_d3n_datacache.h"
+
 #ifdef WITH_LTTNG
 #define TRACEPOINT_DEFINE
 #define TRACEPOINT_PROBE_DYNAMIC_LINKAGE
@@ -1093,7 +1095,7 @@ void RGWRados::finalize()
   rgw::notify::shutdown();
 }
 
-/** 
+/**
  * Initialize the RADOS instance and prepare to do other ops
  * Returns 0 on success, -ERR# on failure.
  */
@@ -1122,7 +1124,7 @@ int RGWRados::init_rados()
   if(use_datacache) {
     datacache->init(cct);
   }
-  
+
   return ret;
 }
 
@@ -6500,7 +6502,7 @@ std::vector<string> split(const string &s, const char * delim)
 }
 
 bool get_obj_data::deterministic_hash_is_local(string oid) {
-  if( g_conf()->rgw_datacache_distributed_enabled == false ) {
+  if( g_conf()->rgw_d3n_l2_distributed_datacache_enabled == false ) {
     return true;
   } else {
 	  return (deterministic_hash(oid).compare(cct->_conf->rgw_host)==0);
@@ -6509,7 +6511,7 @@ bool get_obj_data::deterministic_hash_is_local(string oid) {
 
 string get_obj_data::deterministic_hash(string oid)
 {
-  std::string location = cct->_conf->rgw_l2_hosts;
+  std::string location = cct->_conf->rgw_d3n_l2_datacache_hosts;
   string delimiters(",");
 
   std::vector<std::string> tokens = split(location, ",");
@@ -6543,7 +6545,7 @@ string get_obj_data::get_pending_oid()
 
 void get_obj_data::set_d3n_cache_location()
 {
-  d3n_cache_location = this->cct->_conf->rgw_datacache_persistent_path;
+  d3n_cache_location = this->cct->_conf->rgw_d3n_l1_datacache_persistent_path;
   if(d3n_cache_location.back() != '/')
   {
     d3n_cache_location += "/";
@@ -6648,7 +6650,7 @@ int get_obj_data::submit_l1_aio_read(L1CacheRequest* cc)
 
 void _cache_aio_completion_cb(sigval_t sigval)
 {
-  CacheRequest* c = static_cast<CacheRequest*>(sigval.sival_ptr);
+  //CacheRequest* c = static_cast<CacheRequest*>(sigval.sival_ptr);
   //c->op_data->cache_aio_completion_cb(c);
 }
 

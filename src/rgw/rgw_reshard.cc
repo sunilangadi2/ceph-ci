@@ -526,6 +526,8 @@ int RGWBucketReshard::do_reshard(int num_shards,
     return ret;
   }
 
+  if (ret = f.check("after_updater_start"); ret < 0) { return ret; }
+
   auto target_shards = bucket_info.layout.target_index->layout.normal.num_shards;
   int num_target_shards = (target_shards > 0 ? num_shards : 1);
 
@@ -649,6 +651,8 @@ int RGWBucketReshard::do_reshard(int num_shards,
   bucket_info.layout.current_index = *bucket_info.layout.target_index;
   bucket_info.layout.target_index = std::nullopt; // target_layout doesn't need to exist after reshard
 
+  if (ret = f.check("before_update_bucket"); ret < 0) { return ret; }
+
   ret = RGWBucketReshard::update_bucket(rgw::BucketReshardState::NONE);
   if (ret < 0) {
     lderr(store->ctx()) << "ERROR: failed writing bucket instance info: " << dendl;
@@ -691,6 +695,8 @@ int RGWBucketReshard::execute(int num_shards,
     // shard state is uncertain, but this will attempt to remove them anyway
     goto error_out;
   }
+
+  if (ret = f.check("after_set_target_layout"); ret < 0) { return ret; }
 
   if (reshard_log) {
     ret = reshard_log->update(bucket_info);

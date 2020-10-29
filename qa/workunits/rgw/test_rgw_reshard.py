@@ -203,6 +203,30 @@ def main():
     time.sleep(5)
     old_shard_count = get_bucket_stats(BUCKET_NAME2).num_shards
     num_shards_expected = old_shard_count + 1
+    run_bucket_reshard_cmd(BUCKET_NAME2, num_shards_expected, error_location = "after_updater_start")
+
+    # check bucket shards num
+    cur_shard_count = get_bucket_stats(BUCKET_NAME2).num_shards
+    assert(cur_shard_count == old_shard_count)
+
+    #verify if bucket is accessible
+    log.info('List objects from bucket: {}'.format(BUCKET_NAME2))
+    for key in bucket2.objects.all():
+        log.info(key.key)
+
+    #verify if new objects can be added
+    num_objs = 5
+    for i in range(0, num_objs):
+        connection.Object(BUCKET_NAME2, ('key' + str(i))).put(Body=b"some_data")
+
+    #retry reshard
+    run_bucket_reshard_cmd(BUCKET_NAME2, num_shards_expected)
+
+    # TESTCASE 'manual bucket resharding','inject error','fail','check bucket accessibility', 'retry reshard'
+    log.debug('TEST: reshard bucket with error injection\n')
+
+    old_shard_count = get_bucket_stats(BUCKET_NAME2).num_shards
+    num_shards_expected = old_shard_count + 1
     run_bucket_reshard_cmd(BUCKET_NAME2, num_shards_expected, error_location = "before_target_shard_entry")
 
     # check bucket shards num
@@ -223,7 +247,7 @@ def main():
     run_bucket_reshard_cmd(BUCKET_NAME2, num_shards_expected)
 
     #TESTCASE 'manual bucket resharding','inject error','fail','check bucket accessibility', 'retry reshard'
-    log.debug('TEST: reshard bucket with error injection')
+    log.debug('TEST: reshard bucket with error injection\n')
     # create objs
     num_objs = 11
     for i in range(0, num_objs):
@@ -252,7 +276,7 @@ def main():
     run_bucket_reshard_cmd(BUCKET_NAME3, num_shards_expected)
     
     #TESTCASE 'manual bucket resharding','inject error','fail','check bucket accessibility', 'retry reshard'
-    log.debug('TEST: reshard bucket with error injection')
+    log.debug('TEST: reshard bucket with error injection\n')
     # create objs
     num_objs = 11
     for i in range(0, num_objs):
@@ -268,7 +292,7 @@ def main():
     assert(cur_shard_count == old_shard_count)
 
     #verify if bucket is accessible
-    log.info('List objects from bucket: {}'.format(BUCKET_NAME3))
+    log.info('List objects from bucket: {}'.format(BUCKET_NAME4))
     for key in bucket4.objects.all():
         log.info(key.key)
 
@@ -279,6 +303,55 @@ def main():
 
     #retry reshard
     run_bucket_reshard_cmd(BUCKET_NAME4, num_shards_expected)
+    
+    #TESTCASE 'manual bucket resharding','inject error','fail','check bucket accessibility', 'retry reshard'
+    log.debug('TEST: reshard bucket with error injection\n')
+
+    old_shard_count = get_bucket_stats(BUCKET_NAME4).num_shards
+    num_shards_expected = old_shard_count + 1
+    run_bucket_reshard_cmd(BUCKET_NAME4, num_shards_expected, error_location = "before_update_bucket")
+
+    # check bucket shards num
+    cur_shard_count = get_bucket_stats(BUCKET_NAME4).num_shards
+    assert(cur_shard_count == old_shard_count)
+
+    #verify if bucket is accessible
+    log.info('List objects from bucket: {}'.format(BUCKET_NAME4))
+    for key in bucket4.objects.all():
+        log.info(key.key)
+
+    #verify if new objects can be added
+    num_objs = 5
+    for i in range(0, num_objs):
+        connection.Object(BUCKET_NAME4, ('key' + str(i))).put(Body=b"some_data")
+
+    #retry reshard
+    run_bucket_reshard_cmd(BUCKET_NAME4, num_shards_expected)
+
+    #TESTCASE 'manual bucket resharding','inject error','fail','check bucket accessibility', 'retry reshard'
+    log.debug('TEST: reshard bucket with error injection\n')
+
+    old_shard_count = get_bucket_stats(BUCKET_NAME3).num_shards
+    num_shards_expected = old_shard_count + 1
+    run_bucket_reshard_cmd(BUCKET_NAME3, num_shards_expected, error_location = "after_set_target_layout")
+
+    # check bucket shards num
+    cur_shard_count = get_bucket_stats(BUCKET_NAME3).num_shards
+    assert(cur_shard_count == old_shard_count)
+
+    #verify if bucket is accessible
+    log.info('List objects from bucket: {}'.format(BUCKET_NAME3))
+    for key in bucket3.objects.all():
+        log.info(key.key)
+
+    #verify if new objects can be added
+    num_objs = 5
+    for i in range(0, num_objs):
+        connection.Object(BUCKET_NAME3, ('key' + str(i))).put(Body=b"some_data")
+
+    #retry reshard
+    time.sleep(60)
+    run_bucket_reshard_cmd(BUCKET_NAME3, num_shards_expected)
 
     # TESTCASE 'manual bucket resharding','inject crash','fail','check bucket accessibility', 'retry reshard'
     log.debug('TEST: reshard bucket with crash injection\n')
@@ -301,11 +374,12 @@ def main():
     for i in range(0, num_objs):
         connection.Object(BUCKET_NAME2, ('key' + str(i))).put(Body=b"some_data")
 
-    #retry reshard
+    #retry reshard after 60 sec
+    time.sleep(60)
     run_bucket_reshard_cmd(BUCKET_NAME2, num_shards_expected)
 
     #TESTCASE 'manual bucket resharding','inject crash','fail','check bucket accessibility', 'retry reshard'
-    log.debug('TEST: reshard bucket with error injection')
+    log.debug('TEST: reshard bucket with crash injection\n')
 
     old_shard_count = get_bucket_stats(BUCKET_NAME3).num_shards
     num_shards_expected = old_shard_count + 1
@@ -325,11 +399,12 @@ def main():
     for i in range(0, num_objs):
         connection.Object(BUCKET_NAME3, ('key' + str(i))).put(Body=b"some_data")
 
-    #retry reshard
+    #retry reshard after 60 sec
+    time.sleep(60)
     run_bucket_reshard_cmd(BUCKET_NAME3, num_shards_expected)
 
     #TESTCASE 'manual bucket resharding','inject error','fail','check bucket accessibility', 'retry reshard'
-    log.debug('TEST: reshard bucket with error injection')
+    log.debug('TEST: reshard bucket with crash injection\n')
 
     old_shard_count = get_bucket_stats(BUCKET_NAME4).num_shards
     num_shards_expected = old_shard_count + 1
@@ -340,7 +415,7 @@ def main():
     assert(cur_shard_count == old_shard_count)
 
     #verify if bucket is accessible
-    log.info('List objects from bucket: {}'.format(BUCKET_NAME3))
+    log.info('List objects from bucket: {}'.format(BUCKET_NAME4))
     for key in bucket4.objects.all():
         log.info(key.key)
 
@@ -349,11 +424,87 @@ def main():
     for i in range(0, num_objs):
         connection.Object(BUCKET_NAME4, ('key' + str(i))).put(Body=b"some_data")
 
-    #retry reshard
+    #retry reshard after 60 sec
+    time.sleep(60)
+    run_bucket_reshard_cmd(BUCKET_NAME4, num_shards_expected)
+
+    #TESTCASE 'manual bucket resharding','inject error','fail','check bucket accessibility', 'retry reshard'
+    log.debug('TEST: reshard bucket with crash injection\n')
+
+    old_shard_count = get_bucket_stats(BUCKET_NAME4).num_shards
+    num_shards_expected = old_shard_count + 1
+    run_bucket_reshard_cmd(BUCKET_NAME4, num_shards_expected, abort_location = "after_updater_start")
+    # check bucket shards num
+    bucket_stats4 = get_bucket_stats(BUCKET_NAME4)
+    cur_shard_count = bucket_stats4.num_shards
+    assert(cur_shard_count == old_shard_count)
+
+    #verify if bucket is accessible
+    log.info('List objects from bucket: {}'.format(BUCKET_NAME4))
+    for key in bucket4.objects.all():
+        log.info(key.key)
+
+    #verify if new objects can be added
+    num_objs = 5
+    for i in range(0, num_objs):
+        connection.Object(BUCKET_NAME4, ('key' + str(i))).put(Body=b"some_data")
+
+    #retry reshard after 60 sec
+    time.sleep(60)
+    run_bucket_reshard_cmd(BUCKET_NAME4, num_shards_expected)
+
+    #TESTCASE 'manual bucket resharding','inject error','fail','check bucket accessibility', 'retry reshard'
+    log.debug('TEST: reshard bucket with crash injection\n')
+
+    old_shard_count = get_bucket_stats(BUCKET_NAME4).num_shards
+    num_shards_expected = old_shard_count + 1
+    run_bucket_reshard_cmd(BUCKET_NAME4, num_shards_expected, abort_location = "before_update_bucket")
+    # check bucket shards num
+    bucket_stats4 = get_bucket_stats(BUCKET_NAME4)
+    cur_shard_count = bucket_stats4.num_shards
+    assert(cur_shard_count == old_shard_count)
+
+    #verify if bucket is accessible
+    log.info('List objects from bucket: {}'.format(BUCKET_NAME4))
+    for key in bucket4.objects.all():
+        log.info(key.key)
+
+    #verify if new objects can be added
+    num_objs = 5
+    for i in range(0, num_objs):
+        connection.Object(BUCKET_NAME4, ('key' + str(i))).put(Body=b"some_data")
+
+    #retry reshard after 60 sec
+    time.sleep(60)
+    run_bucket_reshard_cmd(BUCKET_NAME4, num_shards_expected)
+
+    #TESTCASE 'manual bucket resharding','inject error','fail','check bucket accessibility', 'retry reshard'
+    log.debug('TEST: reshard bucket with abort injection\n')
+
+    old_shard_count = get_bucket_stats(BUCKET_NAME4).num_shards
+    num_shards_expected = old_shard_count + 1
+    run_bucket_reshard_cmd(BUCKET_NAME4, num_shards_expected, abort_location = "after_set_target_layout")
+    # check bucket shards num
+    bucket_stats4 = get_bucket_stats(BUCKET_NAME4)
+    cur_shard_count = bucket_stats4.num_shards
+    assert(cur_shard_count == old_shard_count)
+
+    #verify if bucket is accessible
+    log.info('List objects from bucket: {}'.format(BUCKET_NAME4))
+    for key in bucket4.objects.all():
+        log.info(key.key)
+
+    #verify if new objects can be added
+    num_objs = 5
+    for i in range(0, num_objs):
+        connection.Object(BUCKET_NAME4, ('key' + str(i))).put(Body=b"some_data")
+
+    #retry reshard after 60 sec
+    time.sleep(60)
     run_bucket_reshard_cmd(BUCKET_NAME4, num_shards_expected)
 
     # TESTCASE 'versioning reshard-','bucket', reshard','versioning reshard','succeeds'
-    log.debug(' test: reshard versioned bucket')
+    log.debug(' test: reshard versioned bucket\n')
     num_shards_expected = get_bucket_stats(VER_BUCKET_NAME).num_shards + 1
     cmd = exec_cmd('radosgw-admin bucket reshard --bucket {} --num-shards {}'.format(VER_BUCKET_NAME,
                                                                                  num_shards_expected))
@@ -381,4 +532,4 @@ def main():
 
 
 main()
-log.info("Completed resharding tests")
+log.info("Completed resharding tests\n")

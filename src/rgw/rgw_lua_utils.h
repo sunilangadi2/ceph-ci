@@ -175,5 +175,10 @@ struct EmptyMetaTable {
 //
 void create_debug_action(lua_State* L, CephContext* cct);
 
+// set the packages search path according to:
+// package.path = "<install_dir>/share/lua/5.3/?.lua"                                                                         │                         LuaRocks.
+// package.cpath= "<install_dir>/lib/lua/5.3/?.so"
+void set_package_path(lua_State* L, const std::string& install_dir);
+
 }
 

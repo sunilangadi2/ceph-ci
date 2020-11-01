@@ -49,6 +49,9 @@
 #include "rgw_asio_frontend.h"
 #endif /* WITH_RADOSGW_BEAST_FRONTEND */
 #include "rgw_dmclock_scheduler_ctx.h"
+#ifdef WITH_RADOSGW_LUA_MODULES
+#include "rgw_lua.h"
+#endif
 
 #include "services/svc_zone.h"
 
@@ -403,6 +406,21 @@ int radosgw_Main(int argc, const char **argv)
     }
 #endif
   }
+
+#ifdef WITH_RADOSGW_LUA_MODULES
+  rgw::lua::modules_t failed_modules;
+  std::string output;
+  r = rgw::lua::install_modules(store, null_yield, failed_modules, output);
+  if (r < 0) {
+    dout(1) << "ERROR: failed to install lua modules from allowlist" << dendl;
+  }
+  if (!output.empty()) {
+    dout(10) << "INFO: lua modules installation output: \n" << output << dendl; 
+  }
+  for (const auto& module_name : failed_modules) {
+    dout(5) << "WARNING: failed to install lua module: " << module_name << " from allowlist" << dendl;
+  }
+#endif
 
   if (apis_map.count("swift") > 0) {
     RGWRESTMgr_SWIFT* const swift_resource = new RGWRESTMgr_SWIFT;

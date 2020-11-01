@@ -36,6 +36,7 @@
 %else
 %bcond_without cephfs_java
 %endif
+%bcond_without lua_modules
 %bcond_without amqp_endpoint
 %bcond_without kafka_endpoint
 %bcond_without lttng
@@ -185,6 +186,9 @@ BuildRequires:  librabbitmq-devel
 %endif
 %if 0%{with kafka_endpoint}
 BuildRequires:  librdkafka-devel
+%endif
+%if 0%{with lua_modules}
+BuildRequires:  luarocks
 %endif
 %if 0%{with make_check}
 BuildRequires:  jq
@@ -1194,6 +1198,11 @@ ${CMAKE} .. \
 %endif
 %if 0%{with zbd}
     -DWITH_ZBD=ON \
+%endif
+%if 0%{with lua_modules}
+    -DWITH_RADOSGW_LUA_MODULES=ON \
+%else
+    -DWITH_RADOSGW_LUA_MODULE=OFF \
 %endif
 %if 0%{with cmake_verbose_logging}
     -DCMAKE_VERBOSE_MAKEFILE=ON \

@@ -283,6 +283,9 @@ void usage()
   cout << "  script put                 upload a lua script to a context\n";
   cout << "  script get                 get the lua script of a context\n";
   cout << "  script rm                  remove the lua scripts of a context\n";
+  cout << "  script-module add          add a lua module to the scripts allowlist\n";
+  cout << "  script-module rm           remove a lua module from the scripts allowlist\n";
+  cout << "  script-module list         get the lua modules allowlist\n";
   cout << "options:\n";
   cout << "   --tenant=<tenant>         tenant name\n";
   cout << "   --user_ns=<namespace>     namespace of user (oidc in case of users authenticated with oidc provider)\n";
@@ -434,6 +437,8 @@ void usage()
   cout << "   --event-id                event id in a pubsub subscription\n";
   cout << "\nScript options:\n";
   cout << "   --context                 context in which the script runs. one of: preRequest, postRequest\n";
+  cout << "   --module                  name of the lua module that should be added to the allowlist\n";
+  cout << "   --allow-compilation       modules is allowed to compile C code as part of its installation\n";
   cout << "\n";
   generic_client_usage();
 }
@@ -768,6 +773,9 @@ enum class OPT {
   SCRIPT_PUT,
   SCRIPT_GET,
   SCRIPT_RM,
+  SCRIPT_MODULE_ADD,
+  SCRIPT_MODULE_RM,
+  SCRIPT_MODULE_LIST
 };
 
 }
@@ -984,6 +992,9 @@ static SimpleCmd::Commands all_cmds = {
   { "script put", OPT::SCRIPT_PUT },
   { "script get", OPT::SCRIPT_GET },
   { "script rm", OPT::SCRIPT_RM },
+  { "script-module add", OPT::SCRIPT_MODULE_ADD },
+  { "script-module rm", OPT::SCRIPT_MODULE_RM },
+  { "script-module list", OPT::SCRIPT_MODULE_LIST },
 };
 
 static SimpleCmd::Aliases cmd_aliases = {
@@ -3171,6 +3182,8 @@ int main(int argc, const char **argv)
   string event_id;
 
   std::optional<std::string> str_script_ctx;
+  std::optional<std::string> script_module;
+  int allow_compilation = false;
 
   std::optional<string> opt_group_id;
   std::optional<string> opt_status;
@@ -3632,6 +3645,10 @@ int main(int argc, const char **argv)
       // do nothing
     } else if (ceph_argparse_witharg(args, i, &val, "--context", (char*)NULL)) {
       str_script_ctx = val;
+    } else if (ceph_argparse_witharg(args, i, &val, "--module", (char*)NULL)) {
+      script_module = val;
+    } else if (ceph_argparse_binary_flag(args, i, &allow_compilation, NULL, "--allow-compilation", (char*)NULL)) {
+      // do nothing
     } else if (strncmp(*i, "-", 1) == 0) {
       cerr << "ERROR: invalid flag " << *i << std::endl;
       return EINVAL;
@@ -9300,7 +9317,7 @@ next:
     auto rc = read_input(infile, bl);
     if (rc < 0) {
       cerr << "ERROR: failed to read script: '" << infile << "'. error: " << rc << std::endl;
-      return rc;
+      return -rc;
     }
     const std::string script = bl.to_str();
     std::string err_msg;
@@ -9316,7 +9333,7 @@ next:
     rc = rgw::lua::write_script(store, tenant, null_yield, script_ctx, script);
     if (rc < 0) {
       cerr << "ERROR: failed to put script. error: " << rc << std::endl;
-      return rc;
+      return -rc;
     }
   }
 
@@ -9337,7 +9354,7 @@ next:
         (tenant.empty() ? "" : (" in tenant: " + tenant)) << std::endl;
     } else if (rc < 0) {
       cerr << "ERROR: failed to read script. error: " << rc << std::endl;
-      return rc;
+      return -rc;
     } else {
       std::cout << script << std::endl;
     }
@@ -9356,8 +9373,66 @@ next:
     const auto rc = rgw::lua::delete_script(store, tenant, null_yield, script_ctx);
     if (rc < 0) {
       cerr << "ERROR: failed to remove script. error: " << rc << std::endl;
-      return rc;
+      return -rc;
     }
+  }
+
+  if (opt_cmd == OPT::SCRIPT_MODULE_ADD) {
+#ifdef WITH_RADOSGW_LUA_MODULES
+    if (!script_module) {
+      cerr << "ERROR: lua module name was not provided (via --module)" << std::endl;
+      return EINVAL;
+    }
+    const auto rc = rgw::lua::add_module(store, null_yield, *script_module, bool(allow_compilation));
+    if (rc < 0) {
+      cerr << "ERROR: failed to add lua module: " << script_module << " .error: " << rc << std::endl;
+      return -rc;
+    }
+#else
+    cerr << "ERROR: adding lua modules in not permitted" << std::endl;
+    return EPERM;
+#endif
+  }
+
+  if (opt_cmd == OPT::SCRIPT_MODULE_RM) {
+#ifdef WITH_RADOSGW_LUA_MODULES
+    if (!script_module) {
+      cerr << "ERROR: lua module name was not provided (via --module)" << std::endl;
+      return EINVAL;
+    }
+    const auto rc = rgw::lua::remove_module(store, null_yield, *script_module);
+    if (rc == -ENOENT) {
+      cerr << "WARNING: module " << script_module << " did not exists or already removed" << std::endl;
+      return 0;
+    }
+    if (rc < 0) {
+      cerr << "ERROR: failed to remove lua module: " << script_module << " .error: " << rc << std::endl;
+      return -rc;
+    }
+#else
+    cerr << "ERROR: removing lua modules in not permitted" << std::endl;
+    return EPERM;
+#endif
+  }
+
+  if (opt_cmd == OPT::SCRIPT_MODULE_LIST) {
+#ifdef WITH_RADOSGW_LUA_MODULES
+    rgw::lua::modules_t modules;
+    const auto rc = rgw::lua::list_modules(store, null_yield, modules);
+    if (rc == -ENOENT) {
+      std::cout << "no lua modules in allowlist" << std::endl;
+    } else if (rc < 0) {
+      cerr << "ERROR: failed to read lua modules allowlist. error: " << rc << std::endl;
+      return rc;
+    } else {
+      std::for_each(modules.begin(), modules.end(), [](const auto& lua_module) {
+          std::cout << lua_module << std::endl;
+      });
+    }
+#else
+    cerr << "ERROR: listing lua modules in not permitted" << std::endl;
+    return EPERM;
+#endif
   }
 
   return 0;

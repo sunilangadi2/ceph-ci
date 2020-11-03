@@ -17,7 +17,7 @@ from mgr_module import MgrModule, HandleCommandResult, Option
 
 from ._interface import OrchestratorClientMixin, DeviceLightLoc, _cli_read_command, \
     raise_if_exception, _cli_write_command, TrivialReadCompletion, OrchestratorError, \
-    NoOrchestrator, OrchestratorValidationError, NFSServiceSpec, \
+    NoOrchestrator, OrchestratorValidationError, NFSServiceSpec, HA_RGWSpec, \
     RGWSpec, InventoryFilter, InventoryHost, HostSpec, CLICommandMeta, \
     ServiceDescription, DaemonDescription, IscsiServiceSpec, json_to_generic_spec, GenericSpec
 
@@ -1205,9 +1205,9 @@ Usage:
 
     @_cli_write_command(
         'orch apply ha_rgw',
-        'Create a High Availability service for existing RGW daemons')
+        desc='Create a High Availability service for existing RGW daemons')
     def _apply_ha_rgw(self,
-                       inbuf: Optional[str] = None) -> HandleCommandResult:
+                      inbuf: Optional[str] = None) -> HandleCommandResult:
 
         usage = """Usage:
   ceph orch apply ha_rgw -i <yaml spec>
@@ -1215,6 +1215,9 @@ Usage:
         if inbuf:
             s = yaml.safe_load(inbuf)
             spec = json_to_generic_spec(s)
+            # make it HA_RGWSpec to make type checker happy and prove
+            # correct spec was made
+            spec = cast(HA_RGWSpec, spec)
         else:
             raise OrchestratorValidationError(usage)
 

@@ -8557,8 +8557,13 @@ std::vector<Option> get_mds_options() {
      .set_default(2)
      .set_flag(Option::FLAG_RUNTIME)
      .set_description("interval in seconds for metrics data update.")
-     .set_long_description("interval in seconds after which active MDSs send client metrics data to rank 0.")
-  });
+     .set_long_description("interval in seconds after which active MDSs send client metrics data to rank 0."),
+
+    Option("mds_dispatch_throttle_log_interval", Option::TYPE_SECS, Option::LEVEL_ADVANCED)
+     .set_default(30)
+     .set_min(0)
+     .set_description("Interval in seconds for high verbosity debug log message when the dispatch throttle limit are hit")
+    });
 }
 
 std::vector<Option> get_mds_client_options() {

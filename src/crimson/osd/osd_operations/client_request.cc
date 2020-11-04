@@ -26,6 +26,11 @@ ClientRequest::ClientRequest(
   : osd(osd), conn(conn), m(m), ors(get_osd_priv(conn.get()).opSequencer)
 {}
 
+ClientRequest::~ClientRequest()
+{
+  logger().debug("{}: destroying", *this);
+}
+
 void ClientRequest::print(std::ostream &lhs) const
 {
   lhs << *m;
@@ -163,6 +168,7 @@ ClientRequest::process_op(
     logger().debug("{} to do ops", *this);
     op_info.set_from_op(&*m, *pg.get_osdmap());
     return pg.with_locked_obc(m, op_info, this, [this, &pg](auto obc) {
+      logger().debug("{}: got obc lock", *this);
       return with_blocking_future_interruptible<IOInterruptCondition>(
         handle.enter(pp(pg).process)
       ).then_interruptible([this, &pg, obc]()

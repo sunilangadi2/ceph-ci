@@ -256,7 +256,15 @@ public:
     return seastar::repeat(
       [this, func=std::forward<Func>(func), op]() mutable {
       return retry(op, std::forward<Func>(func));
-    }).then([this, op] {
+    }).handle_exception([op](std::exception_ptr&& ptr) {
+      try {
+	std::rethrow_exception(ptr);
+      } catch(std::exception& e) {
+	::crimson::get_logger(ceph_subsys_osd).debug("{} {}", *op, typeid(e).name());
+      }
+      assert(0);
+    }).finally([this, op] {
+      (*(op->pos))->second.set_value();
       ops.erase(*(op->pos));
     });
   }
@@ -265,6 +273,7 @@ private:
   seastar::future<seastar::stop_iteration> retry(OpRef& op, Func&& func) {
     op->new_retry();
     if (!op->pos) {
+      ::crimson::get_logger(ceph_subsys_osd).debug("{} retry={}", *op, op->get_retries());
       assert(!op->get_retries());
       auto [it, inserted] = ops.emplace(op, seastar::promise<>());
       assert(inserted);
@@ -272,37 +281,84 @@ private:
       op->pos = it;
       if (it == ops.begin()
 	  || (--it)->first->is_retry_started()) {
+	::crimson::get_logger(ceph_subsys_osd).debug("{} executing", *op);
 	op->retry_start();
-	return seastar::futurize_invoke(std::forward<Func>(func));
+	auto fut = seastar::futurize_invoke(std::forward<Func>(func)).then(
+	  [op](auto stop_it) {
+	  if (stop_it == seastar::stop_iteration::yes) {
+	    (*(op->pos))->second.set_value();
+	    (*(op->pos))->second = seastar::promise<>();
+	  }
+	  return stop_it;
+	});
+	(*(op->pos))->second.set_value();
+	(*(op->pos))->second = seastar::promise<>();
+	return fut;
       } else {
 	auto it2 = *(op->pos);
-	return (--it2)->second.get_future().then(
+	--it2;
+	::crimson::get_logger(ceph_subsys_osd).debug("{} delaying on {}", *op, *(it2->first));
+	return it2->second.get_future().then(
 	  [op, func=std::forward<Func>(func)]() mutable {
+	  ::crimson::get_logger(ceph_subsys_osd).debug("{} delayed executing", *op);
 	  op->retry_start();
-	  auto fut = seastar::futurize_invoke(std::forward<Func>(func));
+	  auto fut = seastar::futurize_invoke(std::forward<Func>(func)).then(
+	    [op](auto stop_it) {
+	    if (stop_it == seastar::stop_iteration::yes) {
+	      (*(op->pos))->second.set_value();
+	      (*(op->pos))->second = seastar::promise<>();
+	    }
+	    return stop_it;
+	  });
 	  (*(op->pos))->second.set_value();
+	  (*(op->pos))->second = seastar::promise<>();
 	  return fut;
 	});
       }
     } else {
+      ::crimson::get_logger(ceph_subsys_osd).debug("{} retry={}", *op, op->get_retries());
       assert(op->get_retries());
       auto it = *(op->pos);
       if (it == ops.begin()
 	  || ((--it)->first->is_retry_started()
 	    && it->first->get_retries()
 		>= op->get_retries())) {
-	// if this is an old retry and prev retry is new and already started,
-	// catch this retry
-	op->set_retry(std::prev(*(op->pos))->first->get_retries());
+	::crimson::get_logger(ceph_subsys_osd).debug("{} executing", *op);
+	if (it != ops.begin()) {
+	  // if this is an old retry and prev retry is new and already started,
+	  // catch this retry
+	  op->set_retry(std::prev(*(op->pos))->first->get_retries());
+	}
 	op->retry_start();
-	return seastar::futurize_invoke(std::forward<Func>(func));
+	auto fut = seastar::futurize_invoke(std::forward<Func>(func)).then(
+	  [op](auto stop_it) {
+	  if (stop_it == seastar::stop_iteration::yes) {
+	    (*(op->pos))->second.set_value();
+	    (*(op->pos))->second = seastar::promise<>();
+	  }
+	  return stop_it;
+	});
+	(*(op->pos))->second.set_value();
+	(*(op->pos))->second = seastar::promise<>();
+	return fut;
       } else {
 	auto it2 = *(op->pos);
-	return (--it2)->second.get_future().then(
+	--it2;
+	::crimson::get_logger(ceph_subsys_osd).debug("{} delaying on {}", *op, *(it2->first));
+	return it2->second.get_future().then(
 	  [op, func=std::forward<Func>(func)]() mutable {
+	  ::crimson::get_logger(ceph_subsys_osd).debug("{} delayed executing", *op);
 	  op->retry_start();
-	  auto fut = seastar::futurize_invoke(std::forward<Func>(func));
-	  std::next(*(op->pos))->second.set_value();
+	  auto fut = seastar::futurize_invoke(std::forward<Func>(func)).then(
+	    [op](auto stop_it) {
+	    if (stop_it == seastar::stop_iteration::yes) {
+	      (*(op->pos))->second.set_value();
+	      (*(op->pos))->second = seastar::promise<>();
+	    }
+	    return stop_it;
+	  });
+	  (*(op->pos))->second.set_value();
+	  (*(op->pos))->second = seastar::promise<>();
 	  return fut;
 	});
       }

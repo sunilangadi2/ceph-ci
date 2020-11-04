@@ -81,7 +81,8 @@ ReplicatedBackend::_submit_transaction(std::set<pg_shard_t>&& pg_shards,
         // TODO: set more stuff. e.g., pg_states
         return shard_services.send_to_osd(pg_shard.osd, std::move(m), map_epoch);
       }
-    }).then_interruptible([this, peers=pending_txn->second.weak_from_this()] {
+    }).then_interruptible(
+      [this, peers=pending_txn->second.weak_from_this()] {
       if (!peers) {
 	// for now, only actingset_changed can cause peers
 	// to be nullptr

@@ -52,6 +52,7 @@ public:
   static constexpr OperationTypeCode type = OperationTypeCode::client_request;
 
   ClientRequest(OSD &osd, crimson::net::ConnectionRef, Ref<MOSDOp> &&m);
+  ~ClientRequest();
 
   void print(std::ostream &) const final;
   void dump_detail(Formatter *f) const final;

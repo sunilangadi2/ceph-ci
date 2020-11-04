@@ -813,6 +813,18 @@ public:
   void set_require_authorizer(bool b) {
     require_authorizer = b;
   }
+  /**
+   * Notify each Dispatcher that the Throttle Limit has been hit. Call
+   * this function whenever the connections are getting throttled.
+   *
+   * @param ttype Throttle type
+   */
+  void ms_deliver_throttle(ms_throttle_t ttype) {
+    for (const auto &dispatcher : dispatchers) {
+      if (dispatcher->ms_handle_throttle(ttype))
+        return;
+    }
+  }
 
   /**
    * @} // Dispatcher Interfacing

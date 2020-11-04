@@ -855,6 +855,29 @@ bool MonClient::ms_handle_reset(Connection *con)
   }
 }
 
+bool MonClient::ms_handle_throttle(ms_throttle_t ttype) {
+  switch (ttype) {
+  case ms_throttle_t::MESSAGE:
+    break; // TODO
+  case ms_throttle_t::BYTES:
+    break; // TODO
+  case ms_throttle_t::DISPATCH_QUEUE:
+    {
+      //cluster log a warning that Dispatch Queue Throttle Limit hit
+      if (!log_client) {
+        return false; //cannot handle if the daemon didn't setup a log_client for me
+      }
+      LogChannelRef clog = log_client->create_channel(CLOG_CHANNEL_CLUSTER);
+      clog->warn() << "Throttler Limit has been hit. "
+                   << "Some message processing may be significantly delayed.";
+    }
+    break;
+  default:
+    return false;
+  }
+  return true;
+}
+
 bool MonClient::_opened() const
 {
   ceph_assert(ceph_mutex_is_locked(monc_lock));

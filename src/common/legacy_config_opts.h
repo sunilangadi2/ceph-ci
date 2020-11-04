@@ -118,6 +118,7 @@ OPTION(ms_die_on_old_message, OPT_BOOL)     // assert if we get a dup incoming m
 OPTION(ms_die_on_skipped_message, OPT_BOOL)  // assert if we skip a seq (kernel client does this intentionally)
 OPTION(ms_die_on_bug, OPT_BOOL)
 OPTION(ms_dispatch_throttle_bytes, OPT_U64)
+OPTION(ms_dispatch_throttle_log_interval, OPT_INT)
 OPTION(ms_bind_ipv6, OPT_BOOL)
 OPTION(ms_bind_port_min, OPT_INT)
 OPTION(ms_bind_port_max, OPT_INT)

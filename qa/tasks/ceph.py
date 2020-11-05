@@ -423,10 +423,19 @@ def cephfs_setup(ctx, config):
     # If there are any MDSs, then create a filesystem for them to use
     # Do this last because requires mon cluster to be up and running
     if mdss.remotes:
-        log.info('Setting up CephFS filesystem...')
+        log.info('Setting up CephFS filesystem(s)...')
+        cephfs_config = config.get('cephfs', {})
+        fs_configs =  cephfs_config.pop('fs', [{'name': 'cephfs'}])
+        set_allow_multifs = len(fs_configs) > 1
 
-        Filesystem(ctx, fs_config=config.get('cephfs', None), name='cephfs',
-                   create=True, ec_profile=config.get('cephfs_ec_profile', None))
+        for fs_config in fs_configs:
+            assert isinstance(fs_config, dict)
+            name = fs_config.pop('name')
+            teuthology.deep_merge(cephfs_config, fs_config)
+            fs = Filesystem(ctx, fs_config=cephfs_config, name=name, create=True)
+            if set_allow_multifs:
+                fs.set_allow_multifs()
+                set_allow_multifs = False
 
     yield
 

@@ -204,13 +204,8 @@ int D3nRGWDataCache<T>::flush_read_list(struct get_obj_data* d) {
       r = -ENOENT;
       break;
     }
-    if (bl.length() == 0x400000)
+    if (bl.length() <= 0x400000)
       data_cache.put(bl, bl.length(), oid);
-    r = d->client_cb->handle_data(bl, 0, bl.length());
-    if (r < 0) {
-      lsubdout(g_ceph_context, rgw, 0) << "ERROR: flush_read_list(): d->client_cb->handle_data() returned " << r << dendl;
-      break;
-    }
   }
 
   return r;

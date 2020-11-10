@@ -6556,10 +6556,14 @@ int RGWRados::Object::Read::iterate(int64_t ofs, int64_t end, RGWGetDataCB *cb,
   }
 
   r = data.drain();
+  if( cct->_conf->rgw_d3n_l1_local_datacache_enabled ) {
   r = store->flush_read_list(&data);
   if (r < 0)
     return r;
   return 0;
+  } else {
+    return r;
+  }
 }
 
 

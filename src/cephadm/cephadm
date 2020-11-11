@@ -3115,7 +3115,8 @@ def command_bootstrap():
     # ssh
     if not args.skip_ssh:
         cli(['config-key', 'set', 'mgr/cephadm/ssh_user', args.ssh_user])
-
+        
+        time.sleep(30)
         logger.info('Enabling cephadm module...')
         cli(['mgr', 'module', 'enable', 'cephadm'])
         wait_for_mgr_restart()

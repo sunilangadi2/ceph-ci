@@ -6,8 +6,7 @@ import { NgbNavModule } from '@ng-bootstrap/ng-bootstrap';
 import { configureTestBed } from '../../../../../testing/unit-test-helper';
 import { SharedModule } from '../../../../shared/shared.module';
 import { TablePerformanceCounterComponent } from '../../../performance-counter/table-performance-counter/table-performance-counter.component';
-import { DeviceListComponent } from '../../../shared/device-list/device-list.component';
-import { SmartListComponent } from '../../../shared/smart-list/smart-list.component';
+import { CephSharedModule } from '../../../shared/ceph-shared.module';
 import { OsdDetailsComponent } from './osd-details.component';
 
 describe('OsdDetailsComponent', () => {
@@ -15,13 +14,8 @@ describe('OsdDetailsComponent', () => {
   let fixture: ComponentFixture<OsdDetailsComponent>;
 
   configureTestBed({
-    imports: [HttpClientTestingModule, NgbNavModule, SharedModule],
-    declarations: [
-      OsdDetailsComponent,
-      DeviceListComponent,
-      SmartListComponent,
-      TablePerformanceCounterComponent
-    ]
+    imports: [HttpClientTestingModule, NgbNavModule, SharedModule, CephSharedModule],
+    declarations: [OsdDetailsComponent, TablePerformanceCounterComponent]
   });
 
   beforeEach(() => {

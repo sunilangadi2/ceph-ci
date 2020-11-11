@@ -6,6 +6,7 @@ import { BrowserAnimationsModule } from '@angular/platform-browser/animations';
 
 import { NgbNavModule } from '@ng-bootstrap/ng-bootstrap';
 import _ from 'lodash';
+import { NgxPipeFunctionModule } from 'ngx-pipe-function';
 import { of } from 'rxjs';
 
 import { configureTestBed } from '../../../../testing/unit-test-helper';
@@ -109,7 +110,13 @@ describe('OsdSmartListComponent', () => {
 
   configureTestBed({
     declarations: [SmartListComponent],
-    imports: [BrowserAnimationsModule, SharedModule, HttpClientTestingModule, NgbNavModule]
+    imports: [
+      BrowserAnimationsModule,
+      SharedModule,
+      HttpClientTestingModule,
+      NgbNavModule,
+      NgxPipeFunctionModule
+    ]
   });
 
   beforeEach(() => {

@@ -2974,6 +2974,7 @@ public:
   void inject_misreference(coll_t cid1, ghobject_t oid1,
 			   coll_t cid2, ghobject_t oid2,
 			   uint64_t offset);
+  void inject_zombie_spanning_blob(coll_t cid, ghobject_t oid, int16_t blob_id);
   // resets global per_pool_omap in DB
   void inject_legacy_omap();
   // resets per_pool_omap | pgmeta_omap for onode
@@ -3607,6 +3608,8 @@ public:
   bool fix_false_free(KeyValueDB *db,
 		      FreelistManager* fm,
 		      uint64_t offset, uint64_t len);
+  bool fix_onode(KeyValueDB* db,
+    std::function<void(KeyValueDB::Transaction)> fn);
 
   void init(uint64_t total_space, uint64_t lres_tracking_unit_size);
 
@@ -3645,6 +3648,7 @@ private:
   KeyValueDB::Transaction fix_shared_blob_txn;
 
   KeyValueDB::Transaction fix_misreferences_txn;
+  KeyValueDB::Transaction fix_onode_txn;
 
   StoreSpaceTracker space_usage_tracker;
 

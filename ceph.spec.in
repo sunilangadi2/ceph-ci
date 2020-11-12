@@ -973,6 +973,16 @@ file system without mounting it  by providing a nice pseudo-shell which
 works like an FTP client.
 %endif
 
+%if 0%{with cephfs_top}
+%package -n cephfs-top
+Summary:    top(1) like utility for Ceph Filesystem
+Requires:   python%{python3_pkgversion}-rados
+Requires:   python%{python3_pkgversion}-curses
+%description -n cephfs-top
+This package provides a top(1) like utility to display various
+filesystem metrics in realtime.
+%endif
+
 %if 0%{with ceph_test_package}
 %package -n ceph-test
 Summary:	Ceph benchmarks and test tools
@@ -2101,6 +2111,12 @@ fi
 %files -n cephfs-shell
 %{python3_sitelib}/cephfs_shell-*.egg-info
 %{_bindir}/cephfs-shell
+%endif
+
+%if 0%{with cephfs_top}
+%files -n cephfs-top
+%{python3_sitelib}/cephfs_top-*.egg-info
+%{_bindir}/cephfs-top
 %endif
 
 %if 0%{with ceph_test_package}

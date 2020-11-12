@@ -229,6 +229,7 @@ void handle_connection(boost::asio::io_context& context,
       RGWRestfulIO client(cct, &real_client_io);
       auto y = optional_yield{context, yield};
       int http_ret = 0;
+      string user = "-";
       const auto started = ceph::coarse_real_clock::now();
 
       auto time_t_started = ceph::coarse_real_clock::to_time_t(started);
@@ -236,13 +237,13 @@ void handle_connection(boost::asio::io_context& context,
 
       process_request(env.store, env.rest, &req, env.uri_prefix,
                       *env.auth_registry, &client, env.olog, y,
-                      scheduler, &http_ret);
+                      scheduler, &user, &http_ret);
 
       if (cct->_conf->subsys.should_gather(dout_subsys, 1)) {
         // access log line elements begin per Apache Combined Log Format with additions following
         using ceph::operator<<; // for coarse_real_time
         ldout(cct, 1) << "beast: " << hex << &req << dec << ": "
-            << remote_endpoint.address() << " - - [" << put_time(local_tm, "%d/%b/%Y:%T.")
+            << remote_endpoint.address() << " - " << user << " [" << put_time(local_tm, "%d/%b/%Y:%T.")
             << setfill('0') << setw(3) << std::chrono::duration_cast<std::chrono::milliseconds>(started.time_since_epoch()).count() % 1000
             << put_time(local_tm, " %z") << "] \""
             << message.method_string() << ' ' << message.target() << ' '

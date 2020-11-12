@@ -32,7 +32,6 @@ function run() {
     for func in $funcs ; do
         setup $dir || return 1
         $func $dir || return 1
-        kill_daemons $dir KILL || return 1
         teardown $dir || return 1
     done
 }
@@ -60,7 +59,7 @@ function TEST_check_version_health_1() {
 
     kill_daemons $dir KILL osd.1
     EXTRA_OPTS=" --debug_version_for_testing=01.00.00-gversion-test" activate_osd $dir 1
-    sleep 5
+    sleep 10
 
     ceph health detail
     # Should notice that osd.1 is a different version
@@ -73,7 +72,7 @@ function TEST_check_version_health_1() {
     EXTRA_OPTS=" --debug_version_for_testing=01.00.00-gversion-test" activate_osd $dir 2
     kill_daemons $dir KILL osd.0
     EXTRA_OPTS=" --debug_version_for_testing=02.00.00-gversion-test" activate_osd $dir 0
-    sleep 5
+    sleep 10
 
     ceph health detail
     ceph health | grep -q "HEALTH_ERR .*There are daemons running multiple old versions of ceph" || return 1
@@ -128,7 +127,7 @@ function TEST_check_version_health_2() {
     EXTRA_OPTS=" --debug_version_for_testing=01.00.00-gversion-test" activate_osd $dir 2
     kill_daemons $dir KILL osd.0
     EXTRA_OPTS=" --debug_version_for_testing=02.00.00-gversion-test" activate_osd $dir 0
-    sleep 5
+    sleep 10
 
     ceph health detail
     ceph health | grep -q "HEALTH_ERR .*There are daemons running multiple old versions of ceph" || return 1
@@ -161,7 +160,6 @@ function TEST_check_version_health_3() {
 
     kill_daemons $dir KILL osd.1
     EXTRA_OPTS=" --debug_version_for_testing=01.00.00-gversion-test" activate_osd $dir 1
-    sleep 5 # give kill time
 
     # Wait 50% of 20 second delay config
     sleep 10
@@ -169,7 +167,7 @@ function TEST_check_version_health_3() {
     ceph health detail | grep DAEMON_OLD_VERSION && return 1
 
     # Now make sure that at least 20 seconds have passed
-    sleep 10
+    sleep 20
 
     ceph health detail
     # Should notice that osd.1 is a different version
@@ -182,7 +180,7 @@ function TEST_check_version_health_3() {
     EXTRA_OPTS=" --debug_version_for_testing=01.00.00-gversion-test" activate_osd $dir 2
     kill_daemons $dir KILL osd.0
     EXTRA_OPTS=" --debug_version_for_testing=02.00.00-gversion-test" activate_osd $dir 0
-    sleep 5
+    sleep 10
 
     ceph health detail
     ceph health | grep -q "HEALTH_ERR .*There are daemons running multiple old versions of ceph" || return 1

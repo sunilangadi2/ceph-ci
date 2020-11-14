@@ -2242,6 +2242,12 @@ std::vector<Option> get_global_options() {
     .add_service("mon")
     .set_description("issue DAEMON_OLD_VERSION health warning after this amount of time has elapsed"),
 
+    Option("mon_use_min_delay_socket", Option::TYPE_BOOL, Option::LEVEL_ADVANCED)
+    .set_default(false)
+    .set_description("priority packets between mons")
+    .add_service("mon")
+    .add_see_also("osd_heartbeat_use_min_delay_socket"),
+
     // PAXOS
 
     Option("paxos_stash_full_interval", Option::TYPE_INT, Option::LEVEL_ADVANCED)

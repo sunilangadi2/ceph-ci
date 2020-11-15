@@ -34,23 +34,23 @@ int read_script(rgw::sal::RGWRadosStore* store, const std::string& tenant, optio
 // delete the stored lua script from a context
 int delete_script(rgw::sal::RGWRadosStore* store, const std::string& tenant, optional_yield y, context ctx);
 
-#ifdef WITH_RADOSGW_LUA_MODULES
+#ifdef WITH_RADOSGW_LUA_PACKAGES
 #include <set>
 
-using modules_t = std::set<std::string>;
+using packages_t = std::set<std::string>;
 
-// add a lua module to the allowlist
-int add_module(rgw::sal::RGWRadosStore* store, optional_yield y, const std::string& module_name, bool allow_compilation);
+// add a lua package to the allowlist
+int add_package(rgw::sal::RGWRadosStore* store, optional_yield y, const std::string& package_name, bool allow_compilation);
 
-// remove a lua module from the allowlist
-int remove_module(rgw::sal::RGWRadosStore* store, optional_yield y, const std::string& module_name);
+// remove a lua package from the allowlist
+int remove_package(rgw::sal::RGWRadosStore* store, optional_yield y, const std::string& package_name);
 
-// list lua modules in the allowlist
-int list_modules(rgw::sal::RGWRadosStore* store, optional_yield y, modules_t& modules);
+// list lua packages in the allowlist
+int list_packages(rgw::sal::RGWRadosStore* store, optional_yield y, packages_t& packages);
 
-// install all modules from the allowlist
-// return the list of modules that failed to install and the output of the install command
-int install_modules(rgw::sal::RGWRadosStore* store, optional_yield y, modules_t& failed_modules, std::string& output);
+// install all packages from the allowlist
+// return the list of packages that failed to install and the output of the install command
+int install_packages(rgw::sal::RGWRadosStore* store, optional_yield y, packages_t& failed_packages, std::string& output);
 #endif
 }
 

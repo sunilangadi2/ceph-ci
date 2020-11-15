@@ -270,7 +270,7 @@ endif()
 
 list(APPEND rgw_libs ${LUA_LIBRARIES})
 
-if(WITH_RADOSGW_LUA_MODULES)
+if(WITH_RADOSGW_LUA_PACKAGES)
   list(APPEND rgw_libs Boost::filesystem)
 endif()
 

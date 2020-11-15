@@ -10,12 +10,11 @@ This feature allows users to upload Lua scripts to different context in the rado
 operation was taken, and "postRequest" that will execute after each operation is taken. Script may be uploaded to address requests for users of a specific tenant.
 The script can access fields in the request and modify some fields. All Lua language features can be used in the script.
 
-By default, all lua standard libraries are available in the script, however, in order to allow for other lua modules to be used in the script, the module has to be first added to the modules'
-allowlist:
+By default, all lua standard libraries are available in the script, however, in order to allow for other lua modules to be used in the script, we support adding packages to an allowlist:
 
-  - All modules in the allowlist are being re-installed using the luarocks package manager on radosgw restart. Therefore a restart is needed for the adding or removing of modules to take effect 
-  - To add a module that contains C source code that needs to be compiled, use the `--allow-compilation` flag. In this case a C compiler needs to be available on the host
-  - Lua modules are installed in, and used from, a directory local to the radosgw. Meaning that lua modules in the allowlist are separated from lua modules available on the host
+  - All packages in the allowlist are being re-installed using the luarocks package manager on radosgw restart. Therefore a restart is needed for adding or removing of packages to take effect 
+  - To add a package that contains C source code that needs to be compiled, use the `--allow-compilation` flag. In this case a C compiler needs to be available on the host
+  - Lua packages are installed in, and used from, a directory local to the radosgw. Meaning that lua packages in the allowlist are separated from any lua packages available on the host
 	
 
 .. toctree::
@@ -46,28 +45,28 @@ To remove the script:
    # radosgw-admin script rm --context={preRequest|postRequest} [--tenant={tenant-name}]
 
 
-Module Management via CLI
--------------------------
+Package Management via CLI
+--------------------------
 
-To add a module to the allowlist:
-
-::
-
-  # radosgw-admin script-module add --module={module name} [--allow-compilation]
-
-
-To remove a module from the allowlist:
+To add a package to the allowlist:
 
 ::
 
-  # radosgw-admin script-module rm --module={module name}
+  # radosgw-admin script-package add --package={package name} [--allow-compilation]
 
 
-To print the list of modules in the allowlist:
+To remove a package from the allowlist:
 
 ::
 
-  # radosgw-admin script-module list
+  # radosgw-admin script-package rm --package={package name}
+
+
+To print the list of packages in the allowlist:
+
+::
+
+  # radosgw-admin script-package list
 
 
 Context Free Functions
@@ -356,14 +355,14 @@ In the `postRequest` context we look at the metadata:
     RGWDebugLog("key=" .. k .. ", " .. "value=" .. v)
   end
  
-- Use modules to create unix socket based, json encoded, "access log":
+- Use modules to create Unix socket based, JSON encoded, "access log":
 
-First we should add the following modules to the allowlist:
+First we should add the following packages to the allowlist:
 
 ::
 
-  # radosgw-admin script-module add --module=luajson
-  # radosgw-admin script-module add --module=luasocket --allow-compilation
+  # radosgw-admin script-package add --package=luajson
+  # radosgw-admin script-package add --package=luasocket --allow-compilation
 
 
 Then, do a restart for the radosgw and upload the following script to the `postRequest` context:

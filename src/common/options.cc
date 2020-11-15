@@ -7224,8 +7224,13 @@ std::vector<Option> get_rgw_options() {
 	"still around."),
    
    Option("rgw_luarocks_location", Option::TYPE_STR, Option::LEVEL_ADVANCED)
+#ifdef WITH_RADOSGW_LUA_PACKAGES
     .set_default("/tmp/luarocks")
-    .set_description("Directory where luarocks install modules from allowlist"),
+#else
+    // if set to empty string, system default luarocks package location (if exist) will be used
+    .set_default("")
+#endif
+    .set_description("Directory where luarocks install packages from allowlist"),
   });
 }
 

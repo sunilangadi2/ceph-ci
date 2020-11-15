@@ -13,7 +13,7 @@ if(WITH_RADOSGW_KAFKA_ENDPOINT)
   add_library(kafka_stub STATIC ${kafka_stub_src})
 endif()
 
-if(WITH_RADOSGW_LUA_MODULES)
+if(WITH_RADOSGW_LUA_PACKAGES)
   list(APPEND rgw_libs Boost::filesystem)
 endif()
 

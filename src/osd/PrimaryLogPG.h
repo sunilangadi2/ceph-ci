@@ -1,4 +1,4 @@
-// -*- mode:C++; tab-width:8; c-basic-offset:2; indent-tabs-mode:t -*- 
+// -*- mode:C++; tab-width:8; c-basic-offset:2; indent-tabs-mode:t -*-
 /*
  * Ceph - scalable distributed file system
  *
@@ -9,9 +9,9 @@
  *
  * This is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
- * License version 2.1, as published by the Free Software 
+ * License version 2.1, as published by the Free Software
  * Foundation.  See file COPYING.
- * 
+ *
  */
 
 #ifndef CEPH_REPLICATEDPG_H
@@ -158,7 +158,7 @@ public:
     uint64_t start_offset = 0;
     uint64_t last_offset = 0;
     std::vector<OSDOp> chunk_ops;
-  
+
     CopyOp(CopyCallback *cb_, ObjectContextRef _obc, hobject_t s,
 	   object_locator_t l,
            version_t v,
@@ -245,8 +245,8 @@ public:
     bool removal;               ///< we are removing the backend object
     std::optional<std::function<void()>> on_flush; ///< callback, may be null
     // for chunked object
-    std::map<uint64_t, int> io_results; 
-    std::map<uint64_t, ceph_tid_t> io_tids; 
+    std::map<uint64_t, int> io_results;
+    std::map<uint64_t, ceph_tid_t> io_tids;
     uint64_t chunks;
 
     FlushOp()
@@ -328,7 +328,7 @@ public:
     GenContext<ThreadPool::TPHandle&> *c) override;
   GenContext<ThreadPool::TPHandle&> *bless_unlocked_gencontext(
     GenContext<ThreadPool::TPHandle&> *c) override;
-    
+
   void send_message(int to_osd, Message *m) override {
     osd->send_message_osd_cluster(to_osd, m, get_osdmap_epoch());
   }
@@ -371,7 +371,7 @@ public:
   const std::map<pg_shard_t, pg_info_t> &get_shard_info() const override {
     return recovery_state.get_peer_info();
   }
-  using PGBackend::Listener::get_shard_info;  
+  using PGBackend::Listener::get_shard_info;
   const pg_missing_tracker_t &get_local_missing() const override {
     return recovery_state.get_pg_log().get_missing();
   }
@@ -496,7 +496,7 @@ public:
   bool pg_is_undersized() const override {
     return is_undersized();
   }
-  
+
   bool pg_is_repair() const override {
     return is_repair();
   }
@@ -790,9 +790,9 @@ public:
 
     bool rep_aborted;
     bool all_committed;
-    
+
     utime_t   start;
-    
+
     eversion_t          pg_local_last_complete;
 
     ObcLockManager lock_manager;
@@ -800,7 +800,7 @@ public:
     std::list<std::function<void()>> on_committed;
     std::list<std::function<void()>> on_success;
     std::list<std::function<void()>> on_finish;
-    
+
     RepGather(
       OpContext *c, ceph_tid_t rt,
       eversion_t lc) :
@@ -808,7 +808,7 @@ public:
       op(c->op),
       queue_item(this),
       nref(1),
-      rep_tid(rt), 
+      rep_tid(rt),
       rep_aborted(false),
       all_committed(false),
       pg_local_last_complete(lc),
@@ -910,7 +910,7 @@ protected:
    * Releases locks
    *
    * @param manager [in] manager with locks to release
-   * 
+   *
    * (moved to .cc due to scrubber access)
    */
   void release_object_locks(ObcLockManager &lock_manager);
@@ -1263,7 +1263,7 @@ protected:
   int prepare_transaction(OpContext *ctx);
   std::list<std::pair<OpRequestRef, OpContext*> > in_progress_async_reads;
   void complete_read_ctx(int result, OpContext *ctx);
-  
+
   // pg on-disk content
   void check_local() override;
 
@@ -1449,7 +1449,7 @@ protected:
     INCREMENT_REF,
     DECREMENT_REF,
   };
-  void do_proxy_chunked_op(OpRequestRef op, const hobject_t& missing_oid, 
+  void do_proxy_chunked_op(OpRequestRef op, const hobject_t& missing_oid,
 			   ObjectContextRef obc, bool write_ordered);
   void do_proxy_chunked_read(OpRequestRef op, ObjectContextRef obc, int op_index,
 			     uint64_t chunk_index, uint64_t req_offset, uint64_t req_length,
@@ -1466,7 +1466,7 @@ protected:
   void dec_refcount(const hobject_t& soid, const object_ref_delta_t& refs);
   void dec_refcount_by_dirty(OpContext* ctx);
   ObjectContextRef get_prev_clone_obc(ObjectContextRef obc);
-  void get_adjacent_clones(const object_info_t& oi, OpContext* ctx, 
+  void get_adjacent_clones(const object_info_t& oi, OpContext* ctx,
 			   ObjectContextRef& _l, ObjectContextRef& _g);
   bool inc_refcount_by_set(OpContext* ctx, object_manifest_t& tgt,
 			   OSDOp& osd_op);
@@ -1954,7 +1954,7 @@ inline ostream& operator<<(ostream& out, const PrimaryLogPG::RepGather& repop)
 {
   out << "repgather(" << &repop
       << " " << repop.v
-      << " rep_tid=" << repop.rep_tid 
+      << " rep_tid=" << repop.rep_tid
       << " committed?=" << repop.all_committed
       << " r=" << repop.r
       << ")";

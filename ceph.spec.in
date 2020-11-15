@@ -81,15 +81,17 @@
 %endif
 %endif
 
-%if 0%{?suse_version} && !0%{?is_opensuse}
+%if 0%{?suse_version}
+%if !0%{?is_opensuse}
 # SLE does not support luarocks
-%bcond_with lua_modules
-%elif 0%{?suse_version} && 0%{?is_opensuse}
-%global luarocks_package lua53-luarocks
-%bcond_without lua_modules
+%bcond_with lua_packages
 %else
-%global luarocks_package luarocks
-%bcond_without lua_modules
+%global luarocks_package_name lua53-luarocks
+%bcond_without lua_packages
+%endif
+%else
+%global luarocks_package_name luarocks
+%bcond_without lua_packages
 %endif
 
 %{!?_udevrulesdir: %global _udevrulesdir /lib/udev/rules.d}
@@ -197,8 +199,8 @@ BuildRequires:  librabbitmq-devel
 %if 0%{with kafka_endpoint}
 BuildRequires:  librdkafka-devel
 %endif
-%if 0%{with lua_modules}
-BuildRequires:  %{luarocks_package}
+%if 0%{with lua_packages}
+BuildRequires:  %{luarocks_package_name}
 %endif
 %if 0%{with make_check}
 BuildRequires:  jq
@@ -1206,8 +1208,8 @@ ${CMAKE} .. \
 %else
     -DWITH_RADOSGW_KAFKA_ENDPOINT=OFF \
 %endif
-%if 0%{without lua_modules}
-    -DWITH_RADOSGW_LUA_MODULES=OFF
+%if 0%{without lua_packages}
+    -DWITH_RADOSGW_LUA_PACKAGES=OFF
 %endif
 %if 0%{with zbd}
     -DWITH_ZBD=ON \

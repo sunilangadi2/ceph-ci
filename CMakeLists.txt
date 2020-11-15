@@ -371,7 +371,7 @@ option(WITH_RADOSGW_BEAST_FRONTEND "Rados Gateway's Beast frontend is enabled" O
 option(WITH_RADOSGW_BEAST_OPENSSL "Rados Gateway's Beast frontend uses OpenSSL" ON)
 option(WITH_RADOSGW_AMQP_ENDPOINT "Rados Gateway's pubsub support for AMQP push endpoint" ON)
 option(WITH_RADOSGW_KAFKA_ENDPOINT "Rados Gateway's pubsub support for Kafka push endpoint" ON)
-option(WITH_RADOSGW_LUA_MODULES "Rados Gateway's support for dynamically adding lua modules" ON)
+option(WITH_RADOSGW_LUA_PACKAGES "Rados Gateway's support for dynamically adding lua packagess" ON)
 
 if(WITH_RADOSGW)
   find_package(EXPAT REQUIRED)
@@ -571,7 +571,7 @@ if(WITH_SEASTAR)
   list(APPEND BOOST_COMPONENTS filesystem timer)
 endif()
 
-if(WITH_RADOSGW AND WITH_RADOSGW_LUA_MODULES)
+if(WITH_RADOSGW AND WITH_RADOSGW_LUA_PACKAGES)
   list(APPEND BOOST_COMPONENTS filesystem)
 endif()
 

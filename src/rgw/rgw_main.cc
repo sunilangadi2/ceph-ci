@@ -49,7 +49,7 @@
 #include "rgw_asio_frontend.h"
 #endif /* WITH_RADOSGW_BEAST_FRONTEND */
 #include "rgw_dmclock_scheduler_ctx.h"
-#ifdef WITH_RADOSGW_LUA_MODULES
+#ifdef WITH_RADOSGW_LUA_PACKAGES
 #include "rgw_lua.h"
 #endif
 
@@ -407,18 +407,18 @@ int radosgw_Main(int argc, const char **argv)
 #endif
   }
 
-#ifdef WITH_RADOSGW_LUA_MODULES
-  rgw::lua::modules_t failed_modules;
+#ifdef WITH_RADOSGW_LUA_PACKAGES
+  rgw::lua::packages_t failed_packages;
   std::string output;
-  r = rgw::lua::install_modules(store, null_yield, failed_modules, output);
+  r = rgw::lua::install_packages(store, null_yield, failed_packages, output);
   if (r < 0) {
-    dout(1) << "ERROR: failed to install lua modules from allowlist" << dendl;
+    dout(1) << "ERROR: failed to install lua packages from allowlist" << dendl;
   }
   if (!output.empty()) {
-    dout(10) << "INFO: lua modules installation output: \n" << output << dendl; 
+    dout(10) << "INFO: lua packages installation output: \n" << output << dendl; 
   }
-  for (const auto& module_name : failed_modules) {
-    dout(5) << "WARNING: failed to install lua module: " << module_name << " from allowlist" << dendl;
+  for (const auto& p : failed_packages) {
+    dout(5) << "WARNING: failed to install lua package: " << p << " from allowlist" << dendl;
   }
 #endif
 

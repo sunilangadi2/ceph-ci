@@ -5,7 +5,7 @@
 #include "rgw_lua_utils.h"
 #include "rgw_sal_rados.h"
 #include "rgw_lua.h"
-#ifdef WITH_RADOSGW_LUA_MODULES
+#ifdef WITH_RADOSGW_LUA_PACKAGES
 #include <boost/process.hpp>
 #include <boost/filesystem.hpp>
 #include "rgw_lua_version.h"
@@ -144,30 +144,30 @@ int delete_script(rgw::sal::RGWRadosStore* store, const std::string& tenant, opt
   return 0;
 }
 
-#ifdef WITH_RADOSGW_LUA_MODULES
+#ifdef WITH_RADOSGW_LUA_PACKAGES
 
-const std::string MODULE_LIST_OBJECT_NAME = "lua_modules_allowlist";
+const std::string PACKAGE_LIST_OBJECT_NAME = "lua_package_allowlist";
 
 namespace bp = boost::process;
 
-int add_module(rgw::sal::RGWRadosStore* store, optional_yield y, const std::string& module_name, bool allow_compilation) {
-  // verify that luarocks can load this module
+int add_package(rgw::sal::RGWRadosStore* store, optional_yield y, const std::string& package_name, bool allow_compilation) {
+  // verify that luarocks can load this oackage
   const auto p = bp::search_path("luarocks");
   if (p.empty()) {
     return -ECHILD;
   }
   bp::ipstream is;
-  const auto cmd = p.string() + " search --porcelain" + (allow_compilation ? " " : " --binary ") + module_name;
+  const auto cmd = p.string() + " search --porcelain" + (allow_compilation ? " " : " --binary ") + package_name;
   bp::child c(cmd,
       bp::std_in.close(),
       bp::std_err > bp::null,
       bp::std_out > is);
 
   std::string line;
-  bool module_found = false;
+  bool package_found = false;
   // TODO: yield on reading the output
   while (c.running() && std::getline(is, line) && !line.empty()) {
-    module_found = true;
+    package_found = true;
   }
   c.wait();
   auto ret = c.exit_code();
@@ -175,17 +175,17 @@ int add_module(rgw::sal::RGWRadosStore* store, optional_yield y, const std::stri
     return -ret;
   }
 
-  if (!module_found) {
+  if (!package_found) {
     return -EINVAL;
   }
   
-  // add module to list
+  // add package to list
   const bufferlist empty_bl;
-  std::map<std::string, bufferlist> new_module{{module_name, empty_bl}};
+  std::map<std::string, bufferlist> new_package{{package_name, empty_bl}};
   librados::ObjectWriteOperation op;
-  op.omap_set(new_module);
+  op.omap_set(new_package);
   ret = rgw_rados_operate(*(store->getRados()->get_lc_pool_ctx()), 
-      MODULE_LIST_OBJECT_NAME, &op, y);
+      PACKAGE_LIST_OBJECT_NAME, &op, y);
 
   if (ret < 0) {
     return ret;
@@ -193,11 +193,11 @@ int add_module(rgw::sal::RGWRadosStore* store, optional_yield y, const std::stri
   return 0;
 }
 
-int remove_module(rgw::sal::RGWRadosStore* store, optional_yield y, const std::string& module_name) {
+int remove_package(rgw::sal::RGWRadosStore* store, optional_yield y, const std::string& package_name) {
   librados::ObjectWriteOperation op;
-  op.omap_rm_keys(std::set<std::string>({module_name}));
+  op.omap_rm_keys(std::set<std::string>({package_name}));
   const auto ret = rgw_rados_operate(*(store->getRados()->get_lc_pool_ctx()), 
-    MODULE_LIST_OBJECT_NAME, &op, y);
+    PACKAGE_LIST_OBJECT_NAME, &op, y);
 
   if (ret < 0) {
     return ret;
@@ -206,29 +206,29 @@ int remove_module(rgw::sal::RGWRadosStore* store, optional_yield y, const std::s
   return 0;
 }
 
-int list_modules(rgw::sal::RGWRadosStore* store, optional_yield y, modules_t& modules) {
+int list_packages(rgw::sal::RGWRadosStore* store, optional_yield y, packages_t& packages) {
   constexpr auto max_chunk = 1024U;
   std::string start_after;
   bool more = true;
   int rval;
   while (more) {
     librados::ObjectReadOperation op;
-    modules_t modules_chunk;
-    op.omap_get_keys2(start_after, max_chunk, &modules_chunk, &more, &rval);
+    packages_t packages_chunk;
+    op.omap_get_keys2(start_after, max_chunk, &packages_chunk, &more, &rval);
     const auto ret = rgw_rados_operate(*(store->getRados()->get_lc_pool_ctx()),
-      MODULE_LIST_OBJECT_NAME, &op, nullptr, y);
+      PACKAGE_LIST_OBJECT_NAME, &op, nullptr, y);
   
     if (ret < 0) {
       return ret;
     }
 
-    modules.merge(modules_chunk);
+    packages.merge(packages_chunk);
   }
  
   return 0;
 }
 
-int install_modules(rgw::sal::RGWRadosStore* store, optional_yield y, modules_t& failed_modules, std::string& output) {
+int install_packages(rgw::sal::RGWRadosStore* store, optional_yield y, packages_t& failed_packages, std::string& output) {
   // luarocks directory cleanup
   const auto& luarocks_location = g_conf().get_val<std::string>("rgw_luarocks_location");
   boost::system::error_code ec;
@@ -240,8 +240,8 @@ int install_modules(rgw::sal::RGWRadosStore* store, optional_yield y, modules_t&
     return ec.value();
   }
 
-  modules_t modules;
-  auto ret = list_modules(store, y, modules);
+  packages_t packages;
+  auto ret = list_packages(store, y, packages);
   if (ret == -ENOENT) {
     // allowlist is empty 
     return 0;
@@ -256,15 +256,15 @@ int install_modules(rgw::sal::RGWRadosStore* store, optional_yield y, modules_t&
   }
 
   // the lua rocks install dir will be created by luarocks the first time it is called
-  std::for_each(modules.begin(), modules.end(), [&luarocks_location, &p, &failed_modules, &output](const std::string& module_name) {
+  for (const auto& package : packages) {
     bp::ipstream is;
-    bp::child c(p, "install", "--lua-version", CEPH_LUA_VERSION, "--tree", luarocks_location, "--deps-mode", "one", module_name, 
+    bp::child c(p, "install", "--lua-version", CEPH_LUA_VERSION, "--tree", luarocks_location, "--deps-mode", "one", package, 
         bp::std_in.close(),
         (bp::std_err & bp::std_out) > is);
 
     // TODO: yield until wait returns
     std::string line = "CMD: luarocks install --lua-version " + std::string(CEPH_LUA_VERSION) + std::string(" --tree ") + 
-      luarocks_location + " --deps-mode one " + module_name;
+      luarocks_location + " --deps-mode one " + package;
 
     do {
       if (!line.empty()) {
@@ -275,9 +275,9 @@ int install_modules(rgw::sal::RGWRadosStore* store, optional_yield y, modules_t&
 
     c.wait();
     if (c.exit_code()) {
-      failed_modules.insert(module_name);
+      failed_packages.insert(package);
     }
-  });
+  }
 
   return 0;
 }

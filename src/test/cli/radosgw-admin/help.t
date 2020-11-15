@@ -176,9 +176,9 @@
     script put                 upload a lua script to a context
     script get                 get the lua script of a context
     script rm                  remove the lua scripts of a context
-    script-module add          add a lua module to the scripts allowlist
-    script-module rm           remove a lua module from the scripts allowlist
-    script-module list         get the lua modules allowlist
+    script-package add         add a lua package to the scripts allowlist
+    script-package rm          remove a lua package from the scripts allowlist
+    script-package list        get the lua packages allowlist
   options:
      --tenant=<tenant>         tenant name
      --user_ns=<namespace>     namespace of user (oidc in case of users authenticated with oidc provider)
@@ -337,8 +337,8 @@
   
   Script options:
      --context                 context in which the script runs. one of: preRequest, postRequest
-     --module                  name of the lua module that should be added/removed to/from the allowlist
-     --allow-compilation       modules is allowed to compile C code as part of its installation
+     --package                 name of the lua package that should be added/removed to/from the allowlist
+     --allow-compilation       package is allowed to compile C code as part of its installation
   
     --conf/-c FILE    read configuration from the given configuration file
     --id ID           set ID portion of my name

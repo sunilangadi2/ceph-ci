@@ -5887,6 +5887,14 @@ def command_gather_facts():
 
 ##################################
 
+def command_verify_prereqs():
+    if args.service_type == 'haproxy' or args.service_type == 'keepalived':
+        out, err, code = call(['sysctl', '-n', 'net.ipv4.ip_nonlocal_bind'])
+        if out.strip() != "1":
+            raise Error('net.ipv4.ip_nonlocal_bind not set to 1')
+
+##################################
+
 
 class CephadmCache:
     task_types = ['disks', 'daemons', 'host', 'http_server']
@@ -7108,6 +7116,15 @@ def _get_parser():
         default=get_hostname().split('.')[0],
         help='daemon identifer for the exporter')
     parser_exporter.set_defaults(func=command_exporter)
+
+    parser_verify_prereqs = subparsers.add_parser(
+        'verify-prereqs',
+        help='verify system prerequisites for a given service are met on this host')
+    parser_verify_prereqs.set_defaults(func=command_verify_prereqs)
+    parser_verify_prereqs.add_argument(
+        '--service-type',
+        required=True,
+        help='service type of service to whose prereqs will be checked')
 
     return parser
 

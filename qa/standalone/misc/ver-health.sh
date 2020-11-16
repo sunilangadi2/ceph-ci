@@ -36,6 +36,33 @@ function run() {
     done
 }
 
+function wait_for_health_string() {
+    local grep_string=$1
+    local seconds=${2:-10}
+
+    # Allow mon to notice version difference
+    set -o pipefail
+    PASSED="false"
+    for ((i=0; i < $seconds; i++)); do
+      if ceph health | grep -q "$grep_string"
+      then
+	PASSED="true"
+        break
+      fi
+      sleep 1
+    done
+    set +o pipefail
+
+    # Make sure health changed
+    if [ $PASSED = "false" ];
+    then
+      return 1
+    fi
+    return 0
+}
+
+
+
 # Test a single OSD with an old version and multiple OSDs with 2 different old versions
 function TEST_check_version_health_1() {
     local dir=$1
@@ -59,12 +86,12 @@ function TEST_check_version_health_1() {
 
     kill_daemons $dir KILL osd.1
     EXTRA_OPTS=" --debug_version_for_testing=01.00.00-gversion-test" activate_osd $dir 1
-    sleep 10
+
+    wait_for_health_string "HEALTH_WARN .*There is a daemon running an older version of ceph" || return 1
 
     ceph health detail
     # Should notice that osd.1 is a different version
-    ceph health | grep -q "HEALTH_WARN .*There is a daemon running an older version of ceph" || return 1
-    ceph health detail | grep -q "HEALTH_WARN .*There is a daemon running an older version of ceph" || return 1
+    #ceph health detail | grep -q "HEALTH_WARN .*There is a daemon running an older version of ceph" || return 1
     ceph health detail | grep -q "^[[]WRN[]] DAEMON_OLD_VERSION: There is a daemon running an older version of ceph" || return 1
     ceph health detail | grep -q "osd.1 is running an older version of ceph: 01.00.00-gversion-test" || return 1
 
@@ -72,10 +99,11 @@ function TEST_check_version_health_1() {
     EXTRA_OPTS=" --debug_version_for_testing=01.00.00-gversion-test" activate_osd $dir 2
     kill_daemons $dir KILL osd.0
     EXTRA_OPTS=" --debug_version_for_testing=02.00.00-gversion-test" activate_osd $dir 0
-    sleep 10
+
+    wait_for_health_string "HEALTH_ERR .*There are daemons running multiple old versions of ceph" || return 1
 
     ceph health detail
-    ceph health | grep -q "HEALTH_ERR .*There are daemons running multiple old versions of ceph" || return 1
+    #ceph health | grep -q "HEALTH_ERR .*There are daemons running multiple old versions of ceph" || return 1
     ceph health detail | grep -q "HEALTH_ERR .*There are daemons running multiple old versions of ceph" || return 1
     ceph health detail | grep -q "^[[]ERR[]] DAEMON_OLD_VERSION: There are daemons running multiple old versions of ceph" || return 1
     ceph health detail | grep -q "osd.1 osd.2 are running an older version of ceph: 01.00.00-gversion-test" || return 1
@@ -114,11 +142,12 @@ function TEST_check_version_health_2() {
     #EXTRA_OPTS=" --debug_version_for_testing=02.00.00-gversion-test" run_mgr $dir x
     kill_daemons $dir KILL mds.m
     EXTRA_OPTS=" --debug_version_for_testing=01.00.00-gversion-test" run_mds $dir m
-    sleep 10
+
+    wait_for_health_string "HEALTH_WARN .*There are daemons running an older version of ceph" || return 1
 
     ceph health detail
     # Should notice that mon.b and mds.m is a different version
-    ceph health | grep -q "HEALTH_WARN .*There are daemons running an older version of ceph" || return 1
+    #ceph health | grep -q "HEALTH_WARN .*There are daemons running an older version of ceph" || return 1
     ceph health detail | grep -q "HEALTH_WARN .*There are daemons running an older version of ceph" || return 1
     ceph health detail | grep -q "^[[]WRN[]] DAEMON_OLD_VERSION: There are daemons running an older version of ceph" || return 1
     ceph health detail | grep -q "mon.b mds.m are running an older version of ceph: 01.00.00-gversion-test" || return 1
@@ -127,7 +156,8 @@ function TEST_check_version_health_2() {
     EXTRA_OPTS=" --debug_version_for_testing=01.00.00-gversion-test" activate_osd $dir 2
     kill_daemons $dir KILL osd.0
     EXTRA_OPTS=" --debug_version_for_testing=02.00.00-gversion-test" activate_osd $dir 0
-    sleep 10
+
+    wait_for_health_string "HEALTH_ERR .*There are daemons running multiple old versions of ceph" || return 1
 
     ceph health detail
     ceph health | grep -q "HEALTH_ERR .*There are daemons running multiple old versions of ceph" || return 1
@@ -167,11 +197,11 @@ function TEST_check_version_health_3() {
     ceph health detail | grep DAEMON_OLD_VERSION && return 1
 
     # Now make sure that at least 20 seconds have passed
-    sleep 20
+    wait_for_health_string "HEALTH_WARN .*There is a daemon running an older version of ceph" 20 || return 1
 
     ceph health detail
     # Should notice that osd.1 is a different version
-    ceph health | grep -q "HEALTH_WARN .*There is a daemon running an older version of ceph" || return 1
+    #ceph health | grep -q "HEALTH_WARN .*There is a daemon running an older version of ceph" || return 1
     ceph health detail | grep -q "HEALTH_WARN .*There is a daemon running an older version of ceph" || return 1
     ceph health detail | grep -q "^[[]WRN[]] DAEMON_OLD_VERSION: There is a daemon running an older version of ceph" || return 1
     ceph health detail | grep -q "osd.1 is running an older version of ceph: 01.00.00-gversion-test" || return 1
@@ -180,10 +210,11 @@ function TEST_check_version_health_3() {
     EXTRA_OPTS=" --debug_version_for_testing=01.00.00-gversion-test" activate_osd $dir 2
     kill_daemons $dir KILL osd.0
     EXTRA_OPTS=" --debug_version_for_testing=02.00.00-gversion-test" activate_osd $dir 0
-    sleep 10
+
+    wait_for_health_string "HEALTH_ERR .*There are daemons running multiple old versions of ceph" || return 1
 
     ceph health detail
-    ceph health | grep -q "HEALTH_ERR .*There are daemons running multiple old versions of ceph" || return 1
+    #ceph health | grep -q "HEALTH_ERR .*There are daemons running multiple old versions of ceph" || return 1
     ceph health detail | grep -q "HEALTH_ERR .*There are daemons running multiple old versions of ceph" || return 1
     ceph health detail | grep -q "^[[]ERR[]] DAEMON_OLD_VERSION: There are daemons running multiple old versions of ceph" || return 1
     ceph health detail | grep -q "osd.1 osd.2 are running an older version of ceph: 01.00.00-gversion-test" || return 1

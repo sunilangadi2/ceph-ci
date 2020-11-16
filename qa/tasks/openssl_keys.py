@@ -111,8 +111,18 @@ class OpenSSLKeys(Task):
         cert.key = '{}/{}.key'.format(self.cadir, cert.name)
         cert.certificate = '{}/{}.crt'.format(self.cadir, cert.name)
 
+        san_ext=[]
+        add_san_default = False
+        cn = config.get('cn', '')
+        if cn == '':
+            cn = cert.remote.hostname
+            add_san_default = True
+        if config.get('add-san', add_san_default):
+            ext='{}/{}.ext'.format(self.cadir, cert.name)
+            san_ext = ['-extfile', ext]
+
         # provide the common name in -subj to avoid the openssl command prompts
-        subject = '/CN={}'.format(config.get('cn', cert.remote.hostname))
+        subject = '/CN={}'.format(cn)
 
         # if a ca certificate is provided, use it to sign the new certificate
         ca = config.get('ca', None)
@@ -123,22 +133,31 @@ class OpenSSLKeys(Task):
                 raise ConfigError('ssl: ca {} not found for certificate {}'
                         .format(ca, cert.name))
 
+            csr = '{}/{}.csr'.format(self.cadir, cert.name)
+            srl = '{}/{}.srl'.format(self.cadir, ca_cert.name)
+            remove_files=['rm', csr, srl]
+
             # these commands are run on the ca certificate's client because
             # they need access to its private key and cert
 
             # generate a private key and signing request
-            csr = '{}/{}.csr'.format(self.cadir, cert.name)
             ca_cert.remote.run(args=['openssl', 'req', '-nodes',
                 '-newkey', cert.key_type, '-keyout', cert.key,
                 '-out', csr, '-subj', subject])
 
+            if san_ext:
+                remove_files.append(ext)
+                ca_cert.remote.write_file(path=ext,
+                    data='subjectAltName = DNS:{},IP:{}'.format(
+                        cn,
+                        config.get('ip', cert.remote.ip_address)))
+
             # create the signed certificate
             ca_cert.remote.run(args=['openssl', 'x509', '-req', '-in', csr,
                 '-CA', ca_cert.certificate, '-CAkey', ca_cert.key, '-CAcreateserial',
-                '-out', cert.certificate, '-days', '365', '-sha256'])
+                '-out', cert.certificate, '-days', '365', '-sha256'] + san_ext)
 
-            srl = '{}/{}.srl'.format(self.cadir, ca_cert.name)
-            ca_cert.remote.run(args=['rm', csr, srl]) # clean up the signing request and serial
+            ca_cert.remote.run(args=remove_files) # clean up the signing request and serial
 
             # verify the new certificate against its ca cert
             ca_cert.remote.run(args=['openssl', 'verify',

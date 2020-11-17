@@ -924,7 +924,8 @@ class CephadmOrchestrator(orchestrator.Orchestrator, MgrModule,
         try:
             j = json.loads(data)
         except ValueError:
-            self.log.exception('unable to laod extra_ceph_conf')
+            msg = 'Unable to load extra_ceph_conf: Cannot decode JSON'
+            self.log.exception('%s: \'%s\'', msg, data)
             return CephadmOrchestrator.ExtraCephConf('', None)
         return CephadmOrchestrator.ExtraCephConf(j['conf'], str_to_datetime(j['last_modified']))
 
@@ -2117,9 +2118,9 @@ To check that the host is reachable:
             )
             self.log.debug(f'image {image_name} -> {r}')
             return r
-        except (ValueError, KeyError) as _:
-            msg = 'Failed to pull %s on %s: %s' % (image_name, host, '\n'.join(out))
-            self.log.exception(msg)
+        except (ValueError, KeyError) as e:
+            msg = 'Failed to pull %s on %s: Cannot decode JSON' % (image_name, host)
+            self.log.exception('%s: \'%s\'' % (msg, '\n'.join(out)))
             raise OrchestratorError(msg)
 
     @trivial_completion

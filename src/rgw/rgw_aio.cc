@@ -41,13 +41,13 @@ struct cache_state {
 
   cache_state(Aio* aio, AioResult& r)
     : aio(aio) {}
-  
-  int submit_op(D3nL1CacheRequest* cc) {
+
+  int submit_libaio_op(D3nL1CacheRequest* cc) {
     int ret = 0;
-    if((ret = ::aio_read(cc->paiocb)) != 0) { 
+    if((ret = ::aio_read(cc->paiocb)) != 0) {
       return ret;
     }
-    return ret;    
+    return ret;
   }
 };
 
@@ -70,10 +70,7 @@ void cache_aio_cb(sigval_t sigval) {
     return;
   } else if (status == 0) {
     c->finish();
-    c->r->result = 0;
-    c->aio->put(*(c->r));
   }
-
 }
 
 template <typename Op>
@@ -132,11 +129,19 @@ Aio::OpFunc cache_aio_abstract(Op&& op, off_t obj_ofs, off_t read_ofs, off_t rea
     auto& ref = r.obj.get_ref();
     auto cs = new(&r.user_data) cache_state(aio, r);
     cs->c = new D3nL1CacheRequest();
-    cs->c->prepare_op(ref.obj.oid, &r.data, read_len, obj_ofs, read_ofs, location, cache_aio_cb, aio, &r);
-    int ret = cs->submit_op(cs->c);
-    if(ret < 0) {
-      r.result = -1;
-      cs->aio->put(r);
+    if (g_conf()->rgw_d3n_l1_libaio_read) {
+      cs->c->prepare_libaio_op(ref.obj.oid, &r.data, read_len, obj_ofs, read_ofs, location, cache_aio_cb, aio, &r);
+      int ret = cs->submit_libaio_op(cs->c);
+      if(ret < 0) {
+        r.result = -1;
+        cs->aio->put(r);
+      }
+    } else {
+      int ret = cs->c->execute_io_op(ref.obj.oid, &r.data, read_len, obj_ofs, read_ofs, location, cache_aio_cb, aio, &r);
+      if(ret < 0) {
+        r.result = -1;
+        cs->aio->put(r);
+      }
     }
   };
 }
@@ -155,15 +160,13 @@ Aio::OpFunc aio_abstract(Op&& op, optional_yield y) {
 }
 
 template <typename Op>
-Aio::OpFunc cache_aio_abstract(Op&& op, optional_yield y, off_t obj_ofs, 
+Aio::OpFunc cache_aio_abstract(Op&& op, optional_yield y, off_t obj_ofs,
                                off_t read_ofs, off_t read_len, std::string& location) {
   static_assert(std::is_base_of_v<librados::ObjectOperation, std::decay_t<Op>>);
   static_assert(!std::is_lvalue_reference_v<Op>);
   static_assert(!std::is_const_v<Op>);
 
-  #ifdef HAVE_BOOST_CONTEXT
   return cache_aio_abstract(std::forward<Op>(op), obj_ofs, read_ofs, read_len, location);
-  #endif
 }
 
 } // anonymous namespace

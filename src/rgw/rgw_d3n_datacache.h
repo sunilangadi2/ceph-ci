@@ -260,13 +260,10 @@ int D3nRGWDataCache<T>::get_obj_iterate_cb(const rgw_raw_obj& read_obj, off_t ob
       lsubdout(g_ceph_context, rgw, 4) << "failed to open rados context for " << read_obj << dendl;
       return r;
     }
-    std::string d3n_cache_location = T::cct->_conf->rgw_d3n_l1_datacache_persistent_path;
-    if(d3n_cache_location.back() != '/')
-    {
-       d3n_cache_location += "/";
-    }
-    auto completed = d->aio->get(obj, rgw::Aio::cache_op(std::move(op), d->yield, obj_ofs, read_ofs, len, d3n_cache_location), cost, id);
-    return d->flush(std::move(completed));
+
+    auto completed = d->aio->get(obj, rgw::Aio::cache_op(std::move(op), d->yield, obj_ofs, read_ofs, len, g_conf()->rgw_d3n_l1_datacache_persistent_path), cost, id);
+    r = d->flush(std::move(completed));
+    return r;
   } else {
     lsubdout(g_ceph_context, rgw, 20) << "rados->get_obj_iterate_cb oid=" << read_obj.oid << " obj-ofs=" << obj_ofs << " read_ofs=" << read_ofs << " len=" << len << dendl;
     auto obj = d->store->svc.rados->obj(read_obj);

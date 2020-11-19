@@ -289,6 +289,7 @@ int RGWRESTSimpleRequest::forward_request(RGWAccessKey& key, req_info& info, siz
     request_uri_encode = string("/") + bucket_encode;
   new_info.request_uri = request_uri_encode;
   new_env.set("HTTP_DATE", date_str.c_str());
+  new_env.set("HTTP_CONTENT_MD5", info.env->get("HTTP_CONTENT_MD5"));
 
   int ret = sign_request(cct, key, new_env, new_info);
   if (ret < 0) {

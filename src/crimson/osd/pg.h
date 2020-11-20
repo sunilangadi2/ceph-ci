@@ -36,8 +36,8 @@
 #include "crimson/osd/pg_recovery_listener.h"
 #include "crimson/osd/recovery_backend.h"
 
-class OSDMap;
 class MQuery;
+class OSDMap;
 class PGBackend;
 class PGPeeringEvent;
 class osd_op_params_t;
@@ -56,6 +56,7 @@ namespace crimson::os {
 
 namespace crimson::osd {
 class ClientRequest;
+class OpsExecuter;
 
 class PG : public boost::intrusive_ref_counter<
   PG,
@@ -521,6 +522,10 @@ public:
     Operation *op,
     const hobject_t &oid,
     RWState::State type);
+
+  interruptible_load_obc_ertr::future<>
+  reload_obc(crimson::osd::ObjectContext& obc) const;
+
 public:
   template <typename F>
   auto with_locked_obc(
@@ -555,6 +560,7 @@ private:
   interruptible_future<Ref<MOSDOpReply>> handle_failed_op(
     const std::error_code& e,
     ObjectContextRef obc,
+    const OpsExecuter& ox,
     const MOSDOp& m) const;
   interruptible_future<Ref<MOSDOpReply>> do_osd_ops(
     Ref<MOSDOp> m,

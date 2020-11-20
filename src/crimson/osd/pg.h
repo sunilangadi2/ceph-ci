@@ -552,6 +552,10 @@ private:
   void do_peering_event(
     const boost::statechart::event_base &evt,
     PeeringCtx &rctx);
+  interruptible_future<Ref<MOSDOpReply>> handle_failed_op(
+    const std::error_code& e,
+    ObjectContextRef obc,
+    const MOSDOp& m) const;
   interruptible_future<Ref<MOSDOpReply>> do_osd_ops(
     Ref<MOSDOp> m,
     ObjectContextRef obc,

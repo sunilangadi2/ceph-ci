@@ -16,6 +16,9 @@
   become: yes
   tasks:
 
+    - name: sleep infinity
+      command: sleep infinity
+
     - name: destroy osd.2
       command: "ceph --cluster {{ cluster }} osd destroy osd.2 --yes-i-really-mean-it"
 

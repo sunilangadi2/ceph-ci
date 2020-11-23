@@ -1230,6 +1230,8 @@ class DaemonDescription(object):
         # The type of service (osd, mon, mgr, etc.)
         self.daemon_type = daemon_type
 
+        assert daemon_type not in ['HA_RGW', 'ha-rgw']
+
         # The orchestrator will have picked some names for daemons,
         # typically either based on hostnames or on pod names.
         # This is the <foo> in mds.<foo>, the ID that will appear

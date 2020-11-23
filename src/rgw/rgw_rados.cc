@@ -3470,18 +3470,20 @@ public:
     const uint64_t lofs = data_len;
     data_len += size;
 
-    bufferlist bl_temp;
-    bl_temp.append(bl);
-    client_cb->handle_data(bl_temp, 0, size);
-    chunk_buffer.append(bl);
+    if (client_cb) {
+      // d3n cache client cb
+      bufferlist bl_temp;
+      bl_temp.append(bl);
+      client_cb->handle_data(bl_temp, 0, size);
+      chunk_buffer.append(bl);
 
-    if (chunk_buffer.length() >= chunk_size) {
-      bufferlist tmp;
-      chunk_buffer.splice(0, chunk_size, &tmp);
-      
-      chunk_id += 1;
+      if (chunk_buffer.length() >= chunk_size) {
+        bufferlist tmp;
+        chunk_buffer.splice(0, chunk_size, &tmp);
+
+        chunk_id += 1;
+      }
     }
-
     return filter->process(std::move(bl), lofs);
   }
 

@@ -161,14 +161,14 @@ template <class T>
 class D3nRGWDataCache : public T
 {
 
-  D3nDataCache data_cache;
+  D3nDataCache d3n_data_cache;
 
 public:
   D3nRGWDataCache() {}
 
   int init_rados() override {
     int ret;
-    data_cache.init(T::cct);
+    d3n_data_cache.init(T::cct);
     ret = T::init_rados();
     if (ret < 0)
       return ret;
@@ -205,7 +205,7 @@ int D3nRGWDataCache<T>::flush_read_list(struct get_obj_data* d) {
       break;
     }
     if (bl.length() <= 0x400000)
-      data_cache.put(bl, bl.length(), oid);
+      d3n_data_cache.put(bl, bl.length(), oid);
   }
 
   return r;
@@ -253,7 +253,7 @@ int D3nRGWDataCache<T>::get_obj_iterate_cb(const rgw_raw_obj& read_obj, off_t ob
 
   d->d3n_add_pending_oid(oid);
 
-  if (data_cache.get(read_obj.oid)) {
+  if (d3n_data_cache.get(read_obj.oid)) {
     auto obj = d->store->svc.rados->obj(read_obj);
     r = obj.open();
     if (r < 0) {

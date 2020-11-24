@@ -931,3 +931,26 @@ def DeletePermission(func):
 def UpdatePermission(func):
     _set_func_permissions(func, Permission.UPDATE)
     return func
+
+
+# Empty request body decorator
+
+def allow_empty_body(func):  # noqa: N802
+    """
+    The POST/PUT request methods decorated with ``@allow_empty_body``
+    are allowed to send empty request body.
+    """
+    try:
+        func._cp_config['tools.json_in.force'] = False
+    except (AttributeError, KeyError):
+        func._cp_config = {'tools.json_in.force': False}
+    return func
+
+
+def set_cookies(url_prefix, token):
+    cherrypy.response.cookie['token'] = token
+    if url_prefix == 'https':
+        cherrypy.response.cookie['token']['secure'] = True
+    cherrypy.response.cookie['token']['HttpOnly'] = True
+    cherrypy.response.cookie['token']['path'] = '/'
+    cherrypy.response.cookie['token']['SameSite'] = 'Strict'

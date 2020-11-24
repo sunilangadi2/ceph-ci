@@ -14,7 +14,7 @@ from rbd import RBD
 from collections import namedtuple
 try:
     from typing import Optional, Dict, Any, Set
-except:
+except ImportError:
     pass
 
 # Defaults for the Prometheus HTTP server.  Can also set in config-key
@@ -1151,26 +1151,8 @@ class Module(MgrModule):
                 if service['type'] != 'mgr':
                     continue
                 id_ = service['id']
-                # get port for prometheus module at mgr with id_
-                # TODO use get_config_prefix or get_config here once
-                # https://github.com/ceph/ceph/pull/20458 is merged
-                result = CommandResult("")
-                assert isinstance(_global_instance, Module)
-                _global_instance.send_command(
-                    result, "mon", '',
-                    json.dumps({
-                        "prefix": "config-key get",
-                        'key': "config/mgr/mgr/prometheus/{}/server_port".format(id_),
-                    }),
-                    "")
-                r, outb, outs = result.wait()
-                if r != 0:
-                    _global_instance.log.error("Failed to retrieve port for mgr {}: {}".format(id_, outs))
-                    targets.append('{}:{}'.format(hostname, DEFAULT_PORT))
-                else:
-                    port = json.loads(outb)
-                    targets.append('{}:{}'.format(hostname, port))
-
+                port = self._get_module_option('server_port', DEFAULT_PORT, id_)
+                targets.append(f'{hostname}:{port}')
         ret = [
             {
                 "targets": targets,

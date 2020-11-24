@@ -105,6 +105,13 @@ uint64_t ZonedAllocator::get_free() {
   return num_free;
 }
 
+bool ZonedAllocator::zoned_needs_cleaning() {
+  std::lock_guard l(lock);
+  // Trigger cleaning if less than 25% is free.
+  // TODO: Make this a tunable.
+  return static_cast<double>(num_free) / size < 0.25;
+}
+
 void ZonedAllocator::dump() {
   std::lock_guard l(lock);
 }
@@ -118,7 +125,7 @@ void ZonedAllocator::dump(std::function<void(uint64_t offset,
 // set_zone_states, as it updates the write pointer for each zone.
 void ZonedAllocator::init_add_free(uint64_t offset, uint64_t length) {
   std::lock_guard l(lock);
-  ldout(cct, 10) << __func__ << " " << std::hex
+  ldout(cct, 40) << __func__ << " " << std::hex
 		 << offset << "~" << length << dendl;
 
   num_free += length;
@@ -126,7 +133,7 @@ void ZonedAllocator::init_add_free(uint64_t offset, uint64_t length) {
 
 void ZonedAllocator::init_rm_free(uint64_t offset, uint64_t length) {
   std::lock_guard l(lock);
-  ldout(cct, 10) << __func__ << " 0x" << std::hex
+  ldout(cct, 40) << __func__ << " 0x" << std::hex
 		 << offset << "~" << length << dendl;
 
   num_free -= length;
@@ -140,7 +147,7 @@ void ZonedAllocator::init_rm_free(uint64_t offset, uint64_t length) {
   ceph_assert(remaining_space <= length);
   advance_write_pointer(zone_num, remaining_space);
 
-  ldout(cct, 10) << __func__ << " set zone 0x" << std::hex
+  ldout(cct, 40) << __func__ << " set zone 0x" << std::hex
 		 << zone_num << " write pointer to 0x" << zone_size << dendl;
 
   length -= remaining_space;
@@ -148,12 +155,18 @@ void ZonedAllocator::init_rm_free(uint64_t offset, uint64_t length) {
 
   for ( ; length; length -= zone_size) {
     advance_write_pointer(++zone_num, zone_size);
-    ldout(cct, 10) << __func__ << " set zone 0x" << std::hex
+    ldout(cct, 40) << __func__ << " set zone 0x" << std::hex
 		   << zone_num << " write pointer to 0x" << zone_size << dendl;
   }
 }
 
-void ZonedAllocator::set_zone_states(std::vector<zone_state_t> &&_zone_states) {
+std::deque<uint64_t> ZonedAllocator::zoned_get_zones_to_clean() {
+  std::lock_guard l(lock);
+  // TODO: return the list of zones to clean.
+  return {};
+}
+
+void ZonedAllocator::zoned_set_zone_states(std::vector<zone_state_t> &&_zone_states) {
   std::lock_guard l(lock);
   ldout(cct, 10) << __func__ << dendl;
   zone_states = std::move(_zone_states);

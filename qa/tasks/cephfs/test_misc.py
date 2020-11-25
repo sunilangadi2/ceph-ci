@@ -198,6 +198,16 @@ class TestMisc(CephFSTestCase):
         info = self.fs.mds_asok(['dump', 'inode', hex(ino)])
         assert info['path'] == "/foo"
 
+    def test_dispatch_queue_throttle(self):
+        dispatch_throttle_log_interval = int(self.config_get('mds', 'mds_dispatch_throttle_log_interval'))
+        self.config_set('mds', 'mds_dispatch_throttle_log_interval', 10)
+
+        # Create files & split across 10 directories, 1000 each.
+        with self.assert_cluster_log("Throttler Limit has been hit. Some message processing may be significantly delayed.",
+                                     invert_match=True, watch_channel="cluster"):
+            for i in range(0, 10):
+                self.mount_a.create_n_files("dir{0}/file".format(i), 1000, sync=False)
+        self.config_set('mds', 'mds_dispatch_throttle_log_interval', dispatch_throttle_log_interval)
 
 class TestCacheDrop(CephFSTestCase):
     CLIENTS_REQUIRED = 1

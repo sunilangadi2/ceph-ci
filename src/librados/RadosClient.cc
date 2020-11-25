@@ -852,7 +852,7 @@ int librados::RadosClient::mgr_command(const vector<string>& cmd,
     return r;
 
   lock.unlock();
-  if (rados_mon_op_timeout.count() > 0) {
+  if (rados_mon_op_timeout > 0) {
     r = cond.wait_for(rados_mon_op_timeout);
   } else {
     r = cond.wait();
@@ -876,7 +876,7 @@ int librados::RadosClient::mgr_command(
     return r;
 
   lock.unlock();
-  if (rados_mon_op_timeout.count() > 0) {
+  if (rados_mon_op_timeout > 0) {
     r = cond.wait_for(rados_mon_op_timeout);
   } else {
     r = cond.wait();

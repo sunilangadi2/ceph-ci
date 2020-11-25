@@ -569,7 +569,7 @@ private:
       : tid(t), onfinish(std::move(onfinish)) {
       auto timeout =
           monc.cct->_conf.get_val<std::chrono::seconds>("rados_mon_op_timeout");
-      if (timeout.count() > 0) {
+      if (timeout > 0) {
 	cancel_timer.emplace(monc.service, timeout);
 	cancel_timer->async_wait(
           [this, &monc](boost::system::error_code ec) {

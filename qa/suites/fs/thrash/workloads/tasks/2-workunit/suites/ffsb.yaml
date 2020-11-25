@@ -3,6 +3,7 @@ overrides:
     log-ignorelist:
     - SLOW_OPS
     - slow request
+    - Throttler Limit has been hit. Some message processing may be significantly delayed.
     conf:
       osd:
         filestore flush min: 0

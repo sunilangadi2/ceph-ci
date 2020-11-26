@@ -84,13 +84,13 @@ class CephadmServe:
             self._serve_sleep()
         self.log.debug("serve exit")
 
-    def _serve_sleep(self):
+    def _serve_sleep(self) -> None:
         sleep_interval = 600
         self.log.debug('Sleeping for %d seconds', sleep_interval)
         ret = self.mgr.event.wait(sleep_interval)
         self.mgr.event.clear()
 
-    def _update_paused_health(self):
+    def _update_paused_health(self) -> None:
         if self.mgr.paused:
             self.mgr.health_checks['CEPHADM_PAUSED'] = {
                 'severity': 'warning',
@@ -109,7 +109,7 @@ class CephadmServe:
         failures = []
 
         @forall_hosts
-        def refresh(host):
+        def refresh(host: str) -> None:
             if self.mgr.cache.host_needs_check(host):
                 r = self._check_host(host)
                 if r is not None:
@@ -173,9 +173,9 @@ class CephadmServe:
         if health_changed:
             self.mgr.set_health_checks(self.mgr.health_checks)
 
-    def _check_host(self, host):
+    def _check_host(self, host: str) -> Optional[str]:
         if host not in self.mgr.inventory:
-            return
+            return None
         self.log.debug(' checking %s' % host)
         try:
             out, err, code = self.mgr._run_cephadm(
@@ -192,8 +192,9 @@ class CephadmServe:
         except Exception as e:
             self.log.debug(' host %s failed check' % host)
             return 'host %s failed check: %s' % (host, e)
+        return None
 
-    def _refresh_host_daemons(self, host) -> Optional[str]:
+    def _refresh_host_daemons(self, host: str) -> Optional[str]:
         try:
             out, err, code = self.mgr._run_cephadm(
                 host, 'mon', 'ls', [], no_fsid=True)
@@ -250,7 +251,7 @@ class CephadmServe:
         self.mgr.cache.save_host(host)
         return None
 
-    def _refresh_host_devices(self, host) -> Optional[str]:
+    def _refresh_host_devices(self, host: str) -> Optional[str]:
         try:
             out, err, code = self.mgr._run_cephadm(
                 host, 'osd',
@@ -290,13 +291,13 @@ class CephadmServe:
         self.mgr.cache.save_host(host)
         return None
 
-    def _refresh_host_osdspec_previews(self, host) -> bool:
+    def _refresh_host_osdspec_previews(self, host: str) -> Optional[str]:
         self.update_osdspec_previews(host)
         self.mgr.cache.save_host(host)
         self.log.debug(f'Refreshed OSDSpec previews for host <{host}>')
-        return True
+        return None
 
-    def update_osdspec_previews(self, search_host: str = ''):
+    def update_osdspec_previews(self, search_host: str = '') -> None:
         # Set global 'pending' flag for host
         self.mgr.cache.loading_osdspec_preview.add(search_host)
         previews = []
@@ -405,7 +406,7 @@ class CephadmServe:
 
         return r
 
-    def _config_fn(self, service_type) -> Optional[Callable[[ServiceSpec], None]]:
+    def _config_fn(self, service_type: str) -> Optional[Callable[[ServiceSpec], None]]:
         fn = {
             'mds': self.mgr.mds_service.config,
             'rgw': self.mgr.rgw_service.config,
@@ -627,7 +628,7 @@ class CephadmServe:
                 self.mgr.requires_post_actions.remove(daemon_type)
                 self.mgr._get_cephadm_service(daemon_type).daemon_check_post(daemon_descs)
 
-    def convert_tags_to_repo_digest(self):
+    def convert_tags_to_repo_digest(self) -> None:
         if not self.mgr.use_repo_digest:
             return
         settings = self.mgr.upgrade.get_distinct_container_image_settings()

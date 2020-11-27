@@ -1393,6 +1393,11 @@ void Paxos::peon_init()
 
 void Paxos::restart()
 {
+  if (is_shutdown()) {
+    dout(10) << __func__ << " aborting restart as we are shutting down" << dendl;
+    return;
+  }
+
   dout(10) << "restart -- canceling timeouts" << dendl;
   cancel_events();
   new_value.clear();

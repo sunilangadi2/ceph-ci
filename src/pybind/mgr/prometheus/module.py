@@ -1,4 +1,5 @@
 import cherrypy
+from collections import defaultdict
 from distutils.version import StrictVersion
 import json
 import errno
@@ -623,8 +624,7 @@ class Module(MgrModule):
         pg_summary = self.get('pg_summary')
 
         for pool in pg_summary['by_pool']:
-            num_by_state = dict((state, 0) for state in PG_STATES)
-            num_by_state['total'] = 0
+            num_by_state = defaultdict(int)
 
             for state_name, count in pg_summary['by_pool'][pool].items():
                 for state in state_name.split('+'):

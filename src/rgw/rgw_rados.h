@@ -1588,7 +1588,7 @@ struct get_obj_io {
 
 struct get_obj_data {
   RGWRados* store;
-  RGWGetDataCB* client_cb;
+  RGWGetDataCB* client_cb = nullptr;
   rgw::Aio* aio;
   uint64_t offset; // next offset to write to client
   rgw::AioResultList completed; // completed read results, sorted by offset
@@ -1632,7 +1632,7 @@ struct get_obj_data {
     d3n_read_list.splice(d3n_read_list.end(), bl_list);
     return 0;
   }
-  
+
   void cancel() {
     // wait for all completions to drain and ignore the results
     aio->drain();

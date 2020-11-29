@@ -3314,7 +3314,7 @@ class RGWRadosPutObj : public RGWHTTPStreamRWRequest::ReceiveCB
   map<string, bufferlist> src_attrs;
   uint64_t ofs{0};
   uint64_t lofs{0}; /* logical ofs */
-  RGWGetDataCB* client_cb;
+  RGWGetDataCB* client_cb = nullptr;
   std::function<int(map<string, bufferlist>&)> attrs_handler;
 
   bufferlist chunk_buffer;
@@ -3428,7 +3428,6 @@ public:
   }
 
   int handle_data(bufferlist& bl, bool *pause) override {
-
     if (progress_cb) {
       progress_cb(data_len, progress_data);
     }
@@ -3470,7 +3469,7 @@ public:
     const uint64_t lofs = data_len;
     data_len += size;
 
-    if (client_cb) {
+    if (client_cb && (g_conf()->rgw_d3n_l1_local_datacache_enabled || g_conf()->rgw_d3n_l2_distributed_datacache_enabled)) {
       // d3n cache client cb
       bufferlist bl_temp;
       bl_temp.append(bl);
@@ -6329,10 +6328,10 @@ int RGWRados::Object::Read::read(int64_t ofs, int64_t end, bufferlist& bl, optio
   return bl.length();
 }
 
-/*
+/* temporary copy-paste from src/rgw/rgw_rados.h for sake of PR review.
 struct get_obj_data {
   RGWRados* store;
-  RGWGetDataCB* client_cb;
+  RGWGetDataCB* client_cb == nullptr;
   rgw::Aio* aio;
   uint64_t offset; // next offset to write to client
   rgw::AioResultList completed; // completed read results, sorted by offset
@@ -6539,7 +6538,6 @@ int RGWRados::get_obj_iterate_cb(const rgw_raw_obj& read_obj, off_t obj_ofs,
 int RGWRados::Object::Read::iterate(int64_t ofs, int64_t end, RGWGetDataCB *cb,
                                     optional_yield y)
 {
-  
   RGWRados *store = source->get_store();
   CephContext *cct = store->ctx();
   RGWObjectCtx& obj_ctx = source->get_ctx();

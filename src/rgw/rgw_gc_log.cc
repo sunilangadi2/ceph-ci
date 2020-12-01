@@ -31,7 +31,7 @@ void gc_log_enqueue2(librados::ObjectWriteOperation& op,
 {
   obj_version objv;
   objv.ver = 1;
-  cls_version_check(op, objv, VER_COND_EQ);
+  cls_version_check(op, objv, VER_COND_GE);
   cls_rgw_gc_queue_enqueue(op, expiration, info);
 }
 
@@ -48,7 +48,7 @@ void gc_log_defer2(librados::ObjectWriteOperation& op,
 {
   obj_version objv;
   objv.ver = 1;
-  cls_version_check(op, objv, VER_COND_EQ);
+  cls_version_check(op, objv, VER_COND_GE);
   cls_rgw_gc_queue_defer_entry(op, expiration, info);
   // TODO: conditional on whether omap is known to be empty
   cls_rgw_gc_remove(op, {info.tag});

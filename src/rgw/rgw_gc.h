@@ -71,6 +71,8 @@ public:
               RGWGCIOManager& io_manager);
   int process(bool expired_only);
 
+  int set_to_transitioned(int index);
+
   bool going_down();
   void start_processor();
   void stop_processor();

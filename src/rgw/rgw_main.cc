@@ -348,6 +348,7 @@ int radosgw_Main(int argc, const char **argv)
     rgw_d3n_datacache_enabled = false;
   }
   lsubdout(cct, rgw, 1) << "D3N datacache enabled: " << rgw_d3n_datacache_enabled << dendl;
+  auto d3n_local_datacache = cct->_conf->rgw_d3n_l1_local_datacache_backend;
 
   std::string rgw_store = (!rgw_d3n_datacache_enabled) ? "rados" : "d3n";
 
@@ -360,7 +361,7 @@ int radosgw_Main(int argc, const char **argv)
 
   rgw::sal::Store* store =
     StoreManager::get_storage(&dp, g_ceph_context,
-				 rgw_store,
+				 (!rgw_d3n_datacache_enabled) ? rgw_store : d3n_local_datacache,
 				 g_conf()->rgw_enable_gc_threads,
 				 g_conf()->rgw_enable_lc_threads,
 				 g_conf()->rgw_enable_quota_threads,
@@ -455,7 +456,7 @@ int radosgw_Main(int argc, const char **argv)
       dout(1) << "ERROR: failed to install lua packages from allowlist" << dendl;
     }
     if (!output.empty()) {
-      dout(10) << "INFO: lua packages installation output: \n" << output << dendl; 
+      dout(10) << "INFO: lua packages installation output: \n" << output << dendl;
     }
     for (const auto& p : failed_packages) {
       dout(5) << "WARNING: failed to install lua package: " << p << " from allowlist" << dendl;

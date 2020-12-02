@@ -1286,7 +1286,7 @@ public:
     mempool::bluestore_cache_meta::unordered_map<ghobject_t,OnodeRef> onode_map;
 
     friend struct Collection; // for split_cache()
-
+    friend struct Onode; // for put()
     friend struct LruOnodeCacheShard;
     void _remove(const ghobject_t& oid);
   public:

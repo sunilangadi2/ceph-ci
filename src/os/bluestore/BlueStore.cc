@@ -3494,6 +3494,14 @@ void BlueStore::Onode::put() {
     }
     if (cached && r) {
       ocs->_unpin(this);
+      if (!exists) {
+        ocs->_rm(this);
+        // remove will also decrement nref and delete Onode
+        auto it = c->onode_map.onode_map.find(oid);
+        if (it != c->onode_map.onode_map.end()) {
+          c->onode_map.onode_map.erase(it);
+        }
+      }
     }
   }
   if (n == 0) {

@@ -632,15 +632,18 @@ PG::interruptible_future<Ref<MOSDOpReply>> PG::handle_failed_op(
     e.message(),
     need_reload_obc);
   return (need_reload_obc ? reload_obc(*obc)
-                          : load_obc_ertr::now()
-  ).safe_then([&e, &m, obc = std::move(obc), this] {
+                          : interruptible_load_obc_ertr::now()
+  ).safe_then_interruptible([&e, &m, obc = std::move(obc), this] {
     auto reply = make_message<MOSDOpReply>(
       &m, -e.value(), get_osdmap_epoch(), 0, false);
     reply->set_enoent_reply_versions(
       peering_state.get_info().last_update,
       peering_state.get_info().last_user_version);
     return seastar::make_ready_future<Ref<MOSDOpReply>>(std::move(reply));
-  }, load_obc_ertr::assert_all{ "can't live with object state messed up" });
+  }, load_obc_ertr::all_same_way([] {
+    ceph_abort_msg("can't live with object state messed up");
+    return seastar::make_ready_future<Ref<MOSDOpReply>>();
+  }));
 }
 
 PG::interruptible_future<Ref<MOSDOpReply>> PG::do_osd_ops(
@@ -710,19 +713,22 @@ PG::interruptible_future<Ref<MOSDOpReply>> PG::do_osd_ops(
       "do_osd_ops: {} - object {} sending reply",
       *m,
       obc->obs.oi.soid);
-    return seastar::make_ready_future<Ref<MOSDOpReply>>(std::move(reply));
-  }, osd_op_errorator::all_same_way([ox = ox.get(),
-                                     m,
-                                     obc,
-                                     this] (const std::error_code& e) {
+    return interruptor::make_interruptible(
+      seastar::make_ready_future<Ref<MOSDOpReply>>(std::move(reply)));
+  }, OpsExecuter::osd_op_errorator::all_same_way([ox = ox.get(),
+                                                  m,
+                                                  obc,
+                                                  this] (const std::error_code& e) {
     return handle_failed_op(e, std::move(obc), *ox, *m);
   })).handle_exception_type_interruptible([ox_deleter = std::move(ox),
                                            m,
                                            obc,
                                            this] (const crimson::osd::error& e) {
     // we need this handler because throwing path which aren't errorated yet.
-    logger().debug("encountered the legacy error handling path!");
-    return handle_failed_op(e.code(), std::move(obc), *ox_deleter, *m);
+    // XXX: workaround for the `handle_exception_type_interruptible()` taking
+    // only `seastar::future`-returning lambdas.
+    ceph_abort_msg("encountered the legacy error handling path!");
+    return seastar::make_ready_future<Ref<MOSDOpReply>>(nullptr);
   });
 }
 

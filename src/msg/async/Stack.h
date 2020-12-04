@@ -303,7 +303,7 @@ class NetworkStack {
   CephContext *cct;
   std::vector<Worker*> workers;
 
-  explicit NetworkStack(CephContext *c, const std::string &t);
+  NetworkStack(CephContext *c, std::string_view t);
  public:
   NetworkStack(const NetworkStack &) = delete;
   NetworkStack& operator=(const NetworkStack &) = delete;
@@ -313,10 +313,10 @@ class NetworkStack {
   }
 
   static std::shared_ptr<NetworkStack> create(
-    CephContext *c, const std::string &type);
+    CephContext *c, std::string_view type);
 
   static Worker* create_worker(
-    CephContext *c, const std::string &t, unsigned i);
+    CephContext *c, std::string_view t, unsigned i);
   // backend need to override this method if backend doesn't support shared
   // listen table.
   // For example, posix backend has in kernel global listen table. If one

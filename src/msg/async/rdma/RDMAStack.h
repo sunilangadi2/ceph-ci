@@ -327,7 +327,7 @@ class RDMAStack : public NetworkStack {
   std::atomic<bool> fork_finished = {false};
 
  public:
-  explicit RDMAStack(CephContext *cct, const std::string &t);
+  explicit RDMAStack(CephContext *cct, std::string_view t);
   virtual ~RDMAStack();
   virtual bool nonblock_connect_need_writable_event() const override { return false; }
 

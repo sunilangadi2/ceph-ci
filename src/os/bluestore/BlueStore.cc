@@ -1928,12 +1928,12 @@ void BlueStore::OnodeSpace::rename(
   cache->_trim();
 }
 
-bool BlueStore::OnodeSpace::map_any(std::function<bool(OnodeRef)> f)
+bool BlueStore::OnodeSpace::map_any(std::function<bool(Onode*)> f)
 {
   std::lock_guard l(cache->lock);
   ldout(cache->cct, 20) << __func__ << dendl;
   for (auto& i : onode_map) {
-    if (f(i.second)) {
+    if (f(i.second.get())) {
       return true;
     }
   }
@@ -3497,36 +3497,84 @@ BlueStore::BlobRef BlueStore::ExtentMap::split_blob(
 // decremented. And another 'putting' thread on the instance will release it.
 //
 void BlueStore::Onode::get() {
-  if (++nref == 2) {
-    c->get_onode_cache()->pin(this, [&]() {
-        bool was_pinned = pinned;
-        pinned = nref >= 2;
-        // additional increment for newly pinned instance
-        bool r = !was_pinned && pinned;
-        if (r) {
-          ++nref;
-        }
-        return cached && r;
-      });
+  int n, nn, new_n;
+  do {
+    n = nref;
+    nn = n;
+    if (n / 2 > 1) {
+      // attempt atomic
+      new_n = n + 2;
+    } else {
+      // likely need active transition
+      new_n = (n + 2) | 1;
+    }
+    atomic_compare_exchange_strong(&nref, &n, new_n);
+  } while (n != nn);
+
+  if (new_n & 1) {
+    put_get_transition();
   }
 }
+
 void BlueStore::Onode::put() {
-  int n = --nref;
-  if (n == 2) {
-    c->get_onode_cache()->unpin(this, [&]() {
-        bool was_pinned = pinned;
-        pinned = pinned && nref > 2; // intentionally use > not >= as we have
-                                     // +1 due to pinned state
-        bool r = was_pinned && !pinned;
-        // additional decrement for newly unpinned instance
-        if (r) {
-          n = --nref;
-        }
-        return cached && r;
-      });
+  int n, nn, new_n;
+  do {
+    n = nref;
+    nn = n;
+    if (n / 2 > 2) {
+      // attempt atomic
+      new_n = n - 2;
+    } else {
+      // likely need active transition
+      new_n = (n - 2) | 1;
+    }
+    atomic_compare_exchange_strong(&nref, &n, new_n);
+  } while (n != nn);
+
+  if (new_n & 1) {
+    put_get_transition();
   }
-  if (n == 0) {
-    delete this;
+}
+
+void BlueStore::Onode::put_get_transition() {
+  OnodeCacheShard* ocs = c->get_onode_cache();
+  std::lock_guard l(ocs->lock);
+  int n;
+  while ((n = nref) & 1) {
+    int g = n;
+    if (g / 2 >= 2) {
+      // go for unpin
+      if (!pinned) {
+        pinned = true;
+        if (cached) {
+          ocs->_pin(this);
+        }
+      }
+    } else {
+      // go for pin
+      if (pinned) {
+        pinned = false;
+        if (cached) {
+          ocs->_unpin(this);
+        }
+      }
+      if (!exists) {
+        if (cached) {
+          ocs->_rm(this);
+         // remove will also decrement nref and delete Onode
+         auto it = c->onode_map.onode_map.find(oid);
+         if (it != c->onode_map.onode_map.end()) {
+           c->onode_map.onode_map.erase(it);
+          }
+        }
+      }
+      if (g / 2 == 0) {
+        // go for delete
+        delete this;
+        break;
+      }
+    }
+    atomic_compare_exchange_strong(&nref, &g, n & ~1); //reset transition, if last was appied
   }
 }
 
@@ -9105,7 +9153,7 @@ void BlueStore::_reap_collections()
   while (p != removed_colls.end()) {
     CollectionRef c = *p;
     dout(10) << __func__ << " " << c << " " << c->cid << dendl;
-    if (c->onode_map.map_any([&](OnodeRef o) {
+    if (c->onode_map.map_any([&](Onode* o) {
 	  ceph_assert(!o->exists);
 	  if (o->flushing_count.load()) {
 	    dout(10) << __func__ << " " << c << " " << c->cid << " " << o->oid
@@ -15068,7 +15116,7 @@ int BlueStore::_remove_collection(TransContext *txc, const coll_t &cid,
     }
     size_t nonexistent_count = 0;
     ceph_assert((*c)->exists);
-    if ((*c)->onode_map.map_any([&](OnodeRef o) {
+    if ((*c)->onode_map.map_any([&](Onode* o) {
         if (o->exists) {
           dout(1) << __func__ << " " << o->oid << " " << o
 		  << " exists in onode_map" << dendl;

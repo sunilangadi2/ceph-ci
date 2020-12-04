@@ -1131,6 +1131,7 @@ public:
     void flush();
     void get();
     void put();
+    void put_get_transition();
 
     inline bool put_cache() {
       ceph_assert(!cached);
@@ -1228,20 +1229,6 @@ public:
     virtual void _add(Onode* o, int level) = 0;
     virtual void _rm(Onode* o) = 0;
 
-    void pin(Onode* o, std::function<bool ()> validator) {
-      std::lock_guard l(lock);
-      if (validator()) {
-        _pin(o);
-      }
-    }
-
-    void unpin(Onode* o, std::function<bool()> validator) {
-      std::lock_guard l(lock);
-      if (validator()) {
-        _unpin(o);
-      }
-    }
-
     virtual void move_pinned(OnodeCacheShard *to, Onode *o) = 0;
     virtual void add_stats(uint64_t *onodes, uint64_t *pinned_onodes) = 0;
     bool empty() {
@@ -1302,8 +1289,9 @@ public:
     mempool::bluestore_cache_meta::unordered_map<ghobject_t,OnodeRef> onode_map;
 
     friend struct Collection; // for split_cache()
-
     friend struct LruOnodeCacheShard;
+    friend struct Onode; // for put()
+
     void _remove(const ghobject_t& oid);
   public:
     OnodeSpace(OnodeCacheShard *c) : cache(c) {}
@@ -1323,7 +1311,7 @@ public:
     void dump(CephContext *cct);
 
     /// return true if f true for any item
-    bool map_any(std::function<bool(OnodeRef)> f);
+    bool map_any(std::function<bool(Onode*)> f);
   };
 
   class OpSequencer;
@@ -1668,8 +1656,8 @@ public:
       modified_objects.insert(o);
     }
     void note_removed_object(OnodeRef& o) {
-      onodes.erase(o);
       modified_objects.insert(o);
+      onodes.erase(o);
     }
 
     void zoned_note_new_object(OnodeRef &o) {

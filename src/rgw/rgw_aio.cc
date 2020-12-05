@@ -70,6 +70,8 @@ void cache_aio_cb(sigval_t sigval) {
     return;
   } else if (status == 0) {
     c->finish();
+    c->r->result = 0;
+    c->aio->put(*(c->r));
   }
 }
 

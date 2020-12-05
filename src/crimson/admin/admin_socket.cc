@@ -7,6 +7,7 @@
 #include <fmt/format.h>
 #include <seastar/net/api.hh>
 #include <seastar/net/inet_address.hh>
+#include <seastar/core/future-util.hh>
 #include <seastar/core/reactor.hh>
 #include <seastar/core/sleep.hh>
 #include <seastar/core/thread.hh>
@@ -122,7 +123,7 @@ seastar::future<> AdminSocket::finalize_response(
 }
 
 
-seastar::future<> AdminSocket::handle_command(crimson::net::Connection* conn,
+seastar::future<> AdminSocket::handle_command(crimson::net::ConnectionRef conn,
 					      boost::intrusive_ptr<MCommand> m)
 {
   return execute_command(m->cmd, std::move(m->get_data())).then(
@@ -297,7 +298,7 @@ class VersionHook final : public AdminSocketHook {
   {
     unique_ptr<Formatter> f{Formatter::create(format, "json-pretty", "json-pretty")};
     f->open_object_section("version");
-    f->dump_string("version", ceph_version_to_str());
+    f->dump_string("version", ceph_version_to_str(nullptr));
     f->dump_string("release", ceph_release_to_str());
     f->dump_string("release_type", ceph_release_type());
     f->close_section();

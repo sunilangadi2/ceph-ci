@@ -13,7 +13,9 @@ foreach(policy
     CMP0054
     CMP0056
     CMP0065
-    CMP0075)
+    CMP0074
+    CMP0075
+    CMP0093)
   if(POLICY ${policy})
     cmake_policy(SET ${policy} NEW)
   endif()
@@ -189,6 +191,15 @@ if(WITH_BLUESTORE)
   elseif(FREEBSD)
     # POSIX AIO is integrated into FreeBSD kernel, and exposed by libc.
     set(HAVE_POSIXAIO ON)
+  endif()
+endif()
+
+# libcryptsetup is only available on linux
+if(WITH_RBD AND LINUX)
+  find_package(libcryptsetup REQUIRED)
+  set(HAVE_LIBCRYPTSETUP ${LIBCRYPTSETUP_FOUND})
+  if(${LIBCRYPTSETUP_VERSION} VERSION_LESS 2.0.5)
+    set(LIBCRYPTSETUP_LEGACY_DATA_ALIGNMENT TRUE)
   endif()
 endif()
 
@@ -615,7 +626,7 @@ set(WITH_MGR_ROOK_CLIENT WITH_MGR_DASHBOARD_FRONTEND)
 include_directories(SYSTEM ${PROJECT_BINARY_DIR}/include)
 
 find_package(Threads REQUIRED)
-find_package(StdFilesystem)
+find_package(StdFilesystem REQUIRED)
 
 option(WITH_SELINUX "build SELinux policy" OFF)
 if(WITH_SELINUX)

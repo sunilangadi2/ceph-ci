@@ -3,6 +3,7 @@ Ceph cluster task.
 
 Handle the setup, starting, and clean-up of a Ceph cluster.
 """
+from copy import deepcopy
 from io import BytesIO
 from io import StringIO
 
@@ -73,8 +74,8 @@ def generate_caps(type_):
         yield capability
 
 
-def update_archive_setting(ctx, key, value):
-    with open(os.path.join(ctx.archive, 'info.yaml'), 'r+') as info_file:
+def update_archive_setting(archive_dir, key, value):
+    with open(os.path.join(archive_dir, 'info.yaml'), 'r+') as info_file:
         info_yaml = yaml.safe_load(info_file)
         info_file.seek(0)
         if 'archive' in info_yaml:
@@ -90,8 +91,9 @@ def ceph_crash(ctx, config):
     Gather crash dumps from /var/lib/ceph/crash
     """
 
-    # Add crash directory to job's archive
-    update_archive_setting(ctx, 'crash', '/var/lib/ceph/crash')
+    if ctx.archive is not None:
+        # Add crash directory to job's archive
+        update_archive_setting(ctx.archive, 'crash', '/var/lib/ceph/crash')
 
     try:
         yield
@@ -163,7 +165,8 @@ def ceph_log(ctx, config):
     )
 
     # Add logs directory to job's info log file
-    update_archive_setting(ctx, 'log', '/var/log/ceph')
+    if ctx.archive is not None:
+        update_archive_setting(ctx.archive, 'log', '/var/log/ceph')
 
     class Rotater(object):
         stop_event = gevent.event.Event()
@@ -228,24 +231,10 @@ def ceph_log(ctx, config):
 
             for remote in ctx.cluster.remotes.keys():
                 remote.write_file(remote_logrotate_conf, BytesIO(conf.encode()))
-                remote.run(
-                    args=[
-                        'sudo',
-                        'mv',
-                        remote_logrotate_conf,
-                        '/etc/logrotate.d/ceph-test.conf',
-                        run.Raw('&&'),
-                        'sudo',
-                        'chmod',
-                        '0644',
-                        '/etc/logrotate.d/ceph-test.conf',
-                        run.Raw('&&'),
-                        'sudo',
-                        'chown',
-                        'root.root',
-                        '/etc/logrotate.d/ceph-test.conf'
-                    ]
-                )
+                remote.sh(
+                    f'sudo mv {remote_logrotate_conf} /etc/logrotate.d/ceph-test.conf && '
+                    'sudo chmod 0644 /etc/logrotate.d/ceph-test.conf && '
+                    'sudo chown root.root /etc/logrotate.d/ceph-test.conf')
                 remote.chcon('/etc/logrotate.d/ceph-test.conf',
                              'system_u:object_r:etc_t:s0')
 
@@ -262,10 +251,7 @@ def ceph_log(ctx, config):
         if ctx.config.get('log-rotate'):
             log.info('Shutting down logrotate')
             logrotater.end()
-            ctx.cluster.run(
-                args=['sudo', 'rm', '/etc/logrotate.d/ceph-test.conf'
-                      ]
-            )
+            ctx.cluster.sh('sudo rm /etc/logrotate.d/ceph-test.conf')
         if ctx.archive is not None and \
                 not (ctx.config.get('archive-on-error') and ctx.summary['success']):
             # and logs
@@ -423,10 +409,20 @@ def cephfs_setup(ctx, config):
     # If there are any MDSs, then create a filesystem for them to use
     # Do this last because requires mon cluster to be up and running
     if mdss.remotes:
-        log.info('Setting up CephFS filesystem...')
+        log.info('Setting up CephFS filesystem(s)...')
+        cephfs_config = config.get('cephfs', {})
+        fs_configs =  cephfs_config.pop('fs', [{'name': 'cephfs'}])
+        set_allow_multifs = len(fs_configs) > 1
 
-        Filesystem(ctx, fs_config=config.get('cephfs', None), name='cephfs',
-                   create=True, ec_profile=config.get('cephfs_ec_profile', None))
+        for fs_config in fs_configs:
+            assert isinstance(fs_config, dict)
+            name = fs_config.pop('name')
+            temp = deepcopy(cephfs_config)
+            teuthology.deep_merge(temp, fs_config)
+            fs = Filesystem(ctx, fs_config=temp, name=name, create=True)
+            if set_allow_multifs:
+                fs.set_allow_multifs()
+                set_allow_multifs = False
 
     yield
 
@@ -1709,6 +1705,20 @@ def task(ctx, config):
         - ceph:
             cephfs:
               max_mds: 2
+
+    To change the max_mds of a specific filesystem, use::
+
+        tasks:
+        - ceph:
+            cephfs:
+              max_mds: 2
+              fs:
+                - name: a
+                  max_mds: 3
+                - name: b
+
+    In the above example, filesystem 'a' will have 'max_mds' 3,
+    and filesystme 'b' will have 'max_mds' 2.
 
     To change the mdsmap's default session_timeout (60 seconds), use::
 

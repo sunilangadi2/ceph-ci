@@ -286,7 +286,7 @@ template <class FuncHead, class... FuncTail>
 static constexpr auto composer(FuncHead&& head, FuncTail&&... tail) {
   return [
     head = std::forward<FuncHead>(head),
-    // perfect forwarding in lambda's closure isn't availble in C++17
+    // perfect forwarding in lambda's closure isn't available in C++17
     // using tuple as workaround; see: https://stackoverflow.com/a/49902823
     tail = std::make_tuple(std::forward<FuncTail>(tail)...)
   ] (auto&&... args) mutable -> decltype(auto) {
@@ -596,14 +596,14 @@ private:
     }
 
     template <class FuncT>
-    auto finally(FuncT &&func) {
+    _future finally(FuncT &&func) {
       return this->then_wrapped(
         [func = std::forward<FuncT>(func)](auto &&result) mutable noexcept {
         if constexpr (seastar::is_future<std::invoke_result_t<FuncT>>::value) {
           return ::seastar::futurize_invoke(std::forward<FuncT>(func)).then_wrapped(
             [result = std::move(result)](auto&& f_res) mutable {
             // TODO: f_res.failed()
-            f_res.discard_result();
+            (void)f_res.discard_result();
             return std::move(result);
           });
         } else {
@@ -686,7 +686,7 @@ private:
     template<typename AsyncAction>
     friend inline auto ::crimson::do_until(AsyncAction action);
 
-    template <class...>
+    template <typename Result>
     friend class ::seastar::future;
 
     // let seastar::do_with_impl to up-cast us to seastar::future.
@@ -1017,6 +1017,7 @@ namespace ct_error {
     ct_error_code<std::errc::resource_unavailable_try_again>;
   using file_too_large =
     ct_error_code<std::errc::file_too_large>;
+  using address_in_use = ct_error_code<std::errc::address_in_use>;
 
   struct pass_further_all {
     template <class ErrorT>

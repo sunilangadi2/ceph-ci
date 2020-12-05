@@ -16,10 +16,12 @@ from urllib.parse import unquote
 
 # pylint: disable=wrong-import-position
 import cherrypy
+# pylint: disable=import-error
+from ceph_argparse import ArgumentFormat  # type: ignore
 
 from .. import DEFAULT_VERSION
 from ..api.doc import SchemaInput, SchemaType
-from ..exceptions import PermissionNotValid, ScopeNotValid
+from ..exceptions import DashboardException, PermissionNotValid, ScopeNotValid
 from ..plugins import PLUGIN_MANAGER
 from ..security import Permission, Scope
 from ..services.auth import AuthManager, JwtManager
@@ -700,7 +702,11 @@ class BaseController(object):
             if isinstance(ret, bytes):
                 ret = ret.decode('utf-8')
             if xml:
-                cherrypy.response.headers['Content-Type'] = 'application/xml'
+                if version:
+                    cherrypy.response.headers['Content-Type'] = \
+                        'application/vnd.ceph.api.v{}+xml'.format(version)
+                else:
+                    cherrypy.response.headers['Content-Type'] = 'application/xml'
                 return ret.encode('utf8')
             if json_response:
                 if version:
@@ -1008,3 +1014,20 @@ def allow_empty_body(func):  # noqa: N802
     except (AttributeError, KeyError):
         func._cp_config = {'tools.json_in.force': False}
     return func
+
+
+def validate_ceph_type(validations, component=''):
+    def decorator(func):
+        @wraps(func)
+        def validate_args(*args, **kwargs):
+            input_values = kwargs
+            for key, ceph_type in validations:
+                try:
+                    ceph_type.valid(input_values[key])
+                except ArgumentFormat as e:
+                    raise DashboardException(msg=e,
+                                             code='ceph_type_not_valid',
+                                             component=component)
+            return func(*args, **kwargs)
+        return validate_args
+    return decorator

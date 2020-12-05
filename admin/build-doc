@@ -48,8 +48,6 @@ fi
 # for availability of commands
 set -e
 
-cat $TOPDIR/src/osd/PeeringState.h $TOPDIR/src/osd/PeeringState.cc | $TOPDIR/doc/scripts/gen_state_diagram.py > $TOPDIR/doc/dev/peering_graph.generated.dot
-
 cd build-doc
 
 [ -z "$vdir" ] && vdir="$TOPDIR/build-doc/virtualenv"
@@ -129,7 +127,6 @@ for target in $sphinx_targets; do
     case $target in
         html)
             builder=dirhtml
-            extra_opt="-D graphviz_output_format=svg"
             ;;
         man)
             extra_opt="-t man"
@@ -141,24 +138,6 @@ for target in $sphinx_targets; do
 
 
 done
-
-# build the releases.json. this reads in the yaml version and dumps
-# out the json representation of the same file. the resulting releases.json
-# should be served from the root of hosted site.
-$vdir/bin/python << EOF > $TOPDIR/build-doc/output/html/releases.json
-from __future__ import print_function
-import datetime
-import json
-import yaml
-
-def json_serialize(obj):
-    if isinstance(obj, datetime.date):
-        return obj.isoformat()
-
-with open("$TOPDIR/doc/releases/releases.yml", 'r') as fp:
-    releases = yaml.safe_load(fp)
-    print(json.dumps(releases, indent=2, default=json_serialize))
-EOF
 
 #
 # Build and install JavaDocs

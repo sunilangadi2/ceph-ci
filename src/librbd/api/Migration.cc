@@ -35,8 +35,8 @@
 #include "librbd/image/Types.h"
 #include "librbd/internal.h"
 #include "librbd/migration/FormatInterface.h"
+#include "librbd/migration/OpenSourceImageRequest.h"
 #include "librbd/migration/NativeFormat.h"
-#include "librbd/migration/SourceSpecBuilder.h"
 #include "librbd/mirror/DisableRequest.h"
 #include "librbd/mirror/EnableRequest.h"
 
@@ -269,6 +269,7 @@ int open_images(librados::IoCtx& io_ctx, const std::string &image_name,
       ldout(cct, 10) << "re-opening the destination image" << dendl;
       r = image_ctx->state->open(0);
       if (r < 0) {
+        image_ctx = nullptr;
         lderr(cct) << "failed to re-open destination image: " << cpp_strerror(r)
                    << dendl;
         return r;
@@ -531,38 +532,20 @@ int Migration<I>::prepare_import(
                  << dest_io_ctx.get_pool_name() << "/"
                  << dest_image_name << ", opts=" << opts << dendl;
 
-  auto src_image_ctx = I::create("", "", nullptr, dest_io_ctx, true);
-  auto asio_engine = src_image_ctx->asio_engine;
-
-  migration::SourceSpecBuilder<I> source_spec_builder(src_image_ctx);
-  json_spirit::mObject source_spec_object;
-  int r = source_spec_builder.parse_source_spec(source_spec,
-                                                &source_spec_object);
-  if (r < 0) {
-    lderr(cct) << "failed to parse source spec: " << cpp_strerror(r)
-               << dendl;
-    src_image_ctx->state->close();
-    return r;
-  }
-
-  std::unique_ptr<migration::FormatInterface> format;
-  r = source_spec_builder.build_format(source_spec_object, true, &format);
-  if (r < 0) {
-    lderr(cct) << "failed to build migration format handler: "
-               << cpp_strerror(r) << dendl;
-    src_image_ctx->state->close();
-    return r;
-  }
-
+  I* src_image_ctx = nullptr;
   C_SaferCond open_ctx;
-  format->open(&open_ctx);
-  r = open_ctx.wait();
+  auto req = migration::OpenSourceImageRequest<I>::create(
+    dest_io_ctx, nullptr, CEPH_NOSNAP,
+    {-1, "", "", "", source_spec, {}, 0, false}, &src_image_ctx, &open_ctx);
+  req->send();
+
+  int r = open_ctx.wait();
   if (r < 0) {
-    lderr(cct) << "failed to open migration source: " << cpp_strerror(r)
-               << dendl;
+    lderr(cct) << "failed to open source image: " << cpp_strerror(r) << dendl;
     return r;
   }
 
+  auto asio_engine = src_image_ctx->asio_engine;
   BOOST_SCOPE_EXIT_TPL(src_image_ctx) {
     src_image_ctx->state->close();
   } BOOST_SCOPE_EXIT_END;
@@ -582,6 +565,18 @@ int Migration<I>::prepare_import(
   opts.set(RBD_IMAGE_OPTION_FEATURES_SET, features_set | RBD_FEATURE_MIGRATING);
 
   ldout(cct, 20) << "updated opts=" << opts << dendl;
+
+  // use json-spirit to clean-up json formatting
+  json_spirit::mObject source_spec_object;
+  json_spirit::mValue json_root;
+  if(json_spirit::read(source_spec, json_root)) {
+    try {
+      source_spec_object = json_root.get_obj();
+    } catch (std::runtime_error&) {
+      lderr(cct) << "failed to clean source spec" << dendl;
+      return -EINVAL;
+    }
+  }
 
   auto dst_image_ctx = I::create(
     dest_image_name, util::generate_image_id(dest_io_ctx), nullptr,
@@ -817,19 +812,38 @@ int Migration<I>::get_source_spec(I* image_ctx, std::string* source_spec) {
   auto cct = image_ctx->cct;
   ldout(cct, 10) << dendl;
 
-  if (image_ctx->migration_info.empty()) {
-    return -ENOENT;
+  image_ctx->image_lock.lock_shared();
+  auto migration_info = image_ctx->migration_info;
+  image_ctx->image_lock.unlock_shared();
+
+  if (migration_info.empty()) {
+    // attempt to directly read the spec in case the state is EXECUTED
+    cls::rbd::MigrationSpec migration_spec;
+    int r = cls_client::migration_get(&image_ctx->md_ctx, image_ctx->header_oid,
+                                      &migration_spec);
+    if (r == -ENOENT) {
+      return r;
+    } else if (r < 0) {
+      lderr(cct) << "failed retrieving migration header: " << cpp_strerror(r)
+                 << dendl;
+      return r;
+    }
+
+    migration_info = {
+      migration_spec.pool_id, migration_spec.pool_namespace,
+      migration_spec.image_name, migration_spec.image_id,
+      migration_spec.source_spec, {}, 0, false};
   }
 
-  if (!image_ctx->migration_info.source_spec.empty()) {
-    *source_spec = image_ctx->migration_info.source_spec;
+  if (!migration_info.source_spec.empty()) {
+    *source_spec = migration_info.source_spec;
   } else {
     // legacy migration source
     *source_spec = migration::NativeFormat<I>::build_source_spec(
-      image_ctx->migration_info.pool_id,
-      image_ctx->migration_info.pool_namespace,
-      image_ctx->migration_info.image_name,
-      image_ctx->migration_info.image_id);
+      migration_info.pool_id,
+      migration_info.pool_namespace,
+      migration_info.image_name,
+      migration_info.image_id);
   }
 
   return 0;

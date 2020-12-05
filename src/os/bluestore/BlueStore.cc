@@ -646,6 +646,16 @@ public:
   virtual void upper_bound(const ghobject_t &oid) = 0;
   virtual void next() = 0;
 
+  virtual int cmp(const ghobject_t &oid) const = 0;
+
+  bool is_ge(const ghobject_t &oid) const {
+    return cmp(oid) >= 0;
+  }
+
+  bool is_lt(const ghobject_t &oid) const {
+    return cmp(oid) < 0;
+  }
+
 protected:
   KeyValueDB::Iterator m_it;
 };
@@ -687,6 +697,15 @@ public:
 
     m_it->next();
     get_oid();
+  }
+
+  int cmp(const ghobject_t &oid) const override {
+    ceph_assert(valid());
+
+    string key;
+    get_object_key(m_cct, oid, &key);
+
+    return m_it->key().compare(key);
   }
 
 private:
@@ -760,6 +779,18 @@ public:
     if (m_chunk_iter == m_chunk.end()) {
       get_next_chunk();
     }
+  }
+
+  int cmp(const ghobject_t &oid) const override {
+    ceph_assert(valid());
+
+    if (this->oid() < oid) {
+      return -1;
+    }
+    if (this->oid() > oid) {
+      return 1;
+    }
+    return 0;
   }
 
 private:
@@ -1571,12 +1602,13 @@ int BlueStore::BufferSpace::_discard(BufferCacheShard* cache, uint32_t offset, u
 	if (b->data.length()) {
 	  bufferlist bl;
 	  bl.substr_of(b->data, b->length - tail, tail);
-	  Buffer *nb = new Buffer(this, b->state, b->seq, end, bl);
+	  Buffer *nb = new Buffer(this, b->state, b->seq, end, bl, b->flags);
 	  nb->maybe_rebuild();
 	  _add_buffer(cache, nb, 0, b);
 	} else {
-	  _add_buffer(cache, new Buffer(this, b->state, b->seq, end, tail),
-		      0, b);
+	  _add_buffer(cache, new Buffer(this, b->state, b->seq, end, tail,
+                                        b->flags),
+	              0, b);
 	}
 	if (!b->is_writing()) {
 	  cache->_adjust_size(b, front - (int64_t)b->length);
@@ -1606,11 +1638,13 @@ int BlueStore::BufferSpace::_discard(BufferCacheShard* cache, uint32_t offset, u
     if (b->data.length()) {
       bufferlist bl;
       bl.substr_of(b->data, b->length - keep, keep);
-      Buffer *nb = new Buffer(this, b->state, b->seq, end, bl);
+      Buffer *nb = new Buffer(this, b->state, b->seq, end, bl, b->flags);
       nb->maybe_rebuild();
       _add_buffer(cache, nb, 0, b);
     } else {
-      _add_buffer(cache, new Buffer(this, b->state, b->seq, end, keep), 0, b);
+      _add_buffer(cache, new Buffer(this, b->state, b->seq, end, keep,
+                                    b->flags),
+                  0, b);
     }
     _rm_buffer(cache, i);
     cache->_audit("discard end 2");
@@ -1655,7 +1689,7 @@ void BlueStore::BufferSpace::read(
 	  length -= l;
 	  if (!b->is_writing()) {
 	    cache->_touch(b);
-	  }
+          }
 	  continue;
         }
         if (b->offset > offset) {
@@ -1742,10 +1776,12 @@ void BlueStore::BufferSpace::split(BufferCacheShard* cache, size_t pos, BlueStor
       if (p->second->data.length()) {
 	bufferlist bl;
 	bl.substr_of(p->second->data, left, right);
-	r._add_buffer(cache, new Buffer(&r, p->second->state, p->second->seq, 0, bl),
+	r._add_buffer(cache, new Buffer(&r, p->second->state, p->second->seq,
+                                        0, bl, p->second->flags),
 		      0, p->second.get());
       } else {
-	r._add_buffer(cache, new Buffer(&r, p->second->state, p->second->seq, 0, right),
+	r._add_buffer(cache, new Buffer(&r, p->second->state, p->second->seq,
+                                        0, right, p->second->flags),
 		      0, p->second.get());
       }
       cache->_adjust_size(p->second.get(), -right);
@@ -1757,11 +1793,11 @@ void BlueStore::BufferSpace::split(BufferCacheShard* cache, size_t pos, BlueStor
     ldout(cache->cct, 30) << __func__ << " move " << *p->second << dendl;
     if (p->second->data.length()) {
       r._add_buffer(cache, new Buffer(&r, p->second->state, p->second->seq,
-                               p->second->offset - pos, p->second->data),
+                               p->second->offset - pos, p->second->data, p->second->flags),
                     0, p->second.get());
     } else {
       r._add_buffer(cache, new Buffer(&r, p->second->state, p->second->seq,
-                               p->second->offset - pos, p->second->length),
+                               p->second->offset - pos, p->second->length, p->second->flags),
                     0, p->second.get());
     }
     if (p == buffer_map.begin()) {
@@ -3475,7 +3511,8 @@ void BlueStore::Onode::get() {
   }
 }
 void BlueStore::Onode::put() {
-  if (--nref == 2) {
+  int n = --nref;
+  if (n == 2) {
     c->get_onode_cache()->unpin(this, [&]() {
         bool was_pinned = pinned;
         pinned = pinned && nref > 2; // intentionally use > not >= as we have
@@ -3483,12 +3520,12 @@ void BlueStore::Onode::put() {
         bool r = was_pinned && !pinned;
         // additional decrement for newly unpinned instance
         if (r) {
-          --nref;
+          n = --nref;
         }
         return cached && r;
       });
   }
-  if (nref == 0) {
+  if (n == 0) {
     delete this;
   }
 }
@@ -3888,8 +3925,7 @@ BlueStore::OnodeRef BlueStore::Collection::get_onode(
   }
   if (v.length() == 0) {
     ceph_assert(r == -ENOENT);
-    if (!store->cct->_conf->bluestore_debug_misc &&
-	!create)
+    if (!create)
       return OnodeRef();
 
     // new object, new onode
@@ -4373,6 +4409,7 @@ BlueStore::BlueStore(CephContext *cct,
     finisher(cct, "commit_finisher", "cfin"),
     kv_sync_thread(this),
     kv_finalize_thread(this),
+    zoned_cleaner_thread(this),
     min_alloc_size(_min_alloc_size),
     min_alloc_size_order(ctz(_min_alloc_size)),
     mempool_thread(this)
@@ -5301,7 +5338,7 @@ int BlueStore::_init_alloc()
   ceph_assert(shared_alloc.a != NULL);
 
   if (bdev->is_smr()) {
-    shared_alloc.a->set_zone_states(fm->get_zone_states(db));
+    shared_alloc.a->zoned_set_zone_states(fm->get_zone_states(db));
   }
 
   uint64_t num = 0, bytes = 0;
@@ -6840,6 +6877,10 @@ int BlueStore::_mount()
 
   _kv_start();
 
+  if (bdev->is_smr()) {
+    _zoned_cleaner_start();
+  }
+
   r = _deferred_replay();
   if (r < 0)
     goto out_stop;
@@ -6869,6 +6910,9 @@ int BlueStore::_mount()
   return 0;
 
  out_stop:
+  if (bdev->is_smr()) {
+    _zoned_cleaner_stop();
+  }
   _kv_stop();
  out_coll:
   _shutdown_cache();
@@ -6887,6 +6931,10 @@ int BlueStore::umount()
   mounted = false;
   if (!_kv_only) {
     mempool_thread.shutdown();
+    if (bdev->is_smr()) {
+      dout(20) << __func__ << " stopping zone cleaner thread" << dendl;
+      _zoned_cleaner_stop();
+    }
     dout(20) << __func__ << " stopping kv thread" << dendl;
     _kv_stop();
     _shutdown_cache();
@@ -10256,14 +10304,14 @@ int BlueStore::_collection_list(
   }
   dout(20) << __func__ << " pend " << pend << dendl;
   while (true) {
-    if (!it->valid() || it->oid() >= pend) {
+    if (!it->valid() || it->is_ge(pend)) {
       if (!it->valid())
 	dout(20) << __func__ << " iterator not valid (end of db?)" << dendl;
       else
 	dout(20) << __func__ << " oid " << it->oid() << " >= " << pend << dendl;
       if (temp) {
 	if (end.hobj.is_temp()) {
-          if (it->valid() && it->oid() < coll_range_temp_end) {
+          if (it->valid() && it->is_lt(coll_range_temp_end)) {
             *pnext = it->oid();
             set_next = true;
           }
@@ -10279,7 +10327,7 @@ int BlueStore::_collection_list(
 	dout(30) << __func__ << " pend " << pend << dendl;
 	continue;
       }
-      if (it->valid() && it->oid() < coll_range_end) {
+      if (it->valid() && it->is_lt(coll_range_end)) {
         *pnext = it->oid();
         set_next = true;
       }
@@ -11965,6 +12013,63 @@ void BlueStore::_kv_finalize_thread()
   kv_finalize_started = false;
 }
 
+void BlueStore::_zoned_cleaner_start() {
+  dout(10) << __func__ << dendl;
+
+  zoned_cleaner_thread.create("bstore_zcleaner");
+}
+
+void BlueStore::_zoned_cleaner_stop() {
+  dout(10) << __func__ << dendl;
+  {
+    std::unique_lock l{zoned_cleaner_lock};
+    while (!zoned_cleaner_started) {
+      zoned_cleaner_cond.wait(l);
+    }
+    zoned_cleaner_stop = true;
+    zoned_cleaner_cond.notify_all();
+  }
+  zoned_cleaner_thread.join();
+  {
+    std::lock_guard l{zoned_cleaner_lock};
+    zoned_cleaner_stop = false;
+  }
+  dout(10) << __func__ << " done" << dendl;
+}
+
+void BlueStore::_zoned_cleaner_thread() {
+  dout(10) << __func__ << " start" << dendl;
+  std::unique_lock l{zoned_cleaner_lock};
+  ceph_assert(!zoned_cleaner_started);
+  zoned_cleaner_started = true;
+  zoned_cleaner_cond.notify_all();
+  std::deque<uint64_t> zones_to_clean;
+  while (true) {
+    if (zoned_cleaner_queue.empty()) {
+      if (zoned_cleaner_stop) {
+	break;
+      }
+      dout(20) << __func__ << " sleep" << dendl;
+      zoned_cleaner_cond.wait(l);
+      dout(20) << __func__ << " wake" << dendl;
+    } else {
+      zones_to_clean.swap(zoned_cleaner_queue);
+      l.unlock();
+      while (!zones_to_clean.empty()) {
+	_zoned_clean_zone(zones_to_clean.front());
+	zones_to_clean.pop_front();
+      }
+      l.lock();
+    }
+  }
+  dout(10) << __func__ << " finish" << dendl;
+  zoned_cleaner_started = false;
+}
+
+void BlueStore::_zoned_clean_zone(uint64_t zone_num) {
+  dout(10) << __func__ << " cleaning zone " << zone_num << dendl;
+}
+
 bluestore_deferred_op_t *BlueStore::_get_deferred_op(
   TransContext *txc)
 {
@@ -13623,6 +13728,15 @@ int BlueStore::_do_alloc_write(
   }
   _collect_allocation_stats(need, min_alloc_size, prealloc.size());
 
+  if (bdev->is_smr()) {
+    std::deque<uint64_t> zones_to_clean;
+    if (shared_alloc.a->zoned_get_zones_to_clean(&zones_to_clean)) {
+      std::lock_guard l{zoned_cleaner_lock};
+      zoned_cleaner_queue.swap(zones_to_clean);
+      zoned_cleaner_cond.notify_one();
+    }
+  }
+
   dout(20) << __func__ << " prealloc " << prealloc << dendl;
   auto prealloc_pos = prealloc.begin();
 
@@ -13791,7 +13905,7 @@ void BlueStore::_wctx_finish(
     auto& r = lo.r;
     txc->statfs_delta.stored() -= lo.e.length;
     if (!r.empty()) {
-      dout(20) << __func__ << "  blob release " << r << dendl;
+      dout(20) << __func__ << "  blob " << *b << " release " << r << dendl;
       if (blob.is_shared()) {
 	PExtentVector final;
         c->load_shared_blob(b->shared_blob);
@@ -14324,7 +14438,7 @@ int BlueStore::_do_remove(
 	   << maybe_unshared_blobs << dendl;
   ghobject_t nogen = o->oid;
   nogen.generation = ghobject_t::NO_GEN;
-  OnodeRef h = c->onode_map.lookup(nogen);
+  OnodeRef h = c->get_onode(nogen, false);
 
   if (!h || !h->exists) {
     return 0;

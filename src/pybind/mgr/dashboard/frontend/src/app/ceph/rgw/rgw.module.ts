@@ -4,10 +4,11 @@ import { FormsModule, ReactiveFormsModule } from '@angular/forms';
 import { RouterModule, Routes } from '@angular/router';
 
 import { NgbNavModule, NgbTooltipModule } from '@ng-bootstrap/ng-bootstrap';
+import { NgxPipeFunctionModule } from 'ngx-pipe-function';
 
-import { ActionLabels, URLVerbs } from '../../shared/constants/app.constants';
-import { AuthGuardService } from '../../shared/services/auth-guard.service';
-import { SharedModule } from '../../shared/shared.module';
+import { ActionLabels, URLVerbs } from '~/app/shared/constants/app.constants';
+import { AuthGuardService } from '~/app/shared/services/auth-guard.service';
+import { SharedModule } from '~/app/shared/shared.module';
 import { PerformanceCounterModule } from '../performance-counter/performance-counter.module';
 import { Rgw501Component } from './rgw-501/rgw-501.component';
 import { RgwBucketDetailsComponent } from './rgw-bucket-details/rgw-bucket-details.component';
@@ -32,7 +33,8 @@ import { RgwUserSwiftKeyModalComponent } from './rgw-user-swift-key-modal/rgw-us
     PerformanceCounterModule,
     NgbNavModule,
     RouterModule,
-    NgbTooltipModule
+    NgbTooltipModule,
+    NgxPipeFunctionModule
   ],
   exports: [
     Rgw501Component,

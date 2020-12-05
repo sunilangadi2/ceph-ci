@@ -886,14 +886,20 @@ void OSDMonitor::update_from_paxos(bool *need_bootstrap)
       t = MonitorDBStore::TransactionRef();
       tx_size = 0;
     }
-    for (const auto &osd_state : inc.new_state) {
-      if (osd_state.second & CEPH_OSD_UP) {
+    for (const auto [osd, state] : inc.new_state) {
+      if (state & CEPH_OSD_UP) {
 	// could be marked up *or* down, but we're too lazy to check which
-	last_osd_report.erase(osd_state.first);
+	last_osd_report.erase(osd);
       }
-      if (osd_state.second & CEPH_OSD_EXISTS) {
-	// could be created *or* destroyed, but we can safely drop it
-	osd_epochs.erase(osd_state.first);
+      if (state & CEPH_OSD_OUT) {
+        // could be marked in *or* out, but we can safely drop it
+        osd_epochs.erase(osd);
+      }
+    }
+    for (const auto [osd, weight] : inc.new_weight) {
+      if (weight == CEPH_OSD_OUT) {
+        // manually marked out, so drop it
+        osd_epochs.erase(osd);
       }
     }
   }
@@ -1064,19 +1070,20 @@ void OSDMonitor::start_mapping()
 
 void OSDMonitor::update_msgr_features()
 {
-  set<int> types;
-  types.insert((int)entity_name_t::TYPE_OSD);
-  types.insert((int)entity_name_t::TYPE_CLIENT);
-  types.insert((int)entity_name_t::TYPE_MDS);
-  types.insert((int)entity_name_t::TYPE_MON);
-  for (set<int>::iterator q = types.begin(); q != types.end(); ++q) {
+  const int types[] = {
+    entity_name_t::TYPE_OSD,
+    entity_name_t::TYPE_CLIENT,
+    entity_name_t::TYPE_MDS,
+    entity_name_t::TYPE_MON
+  };
+  for (int type : types) {
     uint64_t mask;
-    uint64_t features = osdmap.get_features(*q, &mask);
-    if ((mon->messenger->get_policy(*q).features_required & mask) != features) {
+    uint64_t features = osdmap.get_features(type, &mask);
+    if ((mon->messenger->get_policy(type).features_required & mask) != features) {
       dout(0) << "crush map has features " << features << ", adjusting msgr requires" << dendl;
-      ceph::net::Policy p = mon->messenger->get_policy(*q);
+      ceph::net::Policy p = mon->messenger->get_policy(type);
       p.features_required = (p.features_required & ~mask) | features;
-      mon->messenger->set_policy(*q, p);
+      mon->messenger->set_policy(type, p);
     }
   }
 }
@@ -2133,6 +2140,19 @@ void OSDMonitor::count_metadata(const string& field, Formatter *f)
   f->close_section();
 }
 
+void OSDMonitor::get_versions(std::map<string, list<string> > &versions)
+{
+  for (int osd = 0; osd < osdmap.get_max_osd(); ++osd) {
+    if (osdmap.is_up(osd)) {
+      map<string,string> meta;
+      load_metadata(osd, meta, nullptr);
+      auto p = meta.find("ceph_version_short");
+      if (p == meta.end()) continue;
+      versions[p->second].push_back(string("osd.") + stringify(osd));
+    }
+  }
+}
+
 int OSDMonitor::get_osd_objectstore_type(int osd, string *type)
 {
   map<string, string> metadata;
@@ -2235,13 +2255,14 @@ void OSDMonitor::share_map_with_random_osd()
 version_t OSDMonitor::get_trim_to() const
 {
   if (mon->get_quorum().empty()) {
-    dout(10) << __func__ << ": quorum not formed" << dendl;
+    dout(10) << __func__ << " quorum not formed, trim_to = 0" << dendl;
     return 0;
   }
 
   {
     std::lock_guard<std::mutex> l(creating_pgs_lock);
     if (!creating_pgs.pgs.empty()) {
+      dout(10) << __func__ << " pgs creating, trim_to = 0" << dendl;
       return 0;
     }
   }
@@ -2249,8 +2270,8 @@ version_t OSDMonitor::get_trim_to() const
   if (g_conf().get_val<bool>("mon_debug_block_osdmap_trim")) {
     dout(0) << __func__
             << " blocking osdmap trim"
-               " ('mon_debug_block_osdmap_trim' set to 'true')"
-            << dendl;
+            << " ('mon_debug_block_osdmap_trim' set to 'true')"
+            << " trim_to = 0" << dendl;
     return 0;
   }
 
@@ -2260,7 +2281,8 @@ version_t OSDMonitor::get_trim_to() const
     if (g_conf()->mon_osd_force_trim_to > 0 &&
 	g_conf()->mon_osd_force_trim_to < (int)get_last_committed()) {
       floor = g_conf()->mon_osd_force_trim_to;
-      dout(10) << " explicit mon_osd_force_trim_to = " << floor << dendl;
+      dout(10) << __func__
+               << " explicit mon_osd_force_trim_to = " << floor << dendl;
     }
     unsigned min = g_conf()->mon_min_osdmap_epochs;
     if (floor + min > get_last_committed()) {
@@ -2269,9 +2291,12 @@ version_t OSDMonitor::get_trim_to() const
       else
 	floor = 0;
     }
-    if (floor > get_first_committed())
+    if (floor > get_first_committed()) {
+      dout(10) << __func__ << " trim_to = " << floor << dendl;
       return floor;
+    }
   }
+  dout(10) << __func__ << " trim_to = 0" << dendl;
   return 0;
 }
 
@@ -2281,8 +2306,7 @@ epoch_t OSDMonitor::get_min_last_epoch_clean() const
   // also scan osd epochs
   // don't trim past the oldest reported osd epoch
   for (auto [osd, epoch] : osd_epochs) {
-    if (epoch < floor &&
-        osdmap.is_in(osd)) {
+    if (epoch < floor) {
       floor = epoch;
     }
   }
@@ -2516,7 +2540,7 @@ bool OSDMonitor::_prune_sanitize_options() const
 
   if (txsize < prune_interval - 1) {
     derr << __func__
-         << "'mon_osdmap_full_prune_txsize' (" << txsize
+         << " 'mon_osdmap_full_prune_txsize' (" << txsize
          << ") < 'mon_osdmap_full_prune_interval-1' (" << prune_interval - 1
          << "); abort." << dendl;
     r = false;
@@ -5373,7 +5397,8 @@ namespace {
     COMPRESSION_MAX_BLOB_SIZE, COMPRESSION_MIN_BLOB_SIZE,
     CSUM_TYPE, CSUM_MAX_BLOCK, CSUM_MIN_BLOCK, FINGERPRINT_ALGORITHM,
     PG_AUTOSCALE_MODE, PG_NUM_MIN, TARGET_SIZE_BYTES, TARGET_SIZE_RATIO,
-    PG_AUTOSCALE_BIAS };
+    PG_AUTOSCALE_BIAS, DEDUP_TIER, DEDUP_CHUNK_ALGORITHM, 
+    DEDUP_CDC_CHUNK_SIZE };
 
   std::set<osd_pool_get_choices>
     subtract_second_from_first(const std::set<osd_pool_get_choices>& first,
@@ -6108,6 +6133,9 @@ bool OSDMonitor::preprocess_command(MonOpRequestRef op)
       {"target_size_bytes", TARGET_SIZE_BYTES},
       {"target_size_ratio", TARGET_SIZE_RATIO},
       {"pg_autoscale_bias", PG_AUTOSCALE_BIAS},
+      {"dedup_tier", DEDUP_TIER},
+      {"dedup_chunk_algorithm", DEDUP_CHUNK_ALGORITHM},
+      {"dedup_cdc_chunk_size", DEDUP_CDC_CHUNK_SIZE},
     };
 
     typedef std::set<osd_pool_get_choices> choices_set_t;
@@ -6324,6 +6352,9 @@ bool OSDMonitor::preprocess_command(MonOpRequestRef op)
 	  case TARGET_SIZE_BYTES:
 	  case TARGET_SIZE_RATIO:
 	  case PG_AUTOSCALE_BIAS:
+	  case DEDUP_TIER:
+	  case DEDUP_CHUNK_ALGORITHM:
+	  case DEDUP_CDC_CHUNK_SIZE:
             pool_opts_t::key_t key = pool_opts_t::get_opt_desc(i->first).key;
             if (p->opts.is_set(key)) {
               if(*it == CSUM_TYPE) {
@@ -6481,6 +6512,9 @@ bool OSDMonitor::preprocess_command(MonOpRequestRef op)
 	  case TARGET_SIZE_BYTES:
 	  case TARGET_SIZE_RATIO:
 	  case PG_AUTOSCALE_BIAS:
+	  case DEDUP_TIER:
+	  case DEDUP_CHUNK_ALGORITHM:
+	  case DEDUP_CDC_CHUNK_SIZE:
 	    for (i = ALL_CHOICES.begin(); i != ALL_CHOICES.end(); ++i) {
 	      if (i->second == *it)
 		break;
@@ -8647,6 +8681,41 @@ int OSDMonitor::prepare_command_pool_set(const cmdmap_t& cmdmap,
       if (f < 0.0 || f > 1000.0) {
 	ss << "pg_autoscale_bias must be between 0 and 1000";
 	return -EINVAL;
+      }
+    } else if (var == "dedup_tier") {
+      if (interr.empty()) {
+	ss << "expecting value 'pool name'";
+	return -EINVAL;
+      }
+      // Current base tier in dedup does not support ec pool 
+      if (p.is_erasure()) {
+	ss << "pool '" << poolstr
+	   << "' is an ec pool, which cannot be a base tier";
+	return -ENOTSUP;
+      }
+      int64_t lowtierpool_id = osdmap.lookup_pg_pool_name(val);
+      if (lowtierpool_id < 0) {
+	ss << "unrecognized pool '" << val << "'";
+	return -ENOENT;
+      }
+      const pg_pool_t *tp = osdmap.get_pg_pool(lowtierpool_id);
+      ceph_assert(tp);
+      n = lowtierpool_id;
+      // The original input is string (pool name), but we convert it to int64_t.
+      // So, clear interr
+      interr.clear();
+    } else if (var == "dedup_chunk_algorithm") {
+      if (!unset) {
+        auto alg = pg_pool_t::get_dedup_chunk_algorithm_from_str(val);
+        if (!alg) {
+          ss << "unrecognized fingerprint_algorithm '" << val << "'";
+	  return -EINVAL;
+        }
+      }
+    } else if (var == "dedup_cdc_chunk_size") {
+      if (interr.length()) {
+        ss << "error parsing int value '" << val << "': " << interr;
+        return -EINVAL;
       }
     }
 
@@ -13517,7 +13586,7 @@ bool OSDMonitor::prepare_command_impl(MonOpRequestRef op,
     ss << "Triggering recovery stretch mode";
     err = 0;
     goto reply;
-} else {
+  } else {
     err = -EINVAL;
   }
 

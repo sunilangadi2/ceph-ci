@@ -325,6 +325,9 @@ Client::~Client()
 {
   ceph_assert(ceph_mutex_is_not_locked(client_lock));
 
+  if (upkeeper.joinable())
+    upkeeper.join();
+
   // It is necessary to hold client_lock, because any inode destruction
   // may call into ObjectCacher, which asserts that it's lock (which is
   // client_lock) is held.
@@ -479,6 +482,7 @@ void Client::dump_status(Formatter *f)
     f->dump_int("osd_epoch", osd_epoch);
     f->dump_int("osd_epoch_barrier", cap_epoch_barrier);
     f->dump_bool("blocklisted", blocklisted);
+    f->dump_string("fs_name", mdsmap->get_fs_name());
   }
 }
 
@@ -572,6 +576,14 @@ void Client::shutdown()
   // MDS commands, we may have sessions that need closing.
   {
     std::scoped_lock l{client_lock};
+
+    // To make sure the tick thread will be stoppped before
+    // destructing the Client, just in case like the _mount()
+    // failed but didn't not get a chance to stop the tick
+    // thread
+    tick_thread_stopped = true;
+    upkeep_cond.notify_one();
+
     _close_sessions();
   }
   cct->_conf.remove_observer(this);
@@ -2177,6 +2189,18 @@ void Client::handle_client_session(const MConstRef<MClientSession>& m)
     break;
 
   case CEPH_SESSION_RECALL_STATE:
+    /*
+     * Call the renew caps and flush cap releases just before
+     * triming the caps in case the tick() won't get a chance
+     * to run them, which could cause the client to be blocklisted
+     * and MDS daemons trying to recall the caps again and
+     * again.
+     *
+     * In most cases it will do nothing, and the new cap releases
+     * added by trim_caps() followed will be deferred flushing
+     * by tick().
+     */
+    renew_and_flush_cap_releases();
     trim_caps(session, m->get_max_caps());
     break;
 
@@ -2752,8 +2776,6 @@ void Client::cancel_commands(const MDSMap& newmap)
 
 void Client::handle_mds_map(const MConstRef<MMDSMap>& m)
 {
-  mds_gid_t old_inc, new_inc;
-
   std::unique_lock cl(client_lock);
   if (m->get_epoch() <= mdsmap->get_epoch()) {
     ldout(cct, 1) << __func__ << " epoch " << m->get_epoch()
@@ -2782,8 +2804,8 @@ void Client::handle_mds_map(const MConstRef<MMDSMap>& m)
     if (!mdsmap->is_up(mds)) {
       session->con->mark_down();
     } else if (mdsmap->get_addrs(mds) != session->addrs) {
-      old_inc = _mdsmap->get_incarnation(mds);
-      new_inc = mdsmap->get_incarnation(mds);
+      auto old_inc = _mdsmap->get_incarnation(mds);
+      auto new_inc = mdsmap->get_incarnation(mds);
       if (old_inc != new_inc) {
         ldout(cct, 1) << "mds incarnation changed from "
 		      << old_inc << " to " << new_inc << dendl;
@@ -4306,7 +4328,7 @@ void Client::remove_session_caps(MetaSession *s, int err)
 
 int Client::_do_remount(bool retry_on_error)
 {
-  uint64_t max_retries = g_conf().get_val<uint64_t>("mds_max_retries_on_remount_failure");
+  uint64_t max_retries = cct->_conf.get_val<uint64_t>("mds_max_retries_on_remount_failure");
 
   errno = 0;
   int r = remount_cb(callback_handle);
@@ -6079,9 +6101,7 @@ int Client::mount(const std::string &mount_root, const UserPerm& perms,
     return r;
   }
 
-  cl.unlock();
-  tick(); // start tick
-  cl.lock();
+  start_tick_thread(); // start tick thread
 
   if (require_mds) {
     while (1) {
@@ -6379,12 +6399,9 @@ void Client::_unmount(bool abort)
     traceout.close();
   }
 
-  {
-    std::scoped_lock l(timer_lock);
-    if (tick_event)
-      timer.cancel_event(tick_event);
-    tick_event = 0;
-  }
+  // stop the tick thread
+  tick_thread_stopped = true;
+  upkeep_cond.notify_one();
 
   _close_sessions();
 
@@ -6420,33 +6437,32 @@ void Client::flush_cap_releases()
   }
 }
 
+void Client::renew_and_flush_cap_releases()
+{
+  ceph_assert(ceph_mutex_is_locked_by_me(client_lock));
+
+  if (!mount_aborted && mdsmap->get_epoch()) {
+    // renew caps?
+    utime_t el = ceph_clock_now() - last_cap_renew;
+    if (unlikely(el > mdsmap->get_session_timeout() / 3.0))
+      renew_caps();
+
+    flush_cap_releases();
+  }
+}
+
 void Client::tick()
 {
   ldout(cct, 20) << "tick" << dendl;
 
-  {
-    std::scoped_lock l(timer_lock);
-    tick_event = timer.add_event_after(
-      cct->_conf->client_tick_interval,
-      new LambdaContext([this](int) {
-          tick();
-      }));
-  }
-
-  if (cct->_conf->client_debug_inject_tick_delay > 0) {
-    sleep(cct->_conf->client_debug_inject_tick_delay);
-    ceph_assert(0 == cct->_conf.set_val("client_debug_inject_tick_delay", "0"));
-    cct->_conf.apply_changes(nullptr);
-  }
-
   utime_t now = ceph_clock_now();
 
-  std::scoped_lock cl(client_lock);
   /*
    * If the mount() is not finished
    */
   if (is_mounting() && !mds_requests.empty()) {
     MetaRequest *req = mds_requests.begin()->second;
+
     if (req->op_stamp + cct->_conf->client_mount_timeout < now) {
       req->abort(-ETIMEDOUT);
       if (req->caller_cond) {
@@ -6460,14 +6476,7 @@ void Client::tick()
     }
   }
 
-  if (!mount_aborted && mdsmap->get_epoch()) {
-    // renew caps?
-    utime_t el = now - last_cap_renew;
-    if (el > mdsmap->get_session_timeout() / 3.0)
-      renew_caps();
-
-    flush_cap_releases();
-  }
+  renew_and_flush_cap_releases();
 
   // delayed caps
   xlist<Inode*>::iterator p = delayed_list.begin();
@@ -6496,6 +6505,37 @@ void Client::tick()
     _kick_stale_sessions();
     last_auto_reconnect = now;
   }
+}
+
+void Client::start_tick_thread()
+{
+  upkeeper = std::thread([this]() {
+    using time = ceph::coarse_mono_time;
+    using sec = std::chrono::seconds;
+
+    auto last_tick = time::min();
+
+    std::unique_lock cl(client_lock);
+    while (!tick_thread_stopped) {
+      auto now = clock::now();
+      auto since = now - last_tick;
+
+      auto t_interval = clock::duration(cct->_conf.get_val<sec>("client_tick_interval"));
+      auto d_interval = clock::duration(cct->_conf.get_val<sec>("client_debug_inject_tick_delay"));
+
+      auto interval = std::max(t_interval, d_interval);
+      if (likely(since >= interval)) {
+        tick();
+        last_tick = clock::now();
+      } else {
+        interval -= since;
+      }
+
+      ldout(cct, 20) << "upkeep thread waiting interval " << interval << dendl;
+      if (!tick_thread_stopped)
+        upkeep_cond.wait_for(cl, interval);
+    }
+  });
 }
 
 void Client::collect_and_send_metrics() {
@@ -10134,6 +10174,8 @@ int Client::ftruncate(int fd, loff_t length, const UserPerm& perms)
   if (f->flags & O_PATH)
     return -EBADF;
 #endif
+  if ((f->mode & CEPH_FILE_MODE_WR) == 0)
+    return -EBADF;
   struct stat attr;
   attr.st_size = length;
   return _setattr(f->inode, &attr, CEPH_SETATTR_SIZE, perms);
@@ -13136,6 +13178,15 @@ int Client::_rename(Inode *fromdir, const char *fromname, Inode *todir, const ch
     else
       return -EROFS;
   }
+  if (fromdir != todir) {
+    Inode *fromdir_root =
+      fromdir->quota.is_enable() ? fromdir : get_quota_root(fromdir, perm);
+    Inode *todir_root =
+      todir->quota.is_enable() ? todir : get_quota_root(todir, perm);
+    if (fromdir_root != todir_root) {
+      return -EXDEV;
+    }
+  }
 
   InodeRef target;
   MetaRequest *req = new MetaRequest(op);
@@ -13168,32 +13219,7 @@ int Client::_rename(Inode *fromdir, const char *fromname, Inode *todir, const ch
     req->dentry_unless = CEPH_CAP_FILE_EXCL;
 
     InodeRef oldin, otherin;
-    Inode *fromdir_root = nullptr;
-    Inode *todir_root = nullptr;
-    int mask = 0;
-    bool quota_check = false;
-    if (fromdir != todir) {
-      fromdir_root =
-        fromdir->quota.is_enable() ? fromdir : get_quota_root(fromdir, perm);
-      todir_root =
-        todir->quota.is_enable() ? todir : get_quota_root(todir, perm);
-
-      if (todir_root->quota.is_enable() && fromdir_root != todir_root) {
-        // use CEPH_STAT_RSTAT mask to force send getattr or lookup request 
-        // to auth MDS to get latest rstat for todir_root and source dir 
-        // even if their dentry caches and inode caps are satisfied.
-        res = _getattr(todir_root, CEPH_STAT_RSTAT, perm, true);
-        if (res < 0)
-          goto fail;
-
-        quota_check = true;
-        if (oldde->inode && oldde->inode->is_dir()) {
-          mask |= CEPH_STAT_RSTAT;
-        }
-      }
-    }
-
-    res = _lookup(fromdir, fromname, mask, &oldin, perm);
+    res = _lookup(fromdir, fromname, 0, &oldin, perm);
     if (res < 0)
       goto fail;
 
@@ -13201,39 +13227,6 @@ int Client::_rename(Inode *fromdir, const char *fromname, Inode *todir, const ch
     oldinode->break_all_delegs();
     req->set_old_inode(oldinode);
     req->old_inode_drop = CEPH_CAP_LINK_SHARED;
-
-    if (quota_check) {
-      int64_t old_bytes, old_files;
-      if (oldinode->is_dir()) {
-        old_bytes = oldinode->rstat.rbytes;
-        old_files = oldinode->rstat.rsize();
-      } else {
-        old_bytes = oldinode->size;
-        old_files = 1;
-      }
-
-      bool quota_exceed = false;
-      if (todir_root && todir_root->quota.max_bytes &&
-          (old_bytes + todir_root->rstat.rbytes) >= todir_root->quota.max_bytes) {
-        ldout(cct, 10) << "_rename (" << oldinode->ino << " bytes="
-                       << old_bytes << ") to (" << todir->ino 
-		       << ") will exceed quota on " << *todir_root << dendl;
-        quota_exceed = true;
-      }
-
-      if (todir_root && todir_root->quota.max_files &&
-          (old_files + todir_root->rstat.rsize()) >= todir_root->quota.max_files) {
-        ldout(cct, 10) << "_rename (" << oldinode->ino << " files="
-                       << old_files << ") to (" << todir->ino 
-                       << ") will exceed quota on " << *todir_root << dendl;
-        quota_exceed = true;
-      }
-
-      if (quota_exceed) {
-        res = (oldinode->is_dir()) ? -EXDEV : -EDQUOT;
-        goto fail;
-      }
-    }
 
     res = _lookup(todir, toname, 0, &otherin, perm);
     switch (res) {
@@ -15105,7 +15098,7 @@ void intrusive_ptr_add_ref(Inode *in)
 {
   in->get();
 }
-		
+
 void intrusive_ptr_release(Inode *in)
 {
   in->client->put_inode(in);

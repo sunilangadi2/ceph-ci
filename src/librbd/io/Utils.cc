@@ -10,6 +10,8 @@
 #include "librbd/Utils.h"
 #include "librbd/io/AioCompletion.h"
 #include "librbd/io/ImageDispatchSpec.h"
+#include "librbd/io/ObjectRequest.h"
+#include "librbd/io/ImageDispatcherInterface.h"
 #include "osd/osd_types.h"
 #include "osdc/Striper.h"
 
@@ -93,8 +95,8 @@ void read_parent(I *image_ctx, uint64_t object_no, ReadExtents* extents,
   // calculate reverse mapping onto the image
   Extents parent_extents;
   for (auto& extent: *extents) {
-    Striper::extent_to_file(cct, &image_ctx->layout, object_no, extent.offset,
-                            extent.length, parent_extents);
+    extent_to_file(image_ctx, object_no, extent.offset, extent.length,
+                   parent_extents);
   }
 
   uint64_t parent_overlap = 0;
@@ -163,6 +165,55 @@ void unsparsify(CephContext* cct, ceph::bufferlist* bl,
   *bl = out_bl;
 }
 
+template <typename I>
+bool trigger_copyup(I* image_ctx, uint64_t object_no, IOContext io_context,
+                    Context* on_finish) {
+  bufferlist bl;
+  auto req = new ObjectWriteRequest<I>(
+          image_ctx, object_no, 0, std::move(bl), io_context, 0, 0,
+          std::nullopt, {}, on_finish);
+  if (!req->has_parent()) {
+    delete req;
+    return false;
+  }
+
+  req->send();
+  return true;
+}
+
+template <typename I>
+void file_to_extents(I* image_ctx, uint64_t offset, uint64_t length,
+                     uint64_t buffer_offset,
+                     striper::LightweightObjectExtents* object_extents) {
+  Extents extents = {{offset, length}};
+  image_ctx->io_image_dispatcher->remap_extents(
+          std::move(extents), IMAGE_EXTENTS_MAP_TYPE_LOGICAL_TO_PHYSICAL);
+  for (auto [off, len] : extents) {
+    Striper::file_to_extents(image_ctx->cct, &image_ctx->layout, off, len, 0,
+                             buffer_offset, object_extents);
+  }
+}
+
+template <typename I>
+void extent_to_file(I* image_ctx, uint64_t object_no, uint64_t offset,
+                    uint64_t length,
+                    std::vector<std::pair<uint64_t, uint64_t> >& extents) {
+  Striper::extent_to_file(image_ctx->cct, &image_ctx->layout, object_no,
+                          offset, length, extents);
+  image_ctx->io_image_dispatcher->remap_extents(
+          std::move(extents), IMAGE_EXTENTS_MAP_TYPE_PHYSICAL_TO_LOGICAL);
+}
+
+template <typename I>
+uint64_t get_file_offset(I* image_ctx, uint64_t object_no, uint64_t offset) {
+  auto off = Striper::get_file_offset(image_ctx->cct, &image_ctx->layout,
+                                      object_no, offset);
+  Extents extents = {{off, 0}};
+  image_ctx->io_image_dispatcher->remap_extents(
+          std::move(extents), IMAGE_EXTENTS_MAP_TYPE_PHYSICAL_TO_LOGICAL);
+  return extents[0].first;
+}
+
 } // namespace util
 } // namespace io
 } // namespace librbd
@@ -172,3 +223,17 @@ template void librbd::io::util::read_parent(
     librados::snap_t snap_id, const ZTracer::Trace &trace, Context* on_finish);
 template int librbd::io::util::clip_request(
     librbd::ImageCtx *image_ctx, Extents *image_extents);
+template bool librbd::io::util::trigger_copyup(
+        librbd::ImageCtx *image_ctx, uint64_t object_no, IOContext io_context,
+        Context* on_finish);
+template void librbd::io::util::file_to_extents(
+        librbd::ImageCtx *image_ctx, uint64_t offset, uint64_t length,
+        uint64_t buffer_offset,
+        striper::LightweightObjectExtents* object_extents);
+template void librbd::io::util::extent_to_file(
+        librbd::ImageCtx *image_ctx, uint64_t object_no, uint64_t offset,
+        uint64_t length,
+        std::vector<std::pair<uint64_t, uint64_t> >& extents);
+template uint64_t librbd::io::util::get_file_offset(
+        librbd::ImageCtx *image_ctx, uint64_t object_no, uint64_t offset);
+ 

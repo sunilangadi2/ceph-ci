@@ -97,7 +97,7 @@ struct D3nL1CacheRequest : public D3nCacheRequest {
     this->key = obj_key;
     this->len = read_len;
     this->stat = EINPROGRESS;
-    std::string location = cache_location + "/" + obj_key;
+    std::string location = cache_location + obj_key;
     struct aiocb* cb = new struct aiocb;
     memset(cb, 0, sizeof(aiocb));
     cb->aio_fildes = ::open(location.c_str(), O_RDONLY);

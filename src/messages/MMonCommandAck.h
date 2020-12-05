@@ -40,7 +40,7 @@ public:
     cmdmap_t cmdmap;
     std::ostringstream ss;
     string prefix;
-    ceph::common::cmdmap_from_json(cmd, &cmdmap, ss);
+    cmdmap_from_json(cmd, &cmdmap, ss);
     cmd_getval(cmdmap, "prefix", prefix);
     // Some config values contain sensitive data, so don't log them
     o << "mon_command_ack(";

@@ -41,7 +41,7 @@ class PosixNetworkStack : public NetworkStack {
   std::vector<std::thread> threads;
 
  public:
-  explicit PosixNetworkStack(CephContext *c, const std::string &t);
+  explicit PosixNetworkStack(CephContext *c, std::string_view t);
 
   void spawn_worker(unsigned i, std::function<void ()> &&func) override {
     threads.resize(i+1);

@@ -104,7 +104,7 @@ std::ostream& EventCenter::_event_prefix(std::ostream *_dout)
                 << " time_id=" << time_event_next_id << ").";
 }
 
-int EventCenter::init(int nevent, unsigned center_id, const std::string &type)
+int EventCenter::init(int nevent, unsigned center_id, std::string_view type)
 {
   // can't init multi times
   ceph_assert(this->nevent == 0);
@@ -204,7 +204,7 @@ void EventCenter::set_owner()
   if (!global_centers) {
     global_centers = &cct->lookup_or_create_singleton_object<
       EventCenter::AssociatedCenters>(
-	"AsyncMessenger::EventCenter::global_center::" + type, true);
+        "AsyncMessenger::EventCenter::global_center::"s + type.data(), true);
     ceph_assert(global_centers);
     global_centers->centers[center_id] = this;
     if (driver->need_wakeup()) {

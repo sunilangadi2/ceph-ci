@@ -3470,7 +3470,7 @@ public:
     data_len += size;
 
     if (client_cb && (g_conf()->rgw_d3n_l1_local_datacache_enabled || g_conf()->rgw_d3n_l2_distributed_datacache_enabled)) {
-      // d3n cache client cb
+      // d3n L2 cache client cb
       bufferlist bl_temp;
       bl_temp.append(bl);
       client_cb->handle_data(bl_temp, 0, size);
@@ -6557,10 +6557,10 @@ int RGWRados::Object::Read::iterate(int64_t ofs, int64_t end, RGWGetDataCB *cb,
 
   r = data.drain();
   if( cct->_conf->rgw_d3n_l1_local_datacache_enabled ) {
-  r = store->flush_read_list(&data);
-  if (r < 0)
-    return r;
-  return 0;
+    r = store->flush_read_list(&data);
+    if (r < 0)
+      return r;
+    return 0;
   } else {
     return r;
   }

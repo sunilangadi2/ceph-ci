@@ -64,7 +64,7 @@ std::function<void ()> NetworkStack::add_thread(unsigned worker_id)
 }
 
 std::shared_ptr<NetworkStack> NetworkStack::create(CephContext *c,
-						   const std::string &t)
+						   std::string_view t)
 {
   if (t == "posix")
     return std::make_shared<PosixNetworkStack>(c, t);
@@ -83,7 +83,7 @@ std::shared_ptr<NetworkStack> NetworkStack::create(CephContext *c,
   return nullptr;
 }
 
-Worker* NetworkStack::create_worker(CephContext *c, const std::string &type, unsigned worker_id)
+Worker* NetworkStack::create_worker(CephContext *c, std::string_view type, unsigned worker_id)
 {
   if (type == "posix")
     return new PosixWorker(c, worker_id);
@@ -102,7 +102,8 @@ Worker* NetworkStack::create_worker(CephContext *c, const std::string &type, uns
   return nullptr;
 }
 
-NetworkStack::NetworkStack(CephContext *c, const std:: string &t): type(t), started(false), cct(c)
+NetworkStack::NetworkStack(CephContext *c, std:: string_view t)
+  : started(false), cct(c)
 {
   ceph_assert(cct->_conf->ms_async_op_threads > 0);
 
@@ -117,8 +118,8 @@ NetworkStack::NetworkStack(CephContext *c, const std:: string &t): type(t), star
   }
 
   for (unsigned worker_id = 0; worker_id < num_workers; ++worker_id) {
-    Worker *w = create_worker(cct, type, worker_id);
-    int ret = w->center.init(InitEventNumber, worker_id, type);
+    Worker *w = create_worker(cct, t, worker_id);
+    int ret = w->center.init(InitEventNumber, worker_id, t);
     if (ret)
       throw std::system_error(-ret, std::generic_category());
     workers.push_back(w);

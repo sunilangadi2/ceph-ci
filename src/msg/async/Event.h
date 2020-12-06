@@ -153,7 +153,7 @@ class EventCenter {
 
  private:
   CephContext *cct;
-  std::string type;
+  std::string_view type;
   int nevent;
   // Used only to external event
   pthread_t owner = 0;
@@ -192,7 +192,7 @@ class EventCenter {
   ~EventCenter();
   std::ostream& _event_prefix(std::ostream *_dout);
 
-  int init(int nevent, unsigned center_id, const std::string &type);
+  int init(int nevent, unsigned center_id, std::string_view type);
   void set_owner();
   pthread_t get_owner() const { return owner; }
   unsigned get_id() const { return center_id; }

@@ -332,7 +332,7 @@ int PosixWorker::connect(const entity_addr_t &addr, const SocketOptions &opts, C
   return 0;
 }
 
-PosixNetworkStack::PosixNetworkStack(CephContext *c, const std::string &t)
+PosixNetworkStack::PosixNetworkStack(CephContext *c, std::string_view t)
     : NetworkStack(c, t)
 {
 }

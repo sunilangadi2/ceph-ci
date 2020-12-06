@@ -101,7 +101,7 @@ void D3nDataCache::cache_aio_write_completion_cb(D3nCacheAioWriteRequest* c)
 {
   D3nChunkDataInfo* chunk_info{nullptr};
 
-  ldout(cct, 0) << "D3nDataCache: cache_aio_write_completion_cb oid:" << c->oid <<dendl;
+  ldout(cct, 5) << "D3nDataCache: cache_aio_write_completion_cb oid:" << c->oid <<dendl;
 
   /*update cache_map entries for new chunk in cache*/
   cache_lock.lock();

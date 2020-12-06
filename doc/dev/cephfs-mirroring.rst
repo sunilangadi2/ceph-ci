@@ -270,6 +270,72 @@ Right now, the command provides minimal information regarding mirror status::
 peer-id (UUID) and specification. The peer-id is required to remove an existing peer
 as mentioned in the `Mirror Module and Interface` section.
 
+Command with `fs mirror peer status` prefix provide peer synchronization status. This
+command is of format `filesystem-name@filesystem-id peer-uuid`::
+
+  $ ceph --admin-daemon /var/run/ceph/cephfs-mirror.asok fs mirror peer status cephfs@360 a2dc7784-e7a1-4723-b103-03ee8d8768f8
+  {
+    "/d0": {
+        "state": "idle",
+        "last_synced_snap": {
+            "id": 120,
+            "name": "snap1",
+            "sync_duration": 0.079997898999999997,
+            "sync_time_stamp": "274900.558797s"
+        },
+        "snaps_synced": 2,
+        "snaps_deleted": 0,
+        "snaps_renamed": 0
+    }
+  }
+
+Synchronization stats such as `snaps_synced`, `snaps_deleted` and `snaps_renamed` are reset
+on daemon restart and/or when a directory is reassigned to another mirror daemon (when
+multiple mirror daemons are deployed).
+
+A directory can be in one of the following states::
+
+  - `idle`: The directory is currently not being synchronized
+  - `syncing`: The directory is currently being synchronized
+  - `failed`: The directory has hit upper limit of consecutive failures
+
+When a directory hits a configured number of consecutive synchronization failures, the
+mirror daemon marks it as `failed`. Synchronization for these directories are retried.
+By default, the number of consecutive failures before a directory is marked as failed
+is controlled by `cephfs_mirror_max_concurrent_failures_per_directory` configuration
+option (default: 10) and the retry interval for failed directories is controlled via
+`cephfs_mirror_retry_failed_directories_interval` configuration option (default: 60s).
+
+E.g., adding a regular file for synchronization would result in failed status::
+
+  $ ceph fs snapshot mirror add cephfs /f0
+  $ ceph --admin-daemon /var/run/ceph/cephfs-mirror.asok fs mirror peer status cephfs@360 a2dc7784-e7a1-4723-b103-03ee8d8768f8
+  {
+    "/d0": {
+        "state": "idle",
+        "last_synced_snap": {
+            "id": 120,
+            "name": "snap1",
+            "sync_duration": 0.079997898999999997,
+            "sync_time_stamp": "274900.558797s"
+        },
+        "snaps_synced": 2,
+        "snaps_deleted": 0,
+        "snaps_renamed": 0
+    },
+    "/f0": {
+        "state": "failed",
+        "snaps_synced": 0,
+        "snaps_deleted": 0,
+        "snaps_renamed": 0
+    }
+  }
+
+This allows a user to add a non-existent directory for synchronization. The mirror daemon
+would mark the directory as failed and retry (less frequently). When the directory comes
+to existence, the mirror daemons would unmark the failed state upon successfull snapshot
+synchronization.
+
 When mirroring is disabled, the respective `fs mirror status` command for the filesystem
 will not show up in command help.
 

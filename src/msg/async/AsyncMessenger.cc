@@ -252,7 +252,7 @@ struct StackSingleton {
   std::shared_ptr<NetworkStack> stack;
 
   explicit StackSingleton(CephContext *c): cct(c) {}
-  void ready(std::string &type) {
+  void ready(std::string_view type) {
     if (!stack)
       stack = NetworkStack::create(cct, type);
   }
@@ -283,14 +283,14 @@ AsyncMessenger::AsyncMessenger(CephContext *cct, entity_name_t name,
     dispatch_queue(cct, this, mname),
     nonce(_nonce)
 {
-  std::string transport_type = "posix";
+  std::string_view transport_type = "posix";
   if (type.find("rdma") != std::string::npos)
     transport_type = "rdma";
   else if (type.find("dpdk") != std::string::npos)
     transport_type = "dpdk";
 
   auto single = &cct->lookup_or_create_singleton_object<StackSingleton>(
-    "AsyncMessenger::NetworkStack::" + transport_type, true, cct);
+    "AsyncMessenger::NetworkStack::"s + transport_type.data(), true, cct);
   single->ready(transport_type);
   stack = single->stack.get();
   stack->start();

@@ -244,7 +244,7 @@ int D3nRGWDataCache<T>::get_obj_iterate_cb(const rgw_raw_obj& read_obj, off_t ob
     }
   }
 
-  lsubdout(g_ceph_context, rgw, 20) << "rados->get_obj_iterate_cb oid=" << read_obj.oid << " obj-ofs=" << obj_ofs << " read_ofs=" << read_ofs << " len=" << len << dendl;
+  lsubdout(g_ceph_context, rgw, 20) << "D3nRGWDataCache::get_obj_iterate_cb oid=" << read_obj.oid << " obj-ofs=" << obj_ofs << " read_ofs=" << read_ofs << " len=" << len << dendl;
   op.read(read_ofs, len, nullptr, nullptr);
 
   const uint64_t cost = len;
@@ -257,17 +257,25 @@ int D3nRGWDataCache<T>::get_obj_iterate_cb(const rgw_raw_obj& read_obj, off_t ob
     auto obj = d->store->svc.rados->obj(read_obj);
     r = obj.open();
     if (r < 0) {
-      lsubdout(g_ceph_context, rgw, 4) << "failed to open rados context for " << read_obj << dendl;
+      lsubdout(g_ceph_context, rgw, 0) << "Error: d3n failed to open rados context for " << read_obj << ", r=" << dendl;
       return r;
     }
     auto completed = d->aio->get(obj, rgw::Aio::cache_op(std::move(op), d->yield, obj_ofs, read_ofs, len, g_conf()->rgw_d3n_l1_datacache_persistent_path), cost, id);
-    return d->drain();
+    if (g_conf()->rgw_d3n_l1_libaio_read) {
+      r = d->drain();
+    } else {
+      r = d->flush(std::move(completed));
+    }
+    if (r < 0) {
+      lsubdout(g_ceph_context, rgw, 0) << "Error: d3n failed to drain/flush, r= " << r << dendl;
+    }
+    return r;
   } else {
     lsubdout(g_ceph_context, rgw, 20) << "rados->get_obj_iterate_cb oid=" << read_obj.oid << " obj-ofs=" << obj_ofs << " read_ofs=" << read_ofs << " len=" << len << dendl;
     auto obj = d->store->svc.rados->obj(read_obj);
     r = obj.open();
     if (r < 0) {
-      lsubdout(g_ceph_context, rgw, 4) << "failed to open rados context for " << read_obj << dendl;
+      lsubdout(g_ceph_context, rgw, 0) << "Error: d3n failed to open rados context for " << read_obj << ", r=" << dendl;
       return r;
     }
     auto completed = d->aio->get(obj, rgw::Aio::librados_op(std::move(op), d->yield), cost, id);

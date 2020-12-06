@@ -97,11 +97,12 @@ struct D3nL1CacheRequest : public D3nCacheRequest {
     this->key = obj_key;
     this->len = read_len;
     this->stat = EINPROGRESS;
-    std::string location = cache_location + obj_key;
+    std::string location = cache_location + "/" + obj_key;
     struct aiocb* cb = new struct aiocb;
     memset(cb, 0, sizeof(aiocb));
     cb->aio_fildes = ::open(location.c_str(), O_RDONLY);
     if (cb->aio_fildes < 0) {
+      lsubdout(g_ceph_context, rgw, 0) << "Error: " << __func__ << " ::open(" << cache_location << ")" << dendl;
       return -1;
     }
     posix_fadvise(cb->aio_fildes, 0, 0, g_conf()->rgw_d3n_l1_fadvise);

@@ -137,10 +137,9 @@ class TestDashboard(MgrTestCase):
 
         uri = self._get_uri("dashboard")
 
-        log.error("=====> OpenSSL version: %s, %s TLS: %s",
+        log.error("=====> OpenSSL version: %s, %s",
                   ssl.OPENSSL_VERSION,
-                  str(ssl.OPENSSL_VERSION_INFO),
-                  str(list(ssl.TLSVersion)))
+                  str(ssl.OPENSSL_VERSION_INFO))
 
         # TLSv1
         with self.assertRaises(requests.exceptions.SSLError):

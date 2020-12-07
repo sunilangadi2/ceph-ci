@@ -49,7 +49,7 @@ class UpgradeState:
         }
 
     @classmethod
-    def from_json(cls, data) -> Optional['UpgradeState']:
+    def from_json(cls, data: dict) -> Optional['UpgradeState']:
         if data:
             return cls(**data)
         else:
@@ -87,7 +87,7 @@ class CephadmUpgrade:
                 r.message = 'Upgrade paused'
         return r
 
-    def upgrade_start(self, image, version) -> str:
+    def upgrade_start(self, image: str, version: str) -> str:
         if self.mgr.mode != 'root':
             raise OrchestratorError('upgrade is not supported in %s mode' % (
                 self.mgr.mode))
@@ -192,7 +192,7 @@ class CephadmUpgrade:
                 del self.mgr.health_checks[k]
         self.mgr.set_health_checks(self.mgr.health_checks)
 
-    def _fail_upgrade(self, alert_id, alert) -> None:
+    def _fail_upgrade(self, alert_id: str, alert: dict) -> None:
         logger.error('Upgrade: Paused due to %s: %s' % (alert_id,
                                                         alert['summary']))
         if not self.upgrade_state:
@@ -204,7 +204,7 @@ class CephadmUpgrade:
         self.mgr.health_checks[alert_id] = alert
         self.mgr.set_health_checks(self.mgr.health_checks)
 
-    def _update_upgrade_progress(self, progress) -> None:
+    def _update_upgrade_progress(self, progress: float) -> None:
         if not self.upgrade_state:
             assert False, 'No upgrade in progress'
 

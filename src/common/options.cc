@@ -3036,6 +3036,26 @@ std::vector<Option> get_global_options() {
     .set_description("mclock anticipation timeout in seconds")
     .set_long_description("the amount of time that mclock waits until the unused resource is forfeited"),
 
+    Option("osd_mclock_max_client_iops", Option::TYPE_FLOAT, Option::LEVEL_BASIC)
+    .set_default(25600.0)
+    .set_description("Max IOPs limit for client ops")
+    .set_long_description("This option specifies the upper limit for the external client iops to the mclock scheduler. Helps in QoS calculations when enabling a dmclock profile. Only considered for osd_op_queue = mClockScheduler")
+    .set_flag(Option::FLAG_RUNTIME),
+
+    Option("osd_mclock_max_background_recovery_iops", Option::TYPE_FLOAT, Option::LEVEL_BASIC)
+    .set_default(400.0)
+    .set_description("Max IOPs limit for background recovery ops")
+    .set_long_description("This option specifies the upper limit for the background recovery iops to the mclock scheduler. Helps in QoS calculations when enabling a dmclock profile. Only considered for osd_op_queue = mClockScheduler")
+    .set_flag(Option::FLAG_RUNTIME),
+
+    Option("osd_mclock_profile", Option::TYPE_STR, Option::LEVEL_ADVANCED)
+    .set_default("balanced")
+    .set_enum_allowed( { "balanced", "high_recovery_ops", "high_client_ops", "custom" } )
+    .set_description("Which mclock profile to use")
+    .set_long_description("This option specifies the mclock profile to enable - one among the set of built-in profiles or a custom profile. Only considered for osd_op_queue = mClockScheduler")
+    .set_flag(Option::FLAG_RUNTIME)
+    .add_see_also("osd_op_queue"),
+
     Option("osd_ignore_stale_divergent_priors", Option::TYPE_BOOL, Option::LEVEL_ADVANCED)
     .set_default(false)
     .set_description(""),

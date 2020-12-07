@@ -16,6 +16,7 @@
 #include <memory>
 #include <functional>
 
+#include "include/stringify.h"
 #include "osd/scheduler/mClockScheduler.h"
 #include "common/dout.h"
 
@@ -25,12 +26,14 @@ using namespace std::placeholders;
 #define dout_context cct
 #define dout_subsys ceph_subsys_osd
 #undef dout_prefix
-#define dout_prefix *_dout
+#define dout_prefix *_dout << "mClockScheduler: "
 
 
 namespace ceph::osd::scheduler {
 
-mClockScheduler::mClockScheduler(CephContext *cct) :
+mClockScheduler::mClockScheduler(CephContext *cct, uint32_t num_shards) :
+  cct(cct),
+  num_shards(num_shards),
   scheduler(
     std::bind(&mClockScheduler::ClientRegistry::get_info,
 	      &client_registry,
@@ -39,6 +42,18 @@ mClockScheduler::mClockScheduler(CephContext *cct) :
     cct->_conf.get_val<double>("osd_mclock_scheduler_anticipation_timeout"))
 {
   cct->_conf.add_observer(this);
+  // Set per op shard iops limits
+  ceph_assert(num_shards > 0);
+  client_iops_limit =
+    cct->_conf.get_val<double>("osd_mclock_max_client_iops");
+  client_iops_limit /= num_shards;
+
+  rec_iops_limit =
+    cct->_conf.get_val<double>("osd_mclock_max_background_recovery_iops");
+  rec_iops_limit /= num_shards;
+  dout(1) <<  "client_iops_limit:" << client_iops_limit
+          << " rec_iops_limit:" << rec_iops_limit << dendl;
+  enable_mclock_profile();
   client_registry.update_from_config(cct->_conf);
 }
 
@@ -84,6 +99,100 @@ const dmc::ClientInfo *mClockScheduler::ClientRegistry::get_info(
     ceph_assert(static_cast<size_t>(id.class_id) < internal_client_infos.size());
     return &internal_client_infos[static_cast<size_t>(id.class_id)];
   }
+}
+
+void mClockScheduler::enable_mclock_profile()
+{
+  const std::string profile =
+    cct->_conf.get_val<std::string>("osd_mclock_profile");
+  // Nothing to do for "custom" profile
+  if (profile == "custom") {
+    return;
+  }
+
+  // Set mclock and ceph config options for the chosen profile
+  if (profile == "balanced") {
+    set_balanced_profile_config();
+  } else if (profile == "high_recovery_ops") {
+    set_high_recovery_ops_profile_config();
+  } else if (profile == "high_client_ops") {
+    set_high_client_ops_profile_config();
+  } else {
+    ceph_assert("Invalid choice of mclock profile" == 0);
+    return;
+  }
+  dout(1) << profile << " profile enabled" << dendl;
+}
+
+void mClockScheduler::set_balanced_profile_config()
+{
+  int client_wgt = 10;
+  // Set client reservation to 50% of max osd capacity
+  double client_res = std::round(client_iops_limit * 0.5);
+  // Set recovery limit to 75% of max osd capacity
+  double rec_lim = std::round(rec_iops_limit * 0.75);
+
+  // Set external client params
+  cct->_conf.set_val(
+    "osd_mclock_scheduler_client_res", stringify(client_res));
+  cct->_conf.set_val(
+    "osd_mclock_scheduler_client_wgt", stringify(client_wgt));
+  cct->_conf.set_val(
+    "osd_mclock_scheduler_client_lim", stringify(default_max));
+
+  // Set background recovery client params
+  cct->_conf.set_val(
+    "osd_mclock_scheduler_background_recovery_res", stringify(default_min));
+  cct->_conf.set_val(
+    "osd_mclock_scheduler_background_recovery_wgt", stringify(default_min));
+  cct->_conf.set_val(
+    "osd_mclock_scheduler_background_recovery_lim", stringify(rec_lim));
+}
+
+void mClockScheduler::set_high_recovery_ops_profile_config()
+{
+  int rec_wgt = 10;
+  // Set recovery reservation to 75% of max osd capacity
+  double rec_res = std::round(rec_iops_limit * 0.75);
+
+  // Set external client params
+  cct->_conf.set_val(
+    "osd_mclock_scheduler_client_res", stringify(default_min));
+  cct->_conf.set_val(
+    "osd_mclock_scheduler_client_wgt", stringify(default_min));
+  cct->_conf.set_val(
+    "osd_mclock_scheduler_client_lim", stringify(client_iops_limit));
+
+  // Set background recovery client params
+  cct->_conf.set_val(
+    "osd_mclock_scheduler_background_recovery_res", stringify(rec_res));
+  cct->_conf.set_val(
+    "osd_mclock_scheduler_background_recovery_wgt", stringify(rec_wgt));
+  cct->_conf.set_val(
+    "osd_mclock_scheduler_background_recovery_lim", stringify(default_max));
+}
+
+void mClockScheduler::set_high_client_ops_profile_config()
+{
+  int client_wgt = 10;
+  // Set recovery limit to 25% of max osd capacity
+  double rec_lim = std::round(rec_iops_limit * 0.25);
+
+  // Set external client params
+  cct->_conf.set_val(
+    "osd_mclock_scheduler_client_res", stringify(default_min));
+  cct->_conf.set_val(
+    "osd_mclock_scheduler_client_wgt", stringify(client_wgt));
+  cct->_conf.set_val(
+    "osd_mclock_scheduler_client_lim", stringify(default_max));
+
+  // Set background recovery client params
+  cct->_conf.set_val(
+    "osd_mclock_scheduler_background_recovery_res", stringify(default_min));
+  cct->_conf.set_val(
+    "osd_mclock_scheduler_background_recovery_wgt", stringify(default_min));
+  cct->_conf.set_val(
+    "osd_mclock_scheduler_background_recovery_lim", stringify(rec_lim));
 }
 
 void mClockScheduler::dump(ceph::Formatter &f) const
@@ -149,6 +258,9 @@ const char** mClockScheduler::get_tracked_conf_keys() const
     "osd_mclock_scheduler_background_best_effort_res",
     "osd_mclock_scheduler_background_best_effort_wgt",
     "osd_mclock_scheduler_background_best_effort_lim",
+    "osd_mclock_max_client_iops",
+    "osd_mclock_max_background_recovery_iops",
+    "osd_mclock_profile",
     NULL
   };
   return KEYS;

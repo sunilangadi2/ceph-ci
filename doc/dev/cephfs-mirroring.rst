@@ -365,6 +365,17 @@ When no mirror daemons are running the above command shows::
 
 Signifying that no mirror daemons are running and mirroring is stalled.
 
+Re-adding Peers
+--------------
+
+When re-adding (reassigning) a peer to a filesystem in another cluster, ensure that
+all mirror daemons have stopped synchronization to the peer. This can be checked
+via `fs mirror status` admin socket command (the `Peer UUID` should not show up
+in the command output). Also, it is recommended to purge synchronized directories
+from the peer  before re-adding it to another filesystem (especially those directories
+which might exist in the new primary filesystem). This is not required if re-adding
+a peer to the same primary filesystem it was earlier synchronized from.
+
 Creating Users
 --------------
 

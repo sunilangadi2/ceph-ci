@@ -2543,6 +2543,7 @@ class CephContainer:
             'run',
             '--rm',
             '--ipc=host',
+            '--authfile=/etc/ceph/podman-auth.json' if 'podman' in container_path else '',
         ]
         envs: List[str] = [
             '-e', 'CONTAINER_IMAGE=%s' % self.image,
@@ -3320,7 +3321,10 @@ def registry_login(url, username, password):
         out, _, _ = call_throws([container_path, 'login',
                                    '-u', username,
                                    '-p', password,
+                                   '--authfile=/etc/ceph/podman-auth.json' if 'podman' in container_path else '',
                                    url])
+        if 'podman' in container_path:
+            os.chmod('/etc/ceph/podman-auth.json', 0o600)
     except:
         raise Error("Failed to login to custom registry @ %s as %s with given password" % (args.registry_url, args.registry_username))
 

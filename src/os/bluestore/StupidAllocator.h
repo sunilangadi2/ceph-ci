@@ -18,6 +18,7 @@ class StupidAllocator : public Allocator {
   ceph::mutex lock = ceph::make_mutex("StupidAllocator::lock");
 
   int64_t num_free;     ///< total bytes in freelist
+  int64_t device_size;  ///< size of the device
   int64_t block_size;
   uint64_t bdev_block_size;
 
@@ -38,7 +39,7 @@ class StupidAllocator : public Allocator {
     uint64_t alloc_unit);
 
 public:
-  StupidAllocator(CephContext* cct, const std::string& name, int64_t block_size);
+  StupidAllocator(CephContext* cct, int64_t capacity, int64_t block_size, const std::string& name);
   ~StupidAllocator() override;
 
   int64_t allocate(

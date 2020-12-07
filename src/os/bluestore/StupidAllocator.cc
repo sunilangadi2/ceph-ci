@@ -11,9 +11,11 @@
 #define dout_prefix *_dout << "stupidalloc 0x" << this << " "
 
 StupidAllocator::StupidAllocator(CephContext* cct,
-                                 const std::string& name,
-                                 int64_t _block_size)
+                                 int64_t capacity,
+                                 int64_t _block_size,
+                                 const std::string& name)
   : Allocator(name), cct(cct), num_free(0),
+    device_size(capacity),
     block_size(_block_size),
     free(10)
 {

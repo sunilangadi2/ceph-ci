@@ -119,7 +119,7 @@ Allocator *Allocator::create(CephContext* cct, string type,
 {
   Allocator* alloc = nullptr;
   if (type == "stupid") {
-    alloc = new StupidAllocator(cct, name, block_size);
+    alloc = new StupidAllocator(cct, size, block_size, name);
   } else if (type == "bitmap") {
     alloc = new BitmapAllocator(cct, size, block_size, name);
   } else if (type == "avl") {

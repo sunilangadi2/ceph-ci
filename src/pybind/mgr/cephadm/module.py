@@ -422,7 +422,8 @@ class CephadmOrchestrator(orchestrator.Orchestrator, MgrModule,
         self.log.debug(f"Attempting to log host {host} into custom registry @ {url}")
         # want to pass info over stdin rather than through normal list of args
         args_str = ("{\"url\": \"" + url + "\", \"username\": \"" + username + "\", "
-                    " \"password\": \"" + password + "\"}")
+                    " \"password\": \"" + password + "\", "
+                    " \"fsid\": \"" + self._cluster_fsid + "\"}")
         out, err, code = self._run_cephadm(
             host, 'mon', 'registry-login',
             ['--registry-json', '-'], stdin=args_str, error_ok=True)

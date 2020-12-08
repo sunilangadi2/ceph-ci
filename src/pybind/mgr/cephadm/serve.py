@@ -575,7 +575,8 @@ class CephadmServe:
             daemon_ids = [d.daemon_id for d in remove_daemon_hosts]
             assert None not in daemon_ids
             # setting force flag retains previous behavior, should revisit later.
-            r = self.mgr.cephadm_services[service_type].ok_to_stop(cast(List[str], daemon_ids), force=True)
+            r = self.mgr.cephadm_services[service_type].ok_to_stop(
+                cast(List[str], daemon_ids), force=True)
             return not r.retval
 
         while remove_daemon_hosts and not _ok_to_stop(remove_daemon_hosts):
@@ -802,7 +803,7 @@ class CephadmServe:
                 [
                     '--name', daemon_spec.name(),
                 ] + daemon_spec.extra_args,
-                stdin=json.dumps(cephadm_config),
+                stdin=json.dumps(daemon_spec.final_config),
                 image=image)
             if not code and daemon_spec.host in self.mgr.cache.daemons:
                 # prime cached service state with what we (should have)
@@ -818,7 +819,7 @@ class CephadmServe:
                     self.mgr.requires_post_actions.add(daemon_spec.daemon_type)
             self.mgr.cache.invalidate_host_daemons(daemon_spec.host)
             self.mgr.cache.update_daemon_config_deps(
-                daemon_spec.host, daemon_spec.name(), deps, start_time)
+                daemon_spec.host, daemon_spec.name(), daemon_spec.deps, start_time)
             self.mgr.cache.save_host(daemon_spec.host)
             msg = "{} {} on host '{}'".format(
                 'Reconfigured' if reconfig else 'Deployed', daemon_spec.name(), daemon_spec.host)

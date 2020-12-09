@@ -2475,7 +2475,6 @@ int RGWRados::Bucket::List::list_objects_ordered(
   rgw_obj_index_key marker_skip_ahead;
 
   rgw_obj_index_key prev_marker;
-  string skip_after_delim;
   for (uint16_t attempt = 1; /* empty */; ++attempt) {
     ldout(cct, 20) << "RGWRados::Bucket::List::" << __func__ <<
       " starting attempt " << attempt << dendl;
@@ -2579,13 +2578,6 @@ int RGWRados::Bucket::List::list_objects_ordered(
 	  const std::string prefix_key =
 	    obj.name.substr(0, delim_pos + params.delim.length());
 
-	  // setting marker_skip_ahead allows the next call to
-	  // cls_bucket_list_ordered to skip over unlisted entries;
-	  // NOTE: after_delim_s
-	  const std::string skip_name = obj.name.substr(0, delim_pos) + after_delim_s;
-	  const rgw_obj_key skip_key(skip_name, "" /* empty instance*/ , obj.ns);
-	  skip_key.get_index_key(&marker_skip_ahead);
-
           if (common_prefixes &&
               common_prefixes->find(prefix_key) == common_prefixes->end()) {
             if (count >= max) {
@@ -2595,10 +2587,13 @@ int RGWRados::Bucket::List::list_objects_ordered(
             next_marker = prefix_key;
             (*common_prefixes)[prefix_key] = true;
 
-            skip_after_delim = obj.name.substr(0, delim_pos);
-            skip_after_delim.append(after_delim_s);
-
-            ldout(cct, 20) << "skip_after_delim=" << skip_after_delim << dendl;
+	    // setting marker_skip_ahead allows the next call to
+	    // cls_bucket_list_ordered to skip over unlisted entries;
+	    // NOTE: after_delim_s
+	    const std::string skip_name = obj.name.substr(0, delim_pos) + after_delim_s;
+	    const rgw_obj_key skip_key(skip_name, "" /* empty instance*/ , obj.ns);
+	    skip_key.get_index_key(&marker_skip_ahead);
+            ldout(cct, 20) << "marker_skip_ahead=" << marker_skip_ahead << dendl;
 
             count++;
           }

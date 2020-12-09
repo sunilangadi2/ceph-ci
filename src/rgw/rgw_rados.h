@@ -1105,7 +1105,7 @@ public:
     ATTRSMOD_MERGE   = 2
   };
 
-  D3nDataCache* datacache;
+  D3nDataCache* d3n_datacache{nullptr};
 
   int rewrite_obj(RGWBucketInfo& dest_bucket_info, rgw::sal::RGWObject* obj, const DoutPrefixProvider *dpp, optional_yield y);
 

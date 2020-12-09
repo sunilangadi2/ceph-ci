@@ -6,6 +6,7 @@
 
 #include "rgw_rados.h"
 #include <curl/curl.h>
+#include <experimental/filesystem>
 
 #include "rgw_common.h"
 
@@ -18,6 +19,7 @@
 
 
 /*D3nDataCache*/
+namespace efs = std::experimental::filesystem;
 struct D3nDataCache;
 class D3nL2CacheThreadPool;
 class D3nHttpL2Request;
@@ -116,9 +118,26 @@ public:
     head = nullptr;
     tail = nullptr;
     cache_location = cct->_conf->rgw_d3n_l1_datacache_persistent_path;
-    if(cache_location.back() != '/')
-    {
+    if(cache_location.back() != '/') {
        cache_location += "/";
+    }
+    try {
+      if (efs::exists(cache_location)) {
+        // evict the cache storage directory
+        if (g_conf()->rgw_d3n_l1_evict_cache_on_start) {
+          lsubdout(g_ceph_context, rgw, 20) << "D3nDataCache init: evicting the persistent storage directory on start" << dendl;
+          for (auto& p : efs::directory_iterator(cache_location)) {
+            efs::remove_all(p.path());
+          }
+        }
+      } else {
+        // create the cache storage directory
+        lsubdout(g_ceph_context, rgw, 20) << "D3nDataCache init: creating the persistent storage directory on start" << dendl;
+        efs::create_directories(cache_location);
+      }
+    } catch (const efs::filesystem_error& e) {
+      lderr(g_ceph_context) << "Error initialize the cache storage directory '" << cache_location <<
+                               "' : " << e.what() << dendl;
     }
   }
 

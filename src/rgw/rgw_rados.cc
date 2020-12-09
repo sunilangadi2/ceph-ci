@@ -1119,12 +1119,12 @@ int RGWRados::init_rados()
     return ret;
   }
   cr_registry = crs.release();
-  
-  datacache = new D3nDataCache();
+
   if(use_datacache) {
-    datacache->init(cct);
+    d3n_datacache = new D3nDataCache();
+    d3n_datacache->init(cct);
   }
-  
+
   return ret;
 }
 

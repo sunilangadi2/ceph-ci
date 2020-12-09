@@ -24,8 +24,8 @@
 
 using namespace librados;
 
-static string gc_oid_prefix = "gc";
-static string gc_index_lock_name = "gc_process";
+static const string gc_oid_prefix = "gc";
+static const string gc_index_lock_name = "gc_process";
 
 void RGWGC::initialize(CephContext *_cct, RGWRados *_store) {
   cct = _cct;
@@ -44,9 +44,6 @@ void RGWGC::initialize(CephContext *_cct, RGWRados *_store) {
     auto it = transitioned_objects_cache.begin() + i;
     transitioned_objects_cache.insert(it, false);
 
-    //version = 0 -> not ready for transition
-    //version = 1 -> marked ready for transition
-    //version = 2 -> transitioned to queue completely
     librados::ObjectWriteOperation op;
     op.create(false);
     const uint64_t queue_size = cct->_conf->rgw_gc_max_queue_size, num_deferred_entries = cct->_conf->rgw_gc_max_deferred;
@@ -196,9 +193,9 @@ int RGWGC::set_to_transitioned(int index)
 {
   ObjectWriteOperation op;
   obj_version objv;
-  objv.ver = 1;
+  objv.ver = static_cast<uint64_t>(GC_OBJ_STATE::READY_FOR_TRANSITION);
   cls_version_check(op, objv, VER_COND_EQ);
-  objv.ver = 2;
+  objv.ver = static_cast<uint64_t>(GC_OBJ_STATE::TRANSITIONED_TO_Q);
   cls_version_set(op, objv);
 
   return store->gc_operate(obj_names[index], &op);
@@ -217,7 +214,7 @@ int RGWGC::list(int *index, string& marker, uint32_t max, bool expired_only, std
     obj_version objv;
     cls_version_read(store->gc_pool_ctx, obj_names[*index], &objv);
     //processing_queue is set to true from previous iteration if the queue was under process and probably has more elements in it.
-    if (objv.ver != 2 && ! check_queue && ! processing_queue) {
+    if (objv.ver != static_cast<uint64_t>(GC_OBJ_STATE::TRANSITIONED_TO_Q) && ! check_queue && ! processing_queue) {
       ret = cls_rgw_gc_list(store->gc_pool_ctx, obj_names[*index], marker, max - result.size(), expired_only, entries, truncated, next_marker);
       if (ret != -ENOENT && ret < 0) {
         return ret;
@@ -240,12 +237,12 @@ int RGWGC::list(int *index, string& marker, uint32_t max, bool expired_only, std
           }
         }
       }
-      if ((objv.ver == 1) && (entries.size() < max - result.size())) {
+      if ((objv.ver == static_cast<uint64_t>(GC_OBJ_STATE::READY_FOR_TRANSITION)) && (entries.size() < max - result.size())) {
         check_queue = true;
         marker.clear();
       }
     }
-    if (objv.ver == 2 || check_queue || processing_queue) {
+    if (objv.ver == static_cast<uint64_t>(GC_OBJ_STATE::TRANSITIONED_TO_Q) || check_queue || processing_queue) {
       processing_queue = false;
       ret = cls_rgw_gc_queue_list_entries(store->gc_pool_ctx, obj_names[*index], marker, (max - result.size()) - entries.size(), expired_only, queue_entries, truncated, next_marker);
       if (ret < 0) {
@@ -555,7 +552,7 @@ int RGWGC::process(int index, int max_secs, bool expired_only,
       ", next_marker='" << next_marker << "'" << dendl;
       obj_version objv;
       cls_version_read(store->gc_pool_ctx, obj_names[index], &objv);
-      if ((objv.ver == 1) && entries.size() == 0) {
+      if ((objv.ver == static_cast<uint64_t>(GC_OBJ_STATE::READY_FOR_TRANSITION)) && entries.size() == 0) {
         std::list<cls_rgw_gc_obj_info> non_expired_entries;
         ret = cls_rgw_gc_list(store->gc_pool_ctx, obj_names[index], marker, 1, false, non_expired_entries, &truncated, next_marker);
         if (non_expired_entries.size() == 0) {
@@ -568,7 +565,7 @@ int RGWGC::process(int index, int max_secs, bool expired_only,
           goto done;
         }
       }
-      if ((objv.ver == 0) && (ret == -ENOENT || entries.size() == 0)) {
+      if ((objv.ver == static_cast<uint64_t>(GC_OBJ_STATE::NOT_READY_FOR_TRANSITION)) && (ret == -ENOENT || entries.size() == 0)) {
         ret = 0;
         goto done;
       }

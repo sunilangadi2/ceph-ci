@@ -45,6 +45,17 @@ class RGWGC : public DoutPrefixProvider {
 
   GCWorker *worker;
 public:
+  enum class GC_OBJ_STATE {
+    /* osd has not been upgraded, hence is not ready for transition to q,
+    new entries will still go to omap on the osd that has the gc object */
+    NOT_READY_FOR_TRANSITION = 0,
+    /* osd has been upgraded, ready to transition from omap to q
+    but there are old entries in omap, new entries will go to q */
+    READY_FOR_TRANSITION = 1,
+    /* gc entries in omap have been processed, new entries will go to q */
+    TRANSITIONED_TO_Q = 2
+  };
+
   RGWGC() : cct(NULL), store(NULL), max_objs(0), obj_names(NULL), worker(NULL) {}
   ~RGWGC() {
     stop_processor();
@@ -71,6 +82,7 @@ public:
               RGWGCIOManager& io_manager);
   int process(bool expired_only);
 
+  /* This method sets the version of a gc object to "TRANSITIONED_TO_Q" (see enum class GC_OBJECT_STATE) */
   int set_to_transitioned(int index);
 
   bool going_down();

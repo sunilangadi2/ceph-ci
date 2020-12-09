@@ -1554,6 +1554,7 @@ OPTION(rgw_gc_max_deferred, OPT_U64) // GC max number of deferred entries
 OPTION(rgw_d3n_l1_local_datacache_enabled, OPT_BOOL)
 OPTION(rgw_d3n_l1_datacache_persistent_path, OPT_STR)
 OPTION(rgw_d3n_l1_datacache_size, OPT_LONGLONG)
+OPTION(rgw_d3n_l1_evict_cache_on_start, OPT_BOOL)
 OPTION(rgw_d3n_l1_libaio_read, OPT_BOOL)
 OPTION(rgw_d3n_l1_fadvise, OPT_INT)
 OPTION(rgw_d3n_l2_distributed_datacache_enabled, OPT_BOOL)

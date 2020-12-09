@@ -7043,12 +7043,16 @@ std::vector<Option> get_rgw_options() {
     .set_description("Enable datacenter-scale dataset delivery local cache"),
 
     Option("rgw_d3n_l1_datacache_persistent_path", Option::TYPE_STR, Option::LEVEL_ADVANCED)
-    .set_default("/tmp/")
+    .set_default("/tmp/rgw_datacache/")
     .set_description("path for the directory for storing the local cache objects data"),
 
     Option("rgw_d3n_l1_datacache_size", Option::TYPE_SIZE, Option::LEVEL_ADVANCED)
     .set_default(1048576)
     .set_description("Datacache size in bytes"),
+
+    Option("rgw_d3n_l1_evict_cache_on_start", Option::TYPE_BOOL, Option::LEVEL_ADVANCED)
+    .set_default(true)
+    .set_description("clear the content of the persistent data cache directory on start"),
 
     Option("rgw_d3n_l1_libaio_read", Option::TYPE_BOOL, Option::LEVEL_ADVANCED)
     .set_default(false)

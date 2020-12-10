@@ -3655,6 +3655,15 @@ std::vector<Option> get_global_options() {
     .set_default(1)
     .set_description("Time in seconds to sleep before next removal transaction when data is on HDD and journal is on SSD"),
 
+    Option("osd_delete_via_reclaim", Option::TYPE_BOOL, Option::LEVEL_ADVANCED)
+    .set_default(true)
+    .set_description("When deleting PG do space reclamation first then invoke bulk metadata removal from KV. "
+      "Available for KV residing on SSD drive only"),
+
+    Option("osd_reclaim_sleep", Option::TYPE_FLOAT, Option::LEVEL_ADVANCED)
+    .set_default(0.1)
+    .set_description("Time in seconds to sleep before next reclaiming transaction"),
+
     Option("osd_failsafe_full_ratio", Option::TYPE_FLOAT, Option::LEVEL_ADVANCED)
     .set_default(.97)
     .set_description(""),
@@ -4528,7 +4537,7 @@ std::vector<Option> get_global_options() {
     .set_description("Enable use of rocksdb column families for bluestore metadata"),
 
     Option("bluestore_rocksdb_cfs", Option::TYPE_STR, Option::LEVEL_DEV)
-    .set_default("m(3) O(3,0-13) L")
+    .set_default("m(3) p(3) O(3,0-13) L")
     .set_description("Definition of column families and their sharding")
     .set_long_description("Space separated list of elements: column_def [ '=' rocksdb_options ]. "
 			  "column_def := column_name [ '(' shard_count [ ',' hash_begin '-' [ hash_end ] ] ')' ]. "

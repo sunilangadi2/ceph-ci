@@ -142,8 +142,10 @@ enum {
   l_bluestore_omap_next_lat,
   l_bluestore_omap_get_keys_lat,
   l_bluestore_omap_get_values_lat,
+  l_bluestore_omap_clear_lat,
   l_bluestore_clist_lat,
   l_bluestore_remove_lat,
+  l_bluestore_truncate_lat,
   l_bluestore_last
 };
 
@@ -1074,6 +1076,7 @@ public:
 
     bluestore_onode_t onode;  ///< metadata stored as value in kv store
     bool exists;              ///< true if object logically exists
+    bool reclaimed;           ///< true if object just has been reclaimed
     bool cached;              ///< Onode is logically in the cache
                               /// (it can be pinned and hence physically out
                               /// of it at the moment though)
@@ -1096,6 +1099,7 @@ public:
 	oid(o),
 	key(k),
 	exists(false),
+        reclaimed(false),
         cached(false),
         pinned(false),
 	extent_map(this) {
@@ -1107,6 +1111,7 @@ public:
       oid(o),
       key(k),
       exists(false),
+      reclaimed(false),
       cached(false),
       pinned(false),
       extent_map(this) {
@@ -1118,6 +1123,7 @@ public:
       oid(o),
       key(k),
       exists(false),
+      reclaimed(false),
       cached(false),
       pinned(false),
       extent_map(this) {
@@ -1222,7 +1228,7 @@ public:
     std::array<std::pair<ghobject_t, ceph::mono_clock::time_point>, 64> dumped_onodes;
 
     virtual void _pin(Onode* o) = 0;
-    virtual void _unpin(Onode* o) = 0;
+    virtual void _unpin(Onode* o, bool trim) = 0;
 
   public:
     OnodeCacheShard(CephContext* cct) : CacheShard(cct) {}
@@ -1238,10 +1244,16 @@ public:
       }
     }
 
-    void unpin(Onode* o, std::function<bool()> validator) {
+    enum {
+      UNPIN_SKIP,
+      UNPIN_PROCEED_CACHING,
+      UNPIN_PROCEED_TRIM,
+    };
+    void unpin(Onode* o, std::function<int()> validator) {
       std::lock_guard l(lock);
-      if (validator()) {
-        _unpin(o);
+      int r = validator();
+      if (r == UNPIN_PROCEED_CACHING || r == UNPIN_PROCEED_TRIM) {
+        _unpin(o, r == UNPIN_PROCEED_TRIM);
       }
     }
 
@@ -1341,6 +1353,7 @@ public:
       ceph::make_shared_mutex("BlueStore::Collection::lock", true, false);
 
     bool exists;
+    std::atomic<bool> bulk_rm_locked = false;
 
     SharedBlobSet shared_blob_set;      ///< open SharedBlobs
 
@@ -1655,6 +1668,9 @@ public:
       delete deferred_txn;
     }
 
+    void register_on_commit(Context* ctx) {
+      oncommits.push_back(ctx);
+    }
     void write_onode(OnodeRef &o) {
       onodes.insert(o);
     }
@@ -1951,7 +1967,7 @@ public:
 	qcond.wait(l);
 	--kv_submitted_waiters;
       }
-    }
+      }
 
     bool flush_commit(Context *c) {
       std::lock_guard l(qlock);
@@ -2150,7 +2166,12 @@ private:
 		std::numeric_limits<decltype(min_alloc_size)>::digits,
 		"not enough bits for min_alloc_size");
 
-  bool per_pool_omap = false;
+  enum {
+    // Please preserve the order since it's DB persistent
+    OMAP_UNSORTED = 0,
+    OMAP_PER_POOL = 1,
+    OMAP_PER_PG = 2,
+    } per_pool_omap = OMAP_UNSORTED;
 
   ///< maximum allocation unit (power of 2)
   std::atomic<uint64_t> max_alloc_size = {0};
@@ -2403,7 +2424,7 @@ private:
   int _create_alloc();
   int _init_alloc();
   void _close_alloc();
-  int _open_collections();
+  int _open_collections(bool allow_removal);
   void _fsck_collections(int64_t* errors);
   void _close_collections();
 
@@ -2872,6 +2893,7 @@ public:
                              int max,
                              std::vector<ghobject_t> *ls,
                              ghobject_t *next) override;
+  int collection_bulk_remove_lock(CollectionHandle& c) override;
 
   int omap_get(
     CollectionHandle &c,     ///< [in] Collection containing oid
@@ -3055,7 +3077,7 @@ private:
   std::set<std::string> failed_compressors;
   std::string spillover_alert;
   std::string legacy_statfs_alert;
-  std::string no_per_pool_omap_alert;
+  std::string no_per_pg_omap_alert;
   std::string disk_size_mismatch_alert;
   std::string spurious_read_errors_alert;
 
@@ -3085,7 +3107,7 @@ private:
   }
 
   void _check_legacy_statfs_alert();
-  void _check_no_per_pool_omap_alert();
+  void _check_no_per_pg_omap_alert();
   void _set_disk_size_mismatch_alert(const std::string& s) {
     std::lock_guard l(qlock);
     disk_size_mismatch_alert = s;
@@ -3277,11 +3299,13 @@ private:
 		   CollectionRef& c,
 		   OnodeRef o,
 		   uint64_t offset,
-		   std::set<SharedBlob*> *maybe_unshared_blobs=0);
+		   std::set<SharedBlob*> *maybe_unshared_blobs=0,
+                   bool reclaim_mode = false);
   int _truncate(TransContext *txc,
 		CollectionRef& c,
 		OnodeRef& o,
-		uint64_t offset);
+		uint64_t offset,
+                bool reclaim_mode = false);
   int _remove(TransContext *txc,
 	      CollectionRef& c,
 	      OnodeRef& o);
@@ -3621,7 +3645,7 @@ public:
     }
   };
 public:
-  void fix_per_pool_omap(KeyValueDB *db);
+  void fix_per_pool_omap(KeyValueDB *db, int val);
   bool remove_key(KeyValueDB *db, const std::string& prefix, const std::string& key);
   bool fix_shared_blob(KeyValueDB *db,
 		         uint64_t sbid,

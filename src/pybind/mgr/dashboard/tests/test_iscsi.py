@@ -33,18 +33,27 @@ class IscsiTestCli(unittest.TestCase, CLICommandTestMixin):
     def test_cli_add_gateway_invalid_url(self):
         with self.assertRaises(CmdException) as ctx:
             self.exec_cmd('iscsi-gateway-add', name='node1',
-                          service_url='http:/hello.com')
+                          inbuf='http:/hello.com')
 
         self.assertEqual(ctx.exception.retcode, -errno.EINVAL)
         self.assertEqual(str(ctx.exception),
                          "Invalid service URL 'http:/hello.com'. Valid format: "
                          "'<scheme>://<username>:<password>@<host>[:port]'.")
 
+    def test_cli_add_gateway_empty_url(self):
+        with self.assertRaises(CmdException) as ctx:
+            self.exec_cmd('iscsi-gateway-add', name='node1',
+                          inbuf='')
+
+        self.assertEqual(ctx.exception.retcode, -errno.EINVAL)
+        self.assertEqual(str(ctx.exception),
+                         'Please specify the file containing the password/secret with "-i" option.')
+
     def test_cli_add_gateway(self):
         self.exec_cmd('iscsi-gateway-add', name='node1',
-                      service_url='https://admin:admin@10.17.5.1:5001')
+                      inbuf='https://admin:admin@10.17.5.1:5001')
         self.exec_cmd('iscsi-gateway-add', name='node2',
-                      service_url='https://admin:admin@10.17.5.2:5001')
+                      inbuf='https://admin:admin@10.17.5.2:5001')
         iscsi_config = json.loads(self.get_key("_iscsi_config"))
         self.assertEqual(iscsi_config['gateways'], {
             'node1': {

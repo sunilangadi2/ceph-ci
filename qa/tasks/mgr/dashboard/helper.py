@@ -7,6 +7,8 @@ import logging
 import re
 import time
 from collections import namedtuple
+from tempfile import NamedTemporaryFile
+from typing import List
 
 import requests
 from tasks.mgr.mgr_test_case import MgrTestCase
@@ -112,14 +114,13 @@ class DashboardTestCase(MgrTestCase):
                 raise ex
 
         user_create_args = [
-            'dashboard', 'ac-user-create', username, password
+            'dashboard', 'ac-user-create', username
         ]
         if force_password:
             user_create_args.append('--force-password')
         if cmd_args:
             user_create_args.extend(cmd_args)
-        cls._ceph_cmd(user_create_args)
-
+        cls._ceph_cmd_with_secret(user_create_args, password)
         if roles:
             set_roles_args = ['dashboard', 'ac-user-set-roles', username]
             for idx, role in enumerate(roles):
@@ -492,6 +493,17 @@ class DashboardTestCase(MgrTestCase):
         exitstatus = cls.mgr_cluster.mon_manager.raw_cluster_cmd_result(*cmd)
         log.info("command exit status: %d", exitstatus)
         return exitstatus
+
+    @classmethod
+    def _ceph_cmd_with_secret(cls, cmd: List[str], secret: str, return_exit_code: bool = False):
+        with NamedTemporaryFile() as secret_file:
+            secret_file.write(bytes(secret, 'utf-8'))
+            secret_file.seek(0)
+            cmd.append('-i')
+            cmd.append('{}'.format(secret_file.name))
+            if return_exit_code:
+                return cls._ceph_cmd_result(cmd)
+            return cls._ceph_cmd(cmd)
 
     def set_config_key(self, key, value):
         self._ceph_cmd(['config-key', 'set', key, value])

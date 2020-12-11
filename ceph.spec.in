@@ -1794,6 +1794,7 @@ fi
 
 %files -n cephfs-mirror
 %{_bindir}/cephfs-mirror
+%{_mandir}/man8/cephfs-mirror.8*
 
 %files -n rbd-fuse
 %{_bindir}/rbd-fuse

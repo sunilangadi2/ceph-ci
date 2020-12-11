@@ -1743,6 +1743,8 @@ fi
 %files -n cephfs-mirror
 %{_bindir}/cephfs-mirror
 %{_mandir}/man8/cephfs-mirror.8*
+%{_unitdir}/cephfs-mirror@.service
+%{_unitdir}/cephfs-mirror.target
 
 %files -n rbd-fuse
 %{_bindir}/rbd-fuse

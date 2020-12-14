@@ -6234,7 +6234,7 @@ int RGWSelectObj_ObjStore_S3::send_response_data(bufferlist& bl, off_t ofs, off_
   for(auto& it : bl.buffers()) {
 
     if(it.length() == 0) {
-      ldout(s->cct, 10) << "s3select: it->_len is zero ."<< dendl;
+      ldout(s->cct, 10) << "s3select: it->_len is zero."<< dendl;
       return 0;
     }
 

@@ -602,7 +602,7 @@ class OrchestratorCli(OrchestratorClientMixin, MgrModule,
 
             remove_column = 'CONTAINER ID'
             if table.get_string(fields=[remove_column], border=False,
-                    header=False).count('<unknown>') == len(daemons):
+                                header=False).count('<unknown>') == len(daemons):
                 try:
                     table.del_column(remove_column)
                 except AttributeError as e:

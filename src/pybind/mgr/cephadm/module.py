@@ -2213,7 +2213,7 @@ To check that the host is reachable:
         return self._apply(spec)
 
     @trivial_completion
-    def apply_ha_rgw(self, spec) -> str:
+    def apply_ha_rgw(self, spec: ServiceSpec) -> str:
         return self._apply(spec)
 
     @trivial_completion

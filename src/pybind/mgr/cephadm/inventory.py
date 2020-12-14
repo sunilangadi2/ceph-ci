@@ -433,10 +433,10 @@ class HostCache():
             yield host, {name: alter(host, d) for name, d in dm.items()}
 
     def get_daemons_by_service(self, service_name):
+        # type: (str) -> List[orchestrator.DaemonDescription]
         assert not service_name.startswith('keepalived.')
         assert not service_name.startswith('haproxy.')
 
-        # type: (str) -> List[orchestrator.DaemonDescription]
         result = []   # type: List[orchestrator.DaemonDescription]
         for host, dm in self.daemons.items():
             for name, d in dm.items():
@@ -445,9 +445,9 @@ class HostCache():
         return result
 
     def get_daemons_by_type(self, service_type):
+        # type: (str) -> List[orchestrator.DaemonDescription]
         assert service_type not in ['keepalived', 'haproxy']
 
-        # type: (str) -> List[orchestrator.DaemonDescription]
         result = []   # type: List[orchestrator.DaemonDescription]
         for host, dm in self.daemons.items():
             for name, d in dm.items():

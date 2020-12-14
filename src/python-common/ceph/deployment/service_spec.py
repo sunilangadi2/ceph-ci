@@ -780,6 +780,7 @@ class AlertManagerSpec(ServiceSpec):
 
 yaml.add_representer(AlertManagerSpec, ServiceSpec.yaml_representer)
 
+
 class HA_RGWSpec(ServiceSpec):
     def __init__(self,
                  service_type: str = 'ha-rgw',
@@ -805,8 +806,7 @@ class HA_RGWSpec(ServiceSpec):
                  definitive_host_list: Optional[List[HostPlacementSpec]] = None
                  ):
         assert service_type == 'ha-rgw'
-        super(HA_RGWSpec, self).__init__('ha-rgw', service_id=service_id,
-                                               placement=placement)
+        super(HA_RGWSpec, self).__init__('ha-rgw', service_id=service_id, placement=placement)
 
         self.virtual_ip_interface = virtual_ip_interface
         self.virtual_ip_address = virtual_ip_address
@@ -828,7 +828,7 @@ class HA_RGWSpec(ServiceSpec):
         # placeholder variable. Need definitive list of hosts this service will
         # be placed on in order to generate keepalived config. Will be populated
         # when applying spec
-        self.definitive_host_list = [] # type: List[HostPlacementSpec]
+        self.definitive_host_list = []  # type: List[HostPlacementSpec]
 
     def validate(self):
         super(HA_RGWSpec, self).validate()
@@ -866,7 +866,8 @@ class HA_RGWSpec(ServiceSpec):
         if self.ha_proxy_frontend_ssl_certificate:
             if not self.ha_proxy_frontend_ssl_port:
                 raise ServiceSpecValidationError(
-                    'Cannot add ha-rgw: Specified Ha Proxy Frontend SSL Certificate but no SSL Port')
+                    'Cannot add ha-rgw: Specified Ha Proxy Frontend SSL ' +
+                    'Certificate but no SSL Port')
 
 
 class CustomContainerSpec(ServiceSpec):

@@ -436,13 +436,13 @@ private:
     });
   }
   // this is only supposed to be invoked by seastar functions
-  template <typename Func,
+  /*template <typename Func,
 	    typename Result = interrupt_futurize_t<
 		std::invoke_result_t<Func>>>
   [[gnu::always_inline]]
   Result finally(Func&& func) {
     return core_type::finally(std::forward<Func>(func));
-  }
+  }*/
   template <typename Iterator, typename AsyncAction, typename Result,
 	    std::enable_if_t<
 	      is_interruptible_future<Result>::value, int>>

@@ -117,6 +117,11 @@ public:
   }
 
   bool is_acquired() const;
+  bool is_read_acquired() const;
+  bool is_write_acquired() const;
+  bool is_excl_acquired() const;
+
+  int waiters_size() const;
 
   /// pass the provided exception to any waiting waiters
   template<typename Exception>

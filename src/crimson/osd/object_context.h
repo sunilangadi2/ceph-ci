@@ -99,15 +99,42 @@ private:
 
   template <typename Lock, typename Func>
   auto _with_lock(Lock&& lock, Func&& func) {
+    ::crimson::get_logger(ceph_subsys_osd).debug("_with_lock: {}, is_read_acquired: {}, is_write_acquired: {}, is_excl_acquired: {}", get_oid(), this->lock.is_read_acquired(), this->lock.is_write_acquired(), this->lock.is_excl_acquired());
     Ref obc = this;
     return lock.lock().then([&lock, func = std::forward<Func>(func), obc]() mutable {
+      ::crimson::get_logger(ceph_subsys_osd).debug("_with_lock: got lock for {}", obc->get_oid());
       return seastar::futurize_invoke(func).finally([&lock, obc] {
+	::crimson::get_logger(ceph_subsys_osd).debug("_with_lock: lock releasing for {}, waiters: {}", obc->get_oid(), obc->lock.waiters_size());
 	lock.unlock();
+	::crimson::get_logger(ceph_subsys_osd).debug("_with_lock: lock released for {}, is_read_acquired: {}, is_write_acquired: {}, is_excl_acquired: {}", obc->get_oid(), obc->lock.is_read_acquired(), obc->lock.is_write_acquired(), obc->lock.is_excl_acquired());
       });
     });
   }
 
+  boost::intrusive::list_member_hook<> list_hook;
+  uint64_t list_link_cnt = 0;
+
 public:
+
+  template <typename ListType>
+  void link_me(ListType&& list) {
+    if (!list_link_cnt)
+      list.push_back(*this);
+    list_link_cnt++;
+  }
+
+  template <typename ListType>
+  void unlink_me(ListType&& list) {
+    assert(list_link_cnt > 0);
+    if (--list_link_cnt == 0)
+      list.erase(std::decay_t<ListType>::s_iterator_to(*this));
+  }
+
+  using obc_accessing_option_t = boost::intrusive::member_hook<
+    ObjectContext,
+    boost::intrusive::list_member_hook<>,
+    &ObjectContext::list_hook>;
+
   template<RWState::State Type, typename InterruptCond = void, typename Func>
   auto with_lock(Func&& func) {
     if constexpr (!std::is_void_v<InterruptCond>) {

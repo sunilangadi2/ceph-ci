@@ -150,6 +150,8 @@ public:
 	return _with_lock(lock.excl_from_read(), std::move(wrapper));
       case RWState::RWEXCL:
 	return _with_lock(lock.excl_from_excl(), std::move(wrapper));
+      case RWState::RWNONE:
+	return _with_lock(lock.for_excl(), std::move(wrapper));
        default:
 	assert(0 == "noop");
       }
@@ -161,6 +163,8 @@ public:
 	return _with_lock(lock.excl_from_read(), std::forward<Func>(func));
       case RWState::RWEXCL:
 	return _with_lock(lock.excl_from_excl(), std::forward<Func>(func));
+      case RWState::RWNONE:
+	return _with_lock(lock.for_excl(), std::forward<Func>(func));
        default:
 	assert(0 == "noop");
       }

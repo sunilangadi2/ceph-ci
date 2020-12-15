@@ -116,8 +116,8 @@ class CherryPyConfig(object):
                 'no server_addr configured; '
                 'try "ceph config set mgr mgr/{}/{}/server_addr <ip>"'
                 .format(self.module_name, self.get_mgr_id()))
-        self.log.info('server: ssl=%s host=%s port=%d', 'yes' if use_ssl else 'no',
-                      server_addr, server_port)
+        self.log.error('=====> server: ssl=%s host=%s port=%d', 'yes' if use_ssl else 'no',
+                       server_addr, server_port)
 
         # Initialize custom handlers.
         cherrypy.tools.authenticate = AuthManagerTool()
@@ -174,10 +174,20 @@ class CherryPyConfig(object):
             # Create custom SSL context to disable TLS 1.0 and 1.1.
             context = ssl.create_default_context(ssl.Purpose.CLIENT_AUTH)
             context.load_cert_chain(cert_fname, pkey_fname)
+            self.log.error("=====> Python version %s", str(sys.version_info))
             if sys.version_info >= (3, 7):
+                self.log.error("=====> Using ssl context minimum_version (original): %s",
+                               str(context.minimum_version))
                 context.minimum_version = ssl.TLSVersion.TLSv1_2
+                self.log.error("=====> Using ssl context minimum_version (modified): %s",
+                               str(context.minimum_version))
             else:
+                self.log.error("=====> Using ssl context options (original): %s",
+                               str(context.options))
                 context.options |= ssl.OP_NO_TLSv1 | ssl.OP_NO_TLSv1_1
+                self.log.error("=====> Using ssl context options (modified): %s",
+                               str(context.options))
+            self.log.error("=====> SSL protocol: %r", context.protocol)
 
             config['server.ssl_module'] = 'builtin'
             config['server.ssl_certificate'] = cert_fname

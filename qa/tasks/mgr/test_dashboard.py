@@ -137,19 +137,37 @@ class TestDashboard(MgrTestCase):
 
         uri = self._get_uri("dashboard")
 
+        log.error("=====> OpenSSL version: %s, %s | Requests version: %s | Dashboard uri: %s",
+                  ssl.OPENSSL_VERSION,
+                  str(ssl.OPENSSL_VERSION_INFO),
+                  str(requests.__version__),
+                  uri)
+
         # TLSv1
         with self.assertRaises(requests.exceptions.SSLError):
             session = requests.Session()
             session.mount(uri, CustomHTTPAdapter(ssl.PROTOCOL_TLSv1))
+            log.error("=====> TLSv1: Requests adapters: %s",
+                      str(session.adapters))
             session.get(uri, allow_redirects=False, verify=False)
+            log.error("=====> TLSv1: Requests uri adapter: %s",
+                      str(dict(session.adapters[uri].poolmanager.pools)))
 
         # TLSv1.1
         with self.assertRaises(requests.exceptions.SSLError):
             session = requests.Session()
             session.mount(uri, CustomHTTPAdapter(ssl.PROTOCOL_TLSv1_1))
+            log.error("=====> TLSv1.1: Requests adapters: %s",
+                      str(session.adapters))
             session.get(uri, allow_redirects=False, verify=False)
+            log.error("=====> TLSv1.1: Requests uri adapter: %s",
+                      str(dict(session.adapters[uri].poolmanager.pools)))
 
         session = requests.Session()
         session.mount(uri, CustomHTTPAdapter(ssl.PROTOCOL_TLS))
+        log.error("=====> Requests adapters: %s",
+                  str(session.adapters))
         r = session.get(uri, allow_redirects=False, verify=False)
+        log.error("=====> Requests uri adapter: %s",
+                  str(dict(session.adapters[uri].poolmanager.pools)))
         self.assertEqual(r.status_code, 200)

@@ -1093,7 +1093,8 @@ struct LruOnodeCacheShard : public BlueStore::OnodeCacheShard {
       ++num_pinned;
     }
     ++num; // we count both pinned and unpinned entries
-    dout(20) << __func__ << " " << this << " " << o->oid << " added, num=" << num << dendl;
+    dout(20) << __func__ << " " << this << " " << o->oid << " added, num="
+             << num << dendl;
   }
   void _rm(BlueStore::Onode* o) override
   {
@@ -1105,20 +1106,21 @@ struct LruOnodeCacheShard : public BlueStore::OnodeCacheShard {
     }
     ceph_assert(num);
     --num;
-    dout(20) << __func__ << " " << this << " " << " " << o->oid << " removed, num=" << num << dendl;
+    dout(20) << __func__ << " " << this << " " << " " << o->oid << " removed, num="
+             << num << dendl;
   }
   void _pin(BlueStore::Onode* o) override
   {
     lru.erase(lru.iterator_to(*o));
     ++num_pinned;
-    dout(20) << __func__ << this << " " << " " << " " << o->oid << " pinned" << dendl;
+    dout(20) << __func__ << " " << this << " " << " " << " " << o->oid << dendl;
   }
   void _unpin(BlueStore::Onode* o) override
   {
     lru.push_front(*o);
     ceph_assert(num_pinned);
     --num_pinned;
-    dout(20) << __func__ << this << " " << " " << " " << o->oid << " unpinned" << dendl;
+    dout(20) << __func__ << " " << this << " " << " " << " " << o->oid << dendl;
   }
   void _unpin_and_rm(BlueStore::Onode* o) override
   {
@@ -1127,6 +1129,7 @@ struct LruOnodeCacheShard : public BlueStore::OnodeCacheShard {
     --num_pinned;
     ceph_assert(num);
     --num;
+    dout(20) << __func__ << " " << this << " " << " " << " " << o->oid << dendl;
   }
   void _trim_to(uint64_t new_size) override
   {

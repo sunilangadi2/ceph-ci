@@ -1165,6 +1165,51 @@ def json_to_generic_spec(spec: dict) -> GenericSpec:
         return ServiceSpec.from_json(spec)
 
 
+def daemon_type_to_service(dtype: str) -> str:
+    mapping = {
+        'mon': 'mon',
+        'mgr': 'mgr',
+        'mds': 'mds',
+        'rgw': 'rgw',
+        'osd': 'osd',
+        'haproxy': 'ha-rgw',
+        'keepalived': 'ha-rgw',
+        'iscsi': 'iscsi',
+        'rbd-mirror': 'rbd-mirror',
+        'nfs': 'nfs',
+        'grafana': 'grafana',
+        'alertmanager': 'alertmanager',
+        'prometheus': 'prometheus',
+        'node-exporter': 'node-exporter',
+        'crash': 'crash',
+        'container': 'container',
+        'cephadm-exporter': 'cephadm-exporter',
+    }
+    return mapping[dtype]
+
+
+def service_to_daemon_types(stype: str) -> List[str]:
+    mapping = {
+        'mon': ['mon'],
+        'mgr': ['mgr'],
+        'mds': ['mds'],
+        'rgw': ['rgw'],
+        'osd': ['osd'],
+        'ha-rgw': ['haproxy', 'keepalived'],
+        'iscsi': ['iscsi'],
+        'rbd-mirror': ['rbd-mirror'],
+        'nfs': ['nfs'],
+        'grafana': ['grafana'],
+        'alertmanager': ['alertmanager'],
+        'prometheus': ['prometheus'],
+        'node-exporter': ['node-exporter'],
+        'crash': ['crash'],
+        'container': ['container'],
+        'cephadm-exporter': ['cephadm-exporter'],
+    }
+    return mapping[stype]
+
+
 class UpgradeStatusSpec(object):
     # Orchestrator's report on what's going on with any ongoing upgrade
     def __init__(self):
@@ -1267,9 +1312,7 @@ class DaemonDescription(object):
 
     def matches_service(self, service_name: Optional[str]) -> bool:
         if service_name:
-            if self.daemon_type in ['haproxy', 'keepalived']:
-                return ("ha-rgw." + self.daemon_id).startswith(service_name + '.')
-            return self.name().startswith(service_name + '.')
+            return (daemon_type_to_service(self.daemon_type) + '.' + self.daemon_id).startswith(service_name + '.')
         return False
 
     def service_id(self):
@@ -1316,17 +1359,15 @@ class DaemonDescription(object):
             # daemon_id == "service_id"
             return self.daemon_id
 
-        if self.daemon_type in ServiceSpec.REQUIRES_SERVICE_ID:
+        if daemon_type_to_service(self.daemon_type) in ServiceSpec.REQUIRES_SERVICE_ID:
             return _match()
 
         return self.daemon_id
 
     def service_name(self):
-        if self.daemon_type in ServiceSpec.REQUIRES_SERVICE_ID:
-            if self.daemon_type in ['haproxy', 'keepalived']:
-                return f'ha-rgw.{self.service_id()}'
-            return f'{self.daemon_type}.{self.service_id()}'
-        return self.daemon_type
+        if daemon_type_to_service(self.daemon_type) in ServiceSpec.REQUIRES_SERVICE_ID:
+            return f'{daemon_type_to_service(self.daemon_type)}.{self.service_id()}'
+        return daemon_type_to_service(self.daemon_type)
 
     def __repr__(self):
         return "<DaemonDescription>({type}.{id})".format(type=self.daemon_type,

@@ -18,6 +18,7 @@ from cephadm.schedule import HostAssignment
 from cephadm.upgrade import CEPH_UPGRADE_ORDER
 from cephadm.utils import forall_hosts, cephadmNoImage, str_to_datetime, is_repo_digest
 from orchestrator import OrchestratorError
+from orchestrator._interface import daemon_type_to_service, service_to_daemon_types
 
 if TYPE_CHECKING:
     from cephadm.module import CephadmOrchestrator, ContainerInspectInfo
@@ -444,7 +445,7 @@ class CephadmServe:
         """
         self.mgr.migration.verify_no_migration()
 
-        daemon_type = spec.service_type
+        service_type = spec.service_type
         service_name = spec.service_name()
         if spec.unmanaged:
             self.log.debug('Skipping unmanaged service %s' % service_name)
@@ -454,9 +455,9 @@ class CephadmServe:
             return False
         self.log.debug('Applying service %s spec' % service_name)
 
-        config_func = self._config_fn(daemon_type)
+        config_func = self._config_fn(service_type)
 
-        if daemon_type == 'osd':
+        if service_type == 'osd':
             self.mgr.osd_service.create_from_spec(cast(DriveGroupSpec, spec))
             # TODO: return True would result in a busy loop
             # can't know if daemon count changed; create_from_spec doesn't
@@ -466,7 +467,7 @@ class CephadmServe:
         daemons = self.mgr.cache.get_daemons_by_service(service_name)
 
         public_network = None
-        if daemon_type == 'mon':
+        if service_type == 'mon':
             ret, out, err = self.mgr.check_mon_command({
                 'prefix': 'config get',
                 'who': 'mon',
@@ -500,8 +501,8 @@ class CephadmServe:
             spec=spec,
             hosts=self.mgr._hosts_with_daemon_inventory(),
             get_daemons_func=self.mgr.cache.get_daemons_by_service,
-            filter_new_host=matches_network if daemon_type == 'mon' else None,
-            host_validator=virtual_ip_allowed if daemon_type == 'ha-rgw' else None,
+            filter_new_host=matches_network if service_type == 'mon' else None,
+            host_validator=virtual_ip_allowed if service_type == 'ha-rgw' else None,
         )
 
         try:
@@ -516,7 +517,7 @@ class CephadmServe:
         r = None
 
         # sanity check
-        if daemon_type in ['mon', 'mgr'] and len(hosts) < 1:
+        if service_type in ['mon', 'mgr'] and len(hosts) < 1:
             self.log.debug('cannot scale mon|mgr below 1 (hosts=%s)' % hosts)
             return False
 
@@ -529,60 +530,54 @@ class CephadmServe:
         remove_daemon_hosts: Set[orchestrator.DaemonDescription] = ha.remove_daemon_hosts(hosts)
         self.log.debug('Hosts that will loose daemons: %s' % remove_daemon_hosts)
 
-        if daemon_type == 'ha-rgw':
+        if service_type == 'ha-rgw':
             spec = self.update_ha_rgw_definitive_hosts(spec, hosts, add_daemon_hosts)
 
         for host, network, name in add_daemon_hosts:
-            daemon_id = self.mgr.get_unique_name(daemon_type, host, daemons,
-                                                 prefix=spec.service_id,
-                                                 forcename=name)
+            for daemon_type in service_to_daemon_types(service_type):
+                daemon_id = self.mgr.get_unique_name(daemon_type, host, daemons,
+                                                     prefix=spec.service_id,
+                                                     forcename=name)
 
-            if not did_config and config_func:
-                if daemon_type == 'rgw':
-                    rgw_config_func = cast(Callable[[RGWSpec, str], None], config_func)
-                    rgw_config_func(cast(RGWSpec, spec), daemon_id)
-                else:
-                    config_func(spec)
-                did_config = True
+                if not did_config and config_func:
+                    if daemon_type == 'rgw':
+                        rgw_config_func = cast(Callable[[RGWSpec, str], None], config_func)
+                        rgw_config_func(cast(RGWSpec, spec), daemon_id)
+                    else:
+                        config_func(spec)
+                    did_config = True
 
-            daemon_spec = self.mgr.cephadm_services[daemon_type].make_daemon_spec(
-                host, daemon_id, network, spec)
-            self.log.debug('Placing %s.%s on host %s' % (
-                daemon_type, daemon_id, host))
+                daemon_spec = self.mgr.cephadm_services[daemon_type].make_daemon_spec(
+                    host, daemon_id, network, spec, daemon_type=daemon_type)
+                self.log.debug('Placing %s.%s on host %s' % (
+                    daemon_type, daemon_id, host))
 
-            try:
-                # ha-rgw needs to deploy 2 daemons
-                if daemon_type == 'ha-rgw':
-                    for dtype in ['haproxy', 'keepalived']:
-                        daemon_spec.daemon_type = dtype
-                        daemon_spec = self.mgr.cephadm_services[dtype].prepare_create(daemon_spec)
-                        self.mgr._create_daemon(daemon_spec)
-                else:
+                try:
                     daemon_spec = self.mgr.cephadm_services[daemon_type].prepare_create(daemon_spec)
                     self.mgr._create_daemon(daemon_spec)
                     r = True
-            except (RuntimeError, OrchestratorError) as e:
-                self.mgr.events.for_service(spec, 'ERROR',
-                                            f"Failed while placing {daemon_type}.{daemon_id}"
-                                            f"on {host}: {e}")
-                # only return "no change" if no one else has already succeeded.
-                # later successes will also change to True
-                if r is None:
-                    r = False
-                continue
+                except (RuntimeError, OrchestratorError) as e:
+                    self.mgr.events.for_service(spec, 'ERROR',
+                                                f"Failed while placing {daemon_type}.{daemon_id}"
+                                                f"on {host}: {e}")
+                    # only return "no change" if no one else has already succeeded.
+                    # later successes will also change to True
+                    if r is None:
+                        r = False
+                    continue
 
-            # add to daemon list so next name(s) will also be unique
-            sd = orchestrator.DaemonDescription(
-                hostname=host,
-                daemon_type=daemon_type,
-                daemon_id=daemon_id,
-            )
-            daemons.append(sd)
+                # add to daemon list so next name(s) will also be unique
+                sd = orchestrator.DaemonDescription(
+                    hostname=host,
+                    daemon_type=daemon_type,
+                    daemon_id=daemon_id,
+                )
+                daemons.append(sd)
 
         # remove any?
         def _ok_to_stop(remove_daemon_hosts: Set[orchestrator.DaemonDescription]) -> bool:
             daemon_ids = [d.daemon_id for d in remove_daemon_hosts]
-            r = self.mgr.cephadm_services[daemon_type].ok_to_stop(daemon_ids)
+            r = self.mgr.cephadm_services[service_type].ok_to_stop(daemon_ids)
             return not r.retval
 
         while remove_daemon_hosts and not _ok_to_stop(remove_daemon_hosts):

@@ -12856,7 +12856,6 @@ int Client::_mkdir(Inode *dir, const char *name, mode_t mode, const UserPerm& pe
   req->head.args.mkdir.mode = mode;
   if (is_snap_op) {
     SnapPayload payload;
-    bl.clear();
     payload.metadata = metadata;
     encode(payload, bl);
   }

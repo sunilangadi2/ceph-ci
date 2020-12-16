@@ -1106,6 +1106,7 @@ void MDSDaemon::ms_handle_accept(Connection *con)
 
       // send out any queued messages
       while (!s->preopen_out_queue.empty()) {
+	dout(10) << ": sending queued message: " << s->preopen_out_queue.front() << dendl;
 	con->send_message2(s->preopen_out_queue.front());
 	s->preopen_out_queue.pop_front();
       }

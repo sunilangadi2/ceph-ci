@@ -360,11 +360,14 @@ void RGWSI_Notify::_set_enabled(bool status)
 int RGWSI_Notify::distribute(const string& key, bufferlist& bl,
                              optional_yield y)
 {
-  RGWSI_RADOS::Obj notify_obj = pick_control_obj(key);
+  if (num_watchers > 0) {
+    RGWSI_RADOS::Obj notify_obj = pick_control_obj(key);
 
-  ldout(cct, 10) << "distributing notification oid=" << notify_obj.get_ref().obj
-      << " bl.length()=" << bl.length() << dendl;
-  return robust_notify(notify_obj, bl, y);
+    ldout(cct, 10) << "distributing notification oid=" << notify_obj.get_ref().obj
+        << " bl.length()=" << bl.length() << dendl;
+    return robust_notify(notify_obj, bl, y);
+  }
+  return -ENOENT;
 }
 
 int RGWSI_Notify::robust_notify(RGWSI_RADOS::Obj& notify_obj, bufferlist& bl,

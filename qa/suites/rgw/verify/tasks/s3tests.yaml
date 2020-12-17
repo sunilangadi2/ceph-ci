@@ -1,5 +1,6 @@
 tasks:
 - s3tests:
     client.0:
-      force-branch: ceph-master
+      force-branch: mpcopy_wo_key
+      git_remote: https://github.com/IlsooByun/s3-tests/
       rgw_server: client.0

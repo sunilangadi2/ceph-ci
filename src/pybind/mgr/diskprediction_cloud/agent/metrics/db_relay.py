@@ -54,7 +54,7 @@ class MGRDpMds(BaseDP):
 
 class MGRDpPool(BaseDP):
     _fields = [
-        'fsid', 'size', 'pool_name', 'pool_id', 'type', 'min_size',
+        'fsid', 'size', 'pool_name', 'pool_id', 'type', 'min_size', 'primary_write_size',
         'pg_num', 'pgp_num', 'created_time', 'pgids', 'osd_ids', 'tiers', 'cache_mode',
         'erasure_code_profile', 'tier_of'
     ]
@@ -420,6 +420,7 @@ class DBRelayAgent(MetricsAgent):
                 pool_id=pool.get('pool'),
                 type=pool.get('type'),
                 min_size=pool.get('min_szie'),
+                primary_write_size=pool.get('primary_write_size'),
                 pg_num=pool.get('pg_num'),
                 pgp_num=pool.get('pg_placement_num'),
                 created_time=pool.get('create_time'),

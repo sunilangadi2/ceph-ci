@@ -509,6 +509,7 @@ class Module(MgrModule):
                         'pgp_num': pool['pg_placement_num'],
                         'size': pool['size'],
                         'min_size': pool['min_size'],
+                        'primary_write_size': pool['primary_write_size'],
                         'pg_autoscale_mode': pool['pg_autoscale_mode'],
                         'target_max_bytes': pool['target_max_bytes'],
                         'target_max_objects': pool['target_max_objects'],

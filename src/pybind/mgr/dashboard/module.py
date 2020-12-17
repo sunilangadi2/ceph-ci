@@ -8,6 +8,8 @@ import collections
 import errno
 import os
 import socket
+import ssl
+import sys
 import tempfile
 import threading
 import time
@@ -103,8 +105,8 @@ class CherryPyConfig(object):
         """
         server_addr = self.get_localized_module_option(
             'server_addr', get_default_addr())
-        ssl = self.get_localized_module_option('ssl', True)
-        if not ssl:
+        use_ssl = self.get_localized_module_option('ssl', True)
+        if not use_ssl:
             server_port = self.get_localized_module_option('server_port', 8080)
         else:
             server_port = self.get_localized_module_option('ssl_server_port', 8443)
@@ -114,8 +116,8 @@ class CherryPyConfig(object):
                 'no server_addr configured; '
                 'try "ceph config set mgr mgr/{}/{}/server_addr <ip>"'
                 .format(self.module_name, self.get_mgr_id()))
-        self.log.info('server: ssl=%s host=%s port=%d', 'yes' if ssl else 'no',
-                      server_addr, server_port)
+        self.log.error('=====> server: ssl=%s host=%s port=%d', 'yes' if use_ssl else 'no',
+                       server_addr, server_port)
 
         # Initialize custom handlers.
         cherrypy.tools.authenticate = AuthManagerTool()
@@ -147,7 +149,7 @@ class CherryPyConfig(object):
             'tools.plugin_hooks_filter_request.on': True,
         }
 
-        if ssl:
+        if use_ssl:
             # SSL initialization
             cert = self.get_store("crt")
             if cert is not None:
@@ -169,9 +171,32 @@ class CherryPyConfig(object):
 
             verify_tls_files(cert_fname, pkey_fname)
 
+            # Create custom SSL context to disable TLS 1.0 and 1.1.
+            context = ssl.create_default_context(ssl.Purpose.CLIENT_AUTH)
+            context.load_cert_chain(cert_fname, pkey_fname)
+            self.log.error("=====> CherryPy version: %s", str(cherrypy.__version__))
+            self.log.error("=====> OpenSSL version: %s, %s",
+                           ssl.OPENSSL_VERSION,
+                           str(ssl.OPENSSL_VERSION_INFO))
+            self.log.error("=====> Python version %s", str(sys.version_info))
+            if sys.version_info >= (3, 7):
+                self.log.error("=====> Using ssl context minimum_version (original): %s",
+                               str(context.minimum_version))
+                context.minimum_version = ssl.TLSVersion.TLSv1_2
+                self.log.error("=====> Using ssl context minimum_version (modified): %s",
+                               str(context.minimum_version))
+            else:
+                self.log.error("=====> Using ssl context options (original): %s",
+                               str(context.options))
+                context.options |= ssl.OP_NO_TLSv1 | ssl.OP_NO_TLSv1_1
+                self.log.error("=====> Using ssl context options (modified): %s",
+                               str(context.options))
+            self.log.error("=====> SSL protocol: %r", context.protocol)
+
             config['server.ssl_module'] = 'builtin'
             config['server.ssl_certificate'] = cert_fname
             config['server.ssl_private_key'] = pkey_fname
+            config['server.ssl_context'] = context
 
         self.update_cherrypy_config(config)
 
@@ -179,7 +204,7 @@ class CherryPyConfig(object):
                                                                      default=''))
 
         uri = "{0}://{1}:{2}{3}/".format(
-            'https' if ssl else 'http',
+            'https' if use_ssl else 'http',
             socket.getfqdn(server_addr if server_addr != '::' else ''),
             server_port,
             self.url_prefix

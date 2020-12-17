@@ -431,3 +431,6 @@ endif(WITH_TESTS)
 
 install(PROGRAMS rgw-orphan-list
   DESTINATION bin)
+
+install(PROGRAMS rgw-gap-list
+  DESTINATION bin)

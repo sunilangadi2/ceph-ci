@@ -6230,18 +6230,32 @@ int RGWSelectObj_ObjStore_S3::send_response_data(bufferlist& bl, off_t ofs, off_
     end_header(s, this, "application/xml", CHUNKED_TRANSFER_ENCODING);
   }
 
+  auto bl_len = [](bufferlist& bl){int i=0;for(auto& iter : bl.buffers())i++; return i;};
+
   int status=0;
+  int i=0;
+
   for(auto& it : bl.buffers()) {
 
-    if(it.length() == 0) {
-      ldout(s->cct, 10) << "s3select: it->_len is zero."<< dendl;
-      return 0;
+    ldout(s->cct, 10) << "processing segment " << i << "out of " << bl_len(bl) << " off " << ofs
+                      << " len " << len << " obj-size " << s->obj_size << dendl;
+
+
+    if(it.length() == 0)
+    {
+      ldout(s->cct, 10) << "s3select:it->_len is zero. segment " << i << " out of " << bl_len(bl)
+                        <<  " obj-size " << s->obj_size << dendl;
     }
 
+    auto x = &(it)[0]; //in case of it is zero size it should crash
+#if 0
     status = run_s3select(m_sql_query.c_str(), &(it)[0], it.length());
     if(status<0) {
       break;
     }
+#endif
+
+  i++;
   }
 
   chunk_number++;

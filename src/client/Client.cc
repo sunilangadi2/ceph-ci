@@ -7101,7 +7101,8 @@ int Client::rmdir(const char *relpath, const UserPerm& perms)
   if (r < 0)
     return r;
   if (cct->_conf->client_permissions) {
-    int r = may_delete(dir.get(), name.c_str(), perms);
+    int r = may_delete(dir.get(),
+                       dir->snapid == CEPH_SNAPDIR ? nullptr : name.c_str(), perms);
     if (r < 0)
       return r;
   }

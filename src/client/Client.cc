@@ -5722,6 +5722,7 @@ int Client::may_delete(Inode *dir, const char *name, const UserPerm& perms)
     r = _lookup(dir, name, CEPH_CAP_AUTH_SHARED, &otherin, perms);
     if (r < 0)
       goto out;
+    ldout(cct, 20) << __func__ << ": dir->uid=" << dir->uid << ", otherin->uid=" << otherin->uid << dendl;
     if (dir->uid != perms.uid() && otherin->uid != perms.uid())
       r = -EPERM;
   }
@@ -7102,7 +7103,7 @@ int Client::rmdir(const char *relpath, const UserPerm& perms)
     return r;
   if (cct->_conf->client_permissions) {
     int r = may_delete(dir.get(),
-                       dir->snapid == CEPH_SNAPDIR ? nullptr : name.c_str(), perms);
+                       name.c_str(), perms);
     if (r < 0)
       return r;
   }

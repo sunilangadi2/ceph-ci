@@ -2236,6 +2236,7 @@ TEST(LibCephFS, SnapXattrs) {
 
   char test_snap_xattr_file[256];
   char c_temp[PATH_MAX];
+  char c_snap[PATH_MAX];
   char gxattrv[128];
   char gxattrv2[128];
   int xbuflen = sizeof(gxattrv);
@@ -2246,10 +2247,10 @@ TEST(LibCephFS, SnapXattrs) {
   ASSERT_GT(fd, 0);
   ceph_close(cmount, fd);
 
-  sprintf(c_temp, "/.snap/test_snap_xattr_snap_%d", mypid);
-  ASSERT_EQ(0, ceph_mkdir(cmount, c_temp, 0777));
+  sprintf(c_snap, "/.snap/test_snap_xattr_snap_%d", mypid);
+  ASSERT_EQ(0, ceph_mkdir(cmount, c_snap, 0777));
 
-  int alen = ceph_getxattr(cmount, c_temp, "ceph.snap.btime", (void *)gxattrv, xbuflen);
+  int alen = ceph_getxattr(cmount, c_snap, "ceph.snap.btime", (void *)gxattrv, xbuflen);
   // xattr value is secs.nsecs (don't assume zero-term)
   ASSERT_LT(0, alen);
   ASSERT_LT(alen, xbuflen);
@@ -2272,12 +2273,14 @@ TEST(LibCephFS, SnapXattrs) {
   alen = ceph_getxattr(cmount, test_snap_xattr_file, "ceph.snap.btime", (void *)gxattrv2, xbuflen);
   ASSERT_EQ(-ENODATA, alen);
 
+  ASSERT_EQ(0, ceph_rmdir(cmount, c_snap));
+
   // create a second snapshot
-  sprintf(c_temp, "/.snap/test_snap_xattr_snap2_%d", mypid);
-  ASSERT_EQ(0, ceph_mkdir(cmount, c_temp, 0777));
+  sprintf(c_snap, "/.snap/test_snap_xattr_snap2_%d", mypid);
+  ASSERT_EQ(0, ceph_mkdir(cmount, c_snap, 0777));
 
   // check that the btime for the newer snapshot is > older
-  alen = ceph_getxattr(cmount, c_temp, "ceph.snap.btime", (void *)gxattrv2, xbuflen);
+  alen = ceph_getxattr(cmount, c_snap, "ceph.snap.btime", (void *)gxattrv2, xbuflen);
   ASSERT_LT(0, alen);
   ASSERT_LT(alen, xbuflen);
   gxattrv2[alen] = '\0';
@@ -2302,6 +2305,8 @@ TEST(LibCephFS, SnapXattrs) {
   }
   ASSERT_EQ(found, 0);
 
+  ASSERT_EQ(0, ceph_rmdir(cmount, c_snap));
+
   ceph_shutdown(cmount);
 }
 
@@ -2318,6 +2323,7 @@ TEST(LibCephFS, SnapQuota) {
   char xattrk[128];
   char xattrv[128];
   char c_temp[PATH_MAX];
+  char c_snap[PATH_MAX];
   char gxattrv[128];
   int xbuflen = sizeof(gxattrv);
   pid_t mypid = getpid();
@@ -2343,8 +2349,8 @@ TEST(LibCephFS, SnapQuota) {
   ASSERT_EQ(0, ceph_mkdirs(cmount, test_snap_subdir_noquota_xattr, 0777));
 
   // snapshot dir
-  sprintf(c_temp, "/.snap/test_snap_dir_quota_xattr_snap_%d", mypid);
-  ASSERT_EQ(0, ceph_mkdirs(cmount, c_temp, 0777));
+  sprintf(c_snap, "/.snap/test_snap_dir_quota_xattr_snap_%d", mypid);
+  ASSERT_EQ(0, ceph_mkdirs(cmount, c_snap, 0777));
 
   // check dir quota under snap
   sprintf(c_temp, "/.snap/test_snap_dir_quota_xattr_snap_%d/test_snap_dir_quota_xattr_%d", mypid, mypid);
@@ -2380,6 +2386,8 @@ TEST(LibCephFS, SnapQuota) {
     p += strlen(p) + 1;
   }
   ASSERT_EQ(found, 0);
+
+  ASSERT_EQ(0, ceph_rmdir(cmount, c_snap));
 
   ceph_shutdown(cmount);
 }
@@ -2418,5 +2426,21 @@ TEST(LibCephFS, Lseek) {
 #endif
 
   ASSERT_EQ(0, ceph_close(cmount, fd));
+  ceph_shutdown(cmount);
+}
+
+TEST(LibCephFS, TestSnapCreateAndDelete) {
+  struct ceph_mount_info *cmount;
+  ASSERT_EQ(0, ceph_create(&cmount, NULL));
+  ASSERT_EQ(0, ceph_conf_read_file(cmount, NULL));
+  ASSERT_EQ(0, ceph_conf_parse_env(cmount, NULL));
+  ASSERT_EQ(0, ceph_mount(cmount, "/"));
+
+  char c_path[1024];
+  sprintf(c_path, "/.snap/snap_for_rm_%d", getpid());
+
+  ASSERT_EQ(0, ceph_mkdir(cmount, c_path, 0755));
+  ASSERT_EQ(0, ceph_rmdir(cmount, c_path));
+
   ceph_shutdown(cmount);
 }

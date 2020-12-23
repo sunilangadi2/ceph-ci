@@ -2497,3 +2497,23 @@ TEST(LibCephFS, SnapInfo) {
   ASSERT_EQ(0, ceph_rmsnap(cmount, "/", snap_name));
   ceph_shutdown(cmount);
 }
+
+TEST(LibCephFS, TestSnapCreateAndDelete) {
+  struct ceph_mount_info *cmount;
+  ASSERT_EQ(0, ceph_create(&cmount, NULL));
+  ASSERT_EQ(0, ceph_conf_read_file(cmount, NULL));
+  ASSERT_EQ(0, ceph_conf_parse_env(cmount, NULL));
+  ASSERT_EQ(0, ceph_mount(cmount, "/"));
+
+  struct ceph_statx stx;
+  ASSERT_EQ(ceph_statx(cmount, "/", &stx, CEPH_STATX_MODE | CEPH_STATX_UID | CEPH_STATX_GID, 0), 0);
+  std::cout << ": stx_mode=" << stx.stx_mode << ", U/G=" << stx.stx_uid << "/" << stx.stx_gid << std::endl;
+
+  char c_path[1024];
+  sprintf(c_path, "/.snap/snap_for_rm_%d", getpid());
+
+  ASSERT_EQ(0, ceph_mkdir(cmount, c_path, 0755));
+  ASSERT_EQ(0, ceph_rmdir(cmount, c_path));
+
+  ceph_shutdown(cmount);
+}

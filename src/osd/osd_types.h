@@ -1110,7 +1110,7 @@ public:
   }
 
   template<typename T>
-  T value_or(key_t key, const T& default_value) const {
+  T value_or(key_t key, T& default_value) const {
     auto i = opts.find(key);
     if (i == opts.end()) {
       return default_value;

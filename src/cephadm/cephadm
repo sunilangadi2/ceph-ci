@@ -673,7 +673,7 @@ class CustomContainer(object):
 ##################################
 
 
-def dict_get(d: Dict, key: str, default: Any = None, require: bool = False) -> Any:
+def dict_get(d: Dict, key: str, default: Any = None, require: bool = False) -> Any: # type: ignore
     """
     Helper function to get a key from a dictionary.
     :param d: The dictionary to process.
@@ -689,12 +689,12 @@ def dict_get(d: Dict, key: str, default: Any = None, require: bool = False) -> A
     """
     if require and key not in d.keys():
         raise Error('{} missing from dict'.format(key))
-    return d.get(key, default)
+    return d.get(key, default) # type: ignore
 
 ##################################
 
 
-def dict_get_join(d: Dict, key: str) -> Any:
+def dict_get_join(d: Dict, key: str) -> Any: # type: ignore
     """
     Helper function to get the value of a given key from a dictionary.
     `List` values will be converted to a string by joining them with a
@@ -784,7 +784,7 @@ except NameError:
     TimeoutError = OSError
 
 
-class Timeout(TimeoutError):
+class Timeout(TimeoutError): # type: ignore
     """
     Raised when the lock could not be acquired in *timeout*
     seconds.
@@ -1039,6 +1039,7 @@ def call(ctx, # type: CephadmContext
             )
         for fd in reads:
             try:
+                message = str()
                 message_b = os.read(fd, 1024)
                 if isinstance(message_b, bytes):
                     message = message_b.decode('utf-8')
@@ -1822,6 +1823,7 @@ def create_daemon_dirs(ctx, fsid, daemon_type, daemon_id, uid, gid,
 
         # Set up directories specific to the monitoring component
         config_dir = ''
+        data_dir_root: str = ""
         if daemon_type == 'prometheus':
             data_dir_root = get_data_dir(fsid, ctx.args.data_dir,
                                          daemon_type, daemon_id)
@@ -2421,6 +2423,9 @@ class Firewalld(object):
         else:
             return
 
+        if not self.cmd:
+            raise RuntimeError("command not defined")
+
         out, err, ret = call(self.ctx,
                              [self.cmd, '--permanent', '--query-service', svc],
                              verbose_on_failure=False)
@@ -2438,6 +2443,9 @@ class Firewalld(object):
         if not self.available:
             logger.debug('Not possible to open ports <%s>. firewalld.service is not available' % fw_ports)
             return
+
+        if not self.cmd:
+            raise RuntimeError("command not defined")
 
         for port in fw_ports:
             tcp_port = str(port) + '/tcp'
@@ -2457,6 +2465,9 @@ class Firewalld(object):
             logger.debug('Not possible to close ports <%s>. firewalld.service is not available' % fw_ports)
             return
 
+        if not self.cmd:
+            raise RuntimeError("command not defined")
+
         for port in fw_ports:
             tcp_port = str(port) + '/tcp'
             out, err, ret = call(self.ctx, [self.cmd, '--permanent', '--query-port', tcp_port], verbose_on_failure=False)
@@ -2475,6 +2486,9 @@ class Firewalld(object):
         # type: () -> None
         if not self.available:
             return
+
+        if not self.cmd:
+            raise RuntimeError("command not defined")
 
         call_throws(self.ctx, [self.cmd, '--reload'])
 
@@ -2884,6 +2898,7 @@ def command_bootstrap(ctx):
     # type: (CephadmContext) -> int
 
     args = ctx.args
+    host: Optional[str] = None
 
     if not ctx.args.output_config:
         ctx.args.output_config = os.path.join(ctx.args.output_dir, 'ceph.conf')
@@ -3842,7 +3857,10 @@ def list_networks(ctx):
 
 
 def _list_ipv4_networks(ctx: CephadmContext):
-    out, _, _ = call_throws(ctx, [find_executable('ip'), 'route', 'ls'])
+    execstr: Optional[str] = find_executable('ip')
+    if not execstr:
+        raise FileNotFoundError("unable to find 'ip' command")
+    out, _, _ = call_throws(ctx, [execstr, 'route', 'ls'])
     return _parse_ipv4_route(out)
 
 
@@ -3862,8 +3880,11 @@ def _parse_ipv4_route(out):
 
 
 def _list_ipv6_networks(ctx: CephadmContext):
-    routes, _, _ = call_throws(ctx, [find_executable('ip'), '-6', 'route', 'ls'])
-    ips, _, _ = call_throws(ctx, [find_executable('ip'), '-6', 'addr', 'ls'])
+    execstr: Optional[str] = find_executable('ip')
+    if not execstr:
+        raise FileNotFoundError("unable to find 'ip' command")
+    routes, _, _ = call_throws(ctx, [execstr, '-6', 'route', 'ls'])
+    ips, _, _ = call_throws(ctx, [execstr, '-6', 'addr', 'ls'])
     return _parse_ipv6_route(routes, ips)
 
 
@@ -3911,7 +3932,7 @@ def command_ls(ctx):
 
 def list_daemons(ctx, detail=True, legacy_dir=None):
     # type: (CephadmContext, bool, Optional[str]) -> List[Dict[str, str]]
-    host_version = None
+    host_version: Optional[str] = None
     ls = []
     args = ctx.args
     container_path = ctx.container_path
@@ -3944,8 +3965,9 @@ def list_daemons(ctx, detail=True, legacy_dir=None):
                         'systemd_unit': legacy_unit_name,
                     }
                     if detail:
-                        (i['enabled'], i['state'], _) = \
-                            check_unit(ctx, legacy_unit_name)
+                        (enabled, state, _) = check_unit(ctx, legacy_unit_name)
+                        i['enabled'] = "true" if enabled else "false"
+                        i['state'] = state
                         if not host_version:
                             try:
                                 out, err, code = call(ctx, ['ceph', '-v'])
@@ -3953,7 +3975,7 @@ def list_daemons(ctx, detail=True, legacy_dir=None):
                                     host_version = out.split(' ')[2]
                             except Exception:
                                 pass
-                        i['host_version'] = host_version
+                        i['host_version'] = host_version if host_version else ""
                     ls.append(i)
             elif is_fsid(i):
                 fsid = str(i)  # convince mypy that fsid is a str here
@@ -3974,7 +3996,9 @@ def list_daemons(ctx, detail=True, legacy_dir=None):
                     }
                     if detail:
                         # get container id
-                        (i['enabled'], i['state'], _) = check_unit(ctx, unit_name)
+                        (enabled, state, _) = check_unit(ctx, unit_name)
+                        i['enabled'] = "true" if enabled else "false"
+                        i['state'] = state
                         container_id = None
                         image_name = None
                         image_id = None
@@ -4048,18 +4072,24 @@ def list_daemons(ctx, detail=True, legacy_dir=None):
                                     image_name = f.read().strip() or None
                             except IOError:
                                 pass
-                        i['container_id'] = container_id
-                        i['container_image_name'] = image_name
-                        i['container_image_id'] = image_id
-                        i['version'] = version
-                        i['started'] = start_stamp
-                        i['created'] = get_file_timestamp(
+                        i['container_id'] = container_id if container_id else ""
+                        i['container_image_name'] = \
+                            image_name if image_name else ""
+                        i['container_image_id'] = image_id if image_id else ""
+                        i['version'] = str(version)
+                        i['started'] = start_stamp if start_stamp else ""
+                        _created = get_file_timestamp(
                             os.path.join(data_dir, fsid, j, 'unit.created')
                         )
-                        i['deployed'] = get_file_timestamp(
-                            os.path.join(data_dir, fsid, j, 'unit.image'))
-                        i['configured'] = get_file_timestamp(
-                            os.path.join(data_dir, fsid, j, 'unit.configured'))
+                        i['created'] = _created if _created else ""
+                        _deployed = get_file_timestamp(
+                            os.path.join(data_dir, fsid, j, 'unit.image')
+                        )
+                        i['deployed'] = _deployed if _deployed else ""
+                        _configured = get_file_timestamp(
+                            os.path.join(data_dir, fsid, j, 'unit.configured')
+                        )
+                        i['configured'] = _configured if _configured else ""
 
                     ls.append(i)
 
@@ -4779,6 +4809,7 @@ class Packager(object):
         except HTTPError as err:
             logger.error('repository not found in shaman (might not be available yet)')
             raise Error('%s, failed to fetch %s' % (err, shaman_url))
+        chacra_url = ""
         try:
             chacra_url = shaman_response.geturl()
             chacra_response = urlopen(chacra_url)
@@ -5703,18 +5734,22 @@ class HostFacts():
 
                     return security
 
+        ret = None
         if os.path.exists('/sys/kernel/security/lsm'):
             lsm = read_file(['/sys/kernel/security/lsm']).strip()
             if 'selinux' in lsm:
-                return _fetch_selinux()
+                ret = _fetch_selinux()
             elif 'apparmor' in lsm:
-                return _fetch_apparmor()
+                ret = _fetch_apparmor()
             else:
                 return {
                     "type": "Unknown",
                     "description": "Linux Security Module framework is active, but is not using SELinux or AppArmor"
                 }
 
+        if ret is not None:
+            return ret
+        
         return {
             "type": "None",
             "description": "Linux Security Module framework is not available"
@@ -6145,6 +6180,7 @@ class CephadmDaemon():
                     # json, it won't parse
                     stdout = stream.getvalue()
 
+                    data = ""
                     if stdout:
                         try:
                             data = json.loads(stdout)
@@ -6379,7 +6415,8 @@ WantedBy=ceph-{fsid}.target
         unit_name = CephadmDaemon._unit_name(fsid, daemon_id)
         unit_path = os.path.join(args.unit_dir, unit_name)
         unit_run = os.path.join(args.data_dir, fsid, f"{daemon_type}.{daemon_id}", "unit.run")
-        try: 
+        port = None
+        try:
             with open(unit_run, "r") as u:
                 contents = u.read().strip(" &")
         except OSError:

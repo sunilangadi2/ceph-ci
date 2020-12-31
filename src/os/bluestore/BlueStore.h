@@ -1940,7 +1940,7 @@ public:
 	qcond.wait(l);
 	--kv_submitted_waiters;
       }
-    }
+      }
 
     bool flush_commit(Context *c) {
       std::lock_guard l(qlock);
@@ -2139,7 +2139,12 @@ private:
 		std::numeric_limits<decltype(min_alloc_size)>::digits,
 		"not enough bits for min_alloc_size");
 
-  bool per_pool_omap = false;
+  enum {
+    // Please preserve the order since it's DB persistent
+    OMAP_BULK = 0,
+    OMAP_PER_POOL = 1,
+    OMAP_PER_PG = 2,
+    } per_pool_omap = OMAP_BULK;
 
   ///< maximum allocation unit (power of 2)
   std::atomic<uint64_t> max_alloc_size = {0};
@@ -3044,7 +3049,7 @@ private:
   std::set<std::string> failed_compressors;
   std::string spillover_alert;
   std::string legacy_statfs_alert;
-  std::string no_per_pool_omap_alert;
+  std::string no_per_pg_omap_alert;
   std::string disk_size_mismatch_alert;
   std::string spurious_read_errors_alert;
 
@@ -3074,7 +3079,7 @@ private:
   }
 
   void _check_legacy_statfs_alert();
-  void _check_no_per_pool_omap_alert();
+  void _check_no_per_pg_omap_alert();
   void _set_disk_size_mismatch_alert(const std::string& s) {
     std::lock_guard l(qlock);
     disk_size_mismatch_alert = s;
@@ -3610,7 +3615,7 @@ public:
     }
   };
 public:
-  void fix_per_pool_omap(KeyValueDB *db);
+  void fix_per_pool_omap(KeyValueDB *db, int);
   bool remove_key(KeyValueDB *db, const std::string& prefix, const std::string& key);
   bool fix_shared_blob(KeyValueDB *db,
 		         uint64_t sbid,

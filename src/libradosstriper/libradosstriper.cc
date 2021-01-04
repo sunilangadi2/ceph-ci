@@ -34,7 +34,7 @@
 
 libradosstriper::MultiAioCompletion::~MultiAioCompletion()
 {
-  ceph_assert(pc->ref == 1);
+  ceph_assert(pc->get_nref() == 1);
   pc->put();
 }
 

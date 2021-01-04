@@ -448,7 +448,6 @@ class CephadmOrchestrator(orchestrator.Orchestrator, MgrModule,
             'url': url,
             'username': username,
             'password': password,
-            'fsid':  self._cluster_fsid,
         })
         out, err, code = self._run_cephadm(
             host, 'mon', 'registry-login',

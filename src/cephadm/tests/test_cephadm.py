@@ -204,7 +204,7 @@ default via fe80::2480:28ec:5097:3fe2 dev wlp2s0 proto ra metric 20600 pref medi
 
         # test normal valid login with url, username and password specified
         call_throws.return_value = '', '', 0
-        args = cd._parse_args(['registry-login', '--registry-url', 'sample-url', '--registry-username', 'sample-user', '--registry-password', 'sample-pass', '--fsid', 'sample-fsid'])
+        args = cd._parse_args(['registry-login', '--registry-url', 'sample-url', '--registry-username', 'sample-user', '--registry-password', 'sample-pass'])
         cd.args = args
         retval = cd.command_registry_login()
         assert retval == 0
@@ -215,10 +215,10 @@ default via fe80::2480:28ec:5097:3fe2 dev wlp2s0 proto ra metric 20600 pref medi
         with pytest.raises(Exception) as e:
             assert cd.command_registry_login()
         assert str(e.value) == ('Invalid custom registry arguments received. To login to a custom registry include '
-                                '--registry-url, --registry-username,--registry-password and --fsid options or --registry-json option')
+                                '--registry-url, --registry-username and --registry-password options or --registry-json option')
 
         # test normal valid login with json file
-        get_parm.return_value = {"url": "sample-url", "username": "sample-username", "password": "sample-password", "fsid": "sample-fsid"}
+        get_parm.return_value = {"url": "sample-url", "username": "sample-username", "password": "sample-password"}
         args = cd._parse_args(['registry-login', '--registry-json', 'sample-json'])
         cd.args = args
         retval = cd.command_registry_login()
@@ -236,12 +236,11 @@ default via fe80::2480:28ec:5097:3fe2 dev wlp2s0 proto ra metric 20600 pref medi
                           " \"url\": \"REGISTRY_URL\",\n"
                           " \"username\": \"REGISTRY_USERNAME\",\n"
                           " \"password\": \"REGISTRY_PASSWORD\"\n"
-                          " \"fsid\": \"FSID\"\n"
                         "}\n")
 
         # test login attempt with valid arguments where login command fails
         call_throws.side_effect = Exception
-        args = cd._parse_args(['registry-login', '--registry-url', 'sample-url', '--registry-username', 'sample-user', '--registry-password', 'sample-pass', '--fsid', 'sample-fsid'])
+        args = cd._parse_args(['registry-login', '--registry-url', 'sample-url', '--registry-username', 'sample-user', '--registry-password', 'sample-pass'])
         cd.args = args
         with pytest.raises(Exception) as e:
             cd.command_registry_login()

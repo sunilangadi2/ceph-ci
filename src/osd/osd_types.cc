@@ -7076,6 +7076,8 @@ int prepare_info_keymap(
   DoutPrefixProvider *dpp)
 {
   if (dirty_epoch) {
+    ldpp_dout(dpp, 20) << __func__ << " storing osdmap epoch: "
+      << epoch << dendl;
     encode(epoch, (*km)[string(epoch_key)]);
   }
 

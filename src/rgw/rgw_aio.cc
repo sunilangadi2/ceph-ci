@@ -71,7 +71,7 @@ void cache_aio_cb(sigval_t sigval) {
     c->r->result = 0;
     c->aio->put(*(c->r));
   } else {
-    c->r->result = -1;
+    c->r->result = -EINVAL;
     c->aio->put(*(c->r));
     if (status != ECANCELED) {
       lsubdout(g_ceph_context, rgw, 1) << "D3nDataCache: " << __func__ << "(): Error status=" << status << dendl;
@@ -144,7 +144,7 @@ Aio::OpFunc cache_aio_abstract(Op&& op, off_t obj_ofs, off_t read_ofs, off_t rea
       int ret = cs->submit_libaio_op(cs->c);
       if(ret < 0) {
         lsubdout(g_ceph_context, rgw, 1) << "D3nDataCache: " << __func__ << ": submit_libaio_op, ret=" << ret << dendl;
-        r.result = -1;
+        r.result = -EINVAL;
         cs->aio->put(r);
         delete cs->c;
         cs->c = nullptr;
@@ -154,7 +154,7 @@ Aio::OpFunc cache_aio_abstract(Op&& op, off_t obj_ofs, off_t read_ofs, off_t rea
       int ret = cs->c->execute_io_op(ref.obj.oid, &r.data, read_len, obj_ofs, read_ofs, location, cache_aio_cb, aio, &r);
       if(ret < 0) {
         lsubdout(g_ceph_context, rgw, 1) << "D3nDataCache: " << __func__ << ": execute_io_op, ret=" << ret << dendl;
-        r.result = -1;
+        r.result = -EINVAL;
         cs->aio->put(r);
         delete cs->c;
         cs->c = nullptr;

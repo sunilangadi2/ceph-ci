@@ -25,7 +25,6 @@ class D3nCacheRequest {
     off_t len;
     std::string key;
     off_t read_ofs;
-    Context* onack;
     CephContext* cct;
     rgw::AioResult* r = nullptr;
     rgw::Aio* aio = nullptr;
@@ -88,7 +87,7 @@ struct D3nL1CacheRequest : public D3nCacheRequest {
     if (nbytes != read_len) {
       lsubdout(g_ceph_context, rgw, 0) << "Error: " << __func__ << "()  ::read(" << location << ", read_ofs=" << read_ofs << ", read_len=" << read_len << ") read_len!=nbytes = " << nbytes << dendl;
       free(io_buf);
-      return -1;
+      return -EIO;
     }
     lsubdout(g_ceph_context, rgw_datacache, 30) << "D3nDataCache: " << __func__ << "(): Read From Cache, nbytes=" << nbytes << dendl;
     bl->append(io_buf, nbytes);

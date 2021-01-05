@@ -62,21 +62,27 @@ int D3nDataCache::io_write(bufferlist& bl, unsigned int len, std::string oid)
   std::string location = cache_location + oid;
 
   lsubdout(g_ceph_context, rgw_datacache, 20) << "D3nDataCache: " << __func__ << "(): location=" << location << dendl;
-  FILE *cache_file = 0;
+  FILE *cache_file = nullptr;
   int r = 0;
+  size_t nbytes = 0;
 
-  cache_file = fopen(location.c_str(),"w+");
-  if (cache_file != nullptr) {
-    ldout(cct, 0) << "ERROR: D3nDataCache::open file has return error " << r << dendl;
-    return -1;
+  cache_file = fopen(location.c_str(), "w+");
+  if (cache_file == nullptr) {
+    ldout(cct, 0) << "ERROR: D3nDataCache::fopen file has return error, errno=" << errno << dendl;
+    return -errno;
   }
 
-  r = fwrite(bl.c_str(), 1, len, cache_file);
-  if (r < 0) {
-    ldout(cct, 0) << "ERROR: D3nDataCache::write: write in file has return error " << r << dendl;
+  nbytes = fwrite(bl.c_str(), 1, len, cache_file);
+  if (nbytes != len) {
+    ldout(cct, 0) << "ERROR: D3nDataCache::io_write: fwrite has returned error: nbytes!=len, nbytes=" << nbytes << ", len=" << len << dendl;
+    return -EIO;
   }
 
-  fclose(cache_file);
+  r = fclose(cache_file);
+  if (r != 0) {
+    ldout(cct, 0) << "ERROR: D3nDataCache::fclsoe file has return error, errno=" << errno << dendl;
+    return -errno;
+  }
 
   /*update cahce_map entries for new chunk in cache*/
   cache_lock.lock();

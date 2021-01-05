@@ -235,6 +235,7 @@ int D3nRGWDataCache<T>::flush_read_list(struct get_obj_data* d) {
   return r;
 }
 
+/*
 template<typename T>
 int D3nRGWDataCache<T>::get_obj_iterate_cb(const rgw_raw_obj& read_obj, off_t obj_ofs,
                                  off_t read_ofs, off_t len, bool is_head_obj,
@@ -311,6 +312,103 @@ int D3nRGWDataCache<T>::get_obj_iterate_cb(const rgw_raw_obj& read_obj, off_t ob
   }
   lsubdout(g_ceph_context, rgw, 1) << "D3nDataCache: Check: head object cache handling flow, oid=" << read_obj.oid << dendl;
 
+}
+*/
+template<typename T>
+int D3nRGWDataCache<T>::get_obj_iterate_cb(const rgw_raw_obj& read_obj, off_t obj_ofs,
+                                 off_t read_ofs, off_t len, bool is_head_obj,
+                                 RGWObjState *astate, void *arg) {
+
+  librados::ObjectReadOperation op;
+  struct get_obj_data* d = static_cast<struct get_obj_data*>(arg);
+  string oid, key;
+
+  int r = 0;
+
+  if (is_head_obj) {
+    // only when reading from the head object do we need to do the atomic test
+    r = T::append_atomic_test(astate, op);
+    if (r < 0)
+      return r;
+
+    if (astate && obj_ofs < astate->data.length()) {
+      unsigned chunk_len = std::min((uint64_t)astate->data.length() - obj_ofs, (uint64_t)len);
+
+      r = d->client_cb->handle_data(astate->data, obj_ofs, chunk_len);
+      if (r < 0)
+        return r;
+
+      len -= chunk_len;
+      d->offset += chunk_len;
+      read_ofs += chunk_len;
+      obj_ofs += chunk_len;
+      if (!len)
+        return 0;
+    }
+  }
+
+  lsubdout(g_ceph_context, rgw, 20) << "D3nRGWDataCache::get_obj_iterate_cb oid=" << read_obj.oid << " obj-ofs=" << obj_ofs << " read_ofs=" << read_ofs << " len=" << len << dendl;
+  op.read(read_ofs, len, nullptr, nullptr);
+
+  const uint64_t cost = len;
+  const uint64_t id = obj_ofs; // use logical object offset for sorting replies
+  oid = read_obj.oid;
+
+  d->d3n_add_pending_oid(oid);
+
+  if (d3n_data_cache.get(read_obj.oid)) {
+    std::cerr << " >>> #MK# " << __FILE__ << " #" << __LINE__ << " | " << __func__ << "() |CACHE-OUT| d3n_data_cache.get  get_obj_iterate_cb  oid=" << read_obj.oid << " obj-ofs=" << obj_ofs << " read_ofs=" << read_ofs << " len=" << len << std::endl;
+    auto obj = d->store->svc.rados->obj(read_obj);
+    r = obj.open();
+    if (r < 0) {
+      lsubdout(g_ceph_context, rgw, 0) << "Error: d3n failed to open rados context for " << read_obj << ", r=" << dendl;
+      return r;
+    }
+    auto completed = d->aio->get(obj, rgw::Aio::cache_op(std::move(op), d->yield, obj_ofs, read_ofs, len, g_conf()->rgw_d3n_l1_datacache_persistent_path), cost, id);
+    if (g_conf()->rgw_d3n_l1_libaio_read) {
+      r = d->drain();
+    } else {
+      r = d->flush(std::move(completed));
+    }
+    if (r < 0) {
+      lsubdout(g_ceph_context, rgw, 0) << "Error: d3n failed to drain/flush, r= " << r << dendl;
+    }
+    return r;
+  } else {
+    std::cerr << " >>> #MK# " << __FILE__ << " #" << __LINE__ << " | " << __func__ << "() |CACHE-IN| d3n_data_cache.get  get_obj_iterate_cb  oid=" << read_obj.oid << " obj-ofs=" << obj_ofs << " read_ofs=" << read_ofs << " len=" << len << std::endl;
+    lsubdout(g_ceph_context, rgw, 20) << "rados->get_obj_iterate_cb oid=" << read_obj.oid << " obj-ofs=" << obj_ofs << " read_ofs=" << read_ofs << " len=" << len << dendl;
+    auto obj = d->store->svc.rados->obj(read_obj);
+    r = obj.open();
+    if (r < 0) {
+      lsubdout(g_ceph_context, rgw, 0) << "Error: d3n failed to open rados context for " << read_obj << ", r=" << dendl;
+      return r;
+    }
+    auto completed = d->aio->get(obj, rgw::Aio::librados_op(std::move(op), d->yield), cost, id);
+    return d->flush(std::move(completed));
+  }
+
+  /*
+    // TODO: complete L2 cache support refactoring
+    D3nL2CacheRequest* cc;
+    d->add_l2_request(&cc, pbl, read_obj.oid, obj_ofs, read_ofs, len, key, c);
+    r = io_ctx.cache_aio_notifier(read_obj.oid, static_cast<D3nCacheRequest*>(cc));
+    data_cache.push_l2_request(cc);
+  }
+
+  // Flush data to client if there is any
+  r = flush_read_list(d);
+  if (r < 0)
+    return r;
+
+  return 0;
+
+done_err:
+  lsubdout(g_ceph_context, rgw, 20) << "cancelling io r=" << r << " obj_ofs=" << obj_ofs << dendl;
+  d->set_cancelled(r);
+  d->cancel_io(obj_ofs);
+
+  return r;
+  */
 }
 
 #endif

@@ -69,19 +69,22 @@ public:
                              const string& email, RGWUserInfo *info,
                              RGWObjVersionTracker *objv_tracker,
                              real_time *pmtime,
-                             optional_yield y) = 0;
+                             optional_yield y,
+														 map<string, bufferlist> *pattrs) = 0;
   virtual int get_user_info_by_swift(RGWSI_MetaBackend::Context *ctx,
                              const string& swift_name,
                              RGWUserInfo *info,        /* out */
                              RGWObjVersionTracker * const objv_tracker,
                              real_time * const pmtime,
-                             optional_yield y) = 0;
+                             optional_yield y,
+														 map<string, bufferlist> *pattrs) = 0;
   virtual int get_user_info_by_access_key(RGWSI_MetaBackend::Context *ctx,
                                   const std::string& access_key,
                                   RGWUserInfo *info,
                                   RGWObjVersionTracker* objv_tracker,
                                   real_time *pmtime,
-                                  optional_yield y) = 0;
+                                  optional_yield y,
+																	map<string, bufferlist> *pattrs) = 0;
 
   virtual int add_bucket(RGWSI_MetaBackend::Context *ctx,
                          const rgw_user& user,

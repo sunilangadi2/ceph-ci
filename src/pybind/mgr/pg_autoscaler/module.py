@@ -111,6 +111,9 @@ class PgAutoscaler(MgrModule):
         # So much of what we do peeks at the osdmap that it's easiest
         # to just keep a copy of the pythonized version.
         self._osd_map = None
+        self._full_pg = None
+        self._pool_count = None
+        self._pgs_left = None
 
     def config_notify(self):
         for opt in self.NATIVE_OPTIONS:
@@ -288,6 +291,45 @@ class PgAutoscaler(MgrModule):
                            s.pg_target)
 
         return result, pool_root
+    
+    def _get_full_pg(self, pools, root_map, pool_root, crush_map, pool_stats):
+        ret = 0
+        pool_count = len(pools.items())
+        # iterate over all pools to determine how they should be sized
+        for pool_name, p in pools.items():
+            pool_id = p['pool']
+            if pool_id not in pool_stats:
+                # race with pool deletion; skip
+                continue
+
+            cr_name = crush_map.get_rule_by_id(p['crush_rule'])['rule_name']
+            root_id = int(crush_map.get_rule_root(cr_name))
+            pool_root[pool_name] = root_id
+            osd_count = root_map[root_id].osd_count
+            total_ideal_pg_count = root_map[root_id].pg_target
+            ideal_pg_per_pool = total_ideal_pg_count/pool_count 
+            total_pgs = ideal_pg_per_pool / p['size'] 
+            ret += nearest_power_of_two(total_pgs)
+
+        return ret
+
+    def _get_final_pg_target_and_ratio(self, capacity_ratio):
+
+        even_ratio = 1 / self._pool_count
+        used_ratio = capacity_ratio
+        
+        if used_ratio > even_ratio:
+            self._pool_count -= 1
+
+        final_ratio = max(used_ratio, even_ratio)
+
+        # So what proportion of pg allowance should we be using?
+        pool_pg_target = final_ratio * self._full_pg
+        final_pg_target = nearest_power_of_two(pool_pg_target)
+        self._pgs_left -= final_pg_target
+        
+        return final_pg_target, final_ratio, pool_pg_target
+
 
     def _get_pool_status(
             self,
@@ -298,14 +340,17 @@ class PgAutoscaler(MgrModule):
         assert threshold >= 2.0
 
         crush_map = osdmap.get_crush()
-
         root_map, pool_root = self.get_subtree_resource_status(osdmap, crush_map)
-
         df = self.get('df')
         pool_stats = dict([(p['id'], p['stats']) for p in df['pools']])
+        self.log.debug(
+                    "dfpools: {0}".format(json.dumps(df['pools'], indent=4, sort_keys=True)))
 
         ret = []
-
+        
+        self._full_pg = self._get_full_pg(pools, root_map, pool_root, crush_map, pool_stats)
+        self._pgs_left = self._full_pg
+        self._pool_count = len(pools.items())
         # iterate over all pools to determine how they should be sized
         for pool_name, p in pools.items():
             pool_id = p['pool']
@@ -317,9 +362,11 @@ class PgAutoscaler(MgrModule):
             # may not be true.
             cr_name = crush_map.get_rule_by_id(p['crush_rule'])['rule_name']
             root_id = int(crush_map.get_rule_root(cr_name))
+
             pool_root[pool_name] = root_id
 
             capacity = root_map[root_id].capacity
+            osd_count = root_map[root_id].osd_count
             if capacity == 0:
                 self.log.debug('skipping empty subtree %s', cr_name)
                 continue
@@ -345,19 +392,15 @@ class PgAutoscaler(MgrModule):
                 root_map[root_id].total_target_ratio,
                 root_map[root_id].total_target_bytes,
                 capacity))
+
             target_ratio = effective_target_ratio(p['options'].get('target_size_ratio', 0.0),
                                                   root_map[root_id].total_target_ratio,
                                                   root_map[root_id].total_target_bytes,
                                                   capacity)
 
-            final_ratio = max(capacity_ratio, target_ratio)
-
-            # So what proportion of pg allowance should we be using?
-            pool_pg_target = (final_ratio * root_map[root_id].pg_target) / p['size'] * bias
-
-            final_pg_target = max(p['options'].get('pg_num_min', PG_NUM_MIN),
-                                  nearest_power_of_two(pool_pg_target))
-
+            final_pg_target, final_ratio, pool_pg_target = self._get_final_pg_target_and_ratio(
+                                                                    capacity_ratio)
+            
             self.log.info("Pool '{0}' root_id {1} using {2} of space, bias {3}, "
                           "pg target {4} quantized to {5} (current {6})".format(
                               p['pool_name'],
@@ -397,7 +440,7 @@ class PgAutoscaler(MgrModule):
                 'would_adjust': adjust,
                 'bias': p.get('options', {}).get('pg_autoscale_bias', 1.0),
                 });
-
+         
         return (ret, root_map, pool_root)
 
     def _update_progress_events(self):

@@ -19,6 +19,10 @@ function(gperf_generate input output)
     )
 endfunction()
 
+if(Boost_VERSION VERSION_GREATER_EQUAL 1.74)
+  add_definitions(-DBOOST_ASIO_USE_TS_EXECUTOR_AS_DEFAULT)
+endif()
+
 set(librgw_common_srcs
   services/svc_finisher.cc
   services/svc_notify.cc

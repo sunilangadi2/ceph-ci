@@ -3313,7 +3313,6 @@ class RGWRadosPutObj : public RGWHTTPStreamRWRequest::ReceiveCB
   map<string, bufferlist> src_attrs;
   uint64_t ofs{0};
   uint64_t lofs{0}; /* logical ofs */
-  RGWGetDataCB* client_cb = nullptr;
   std::function<int(map<string, bufferlist>&)> attrs_handler;
 
   bufferlist chunk_buffer;

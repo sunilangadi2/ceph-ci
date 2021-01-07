@@ -1285,7 +1285,6 @@ public:
   int append_atomic_test(const RGWObjState* astate, librados::ObjectOperation& op);
 
   virtual int flush_read_list(struct get_obj_data* d);
-  //virtual int get_obj_iterate_cb(const rgw_raw_obj& read_obj, off_t obj_ofs,
   virtual int get_obj_iterate_cb(const rgw_raw_obj& read_obj, off_t obj_ofs,
                          off_t read_ofs, off_t len, bool is_head_obj,
                          RGWObjState *astate, void *arg);

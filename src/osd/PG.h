@@ -66,7 +66,6 @@ struct OpRequest;
 typedef OpRequest::Ref OpRequestRef;
 class MOSDPGLog;
 class DynamicPerfStats;
-class PgScrubber;
 
 namespace Scrub {
   class Store;
@@ -169,7 +168,6 @@ class PGRecoveryStats {
 class PG : public DoutPrefixProvider, public PeeringState::PeeringListener {
   friend struct NamedState;
   friend class PeeringState;
-  friend class PgScrubber;
   friend class Scrub::ReplicaReservations;
   friend class Scrub::LocalReservation;  // dout()-only friendship
   friend class Scrub::ReservedByRemotePrimary;  //  dout()-only friendship

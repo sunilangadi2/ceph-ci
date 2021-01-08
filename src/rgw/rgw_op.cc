@@ -4918,15 +4918,27 @@ int RGWCopyObj::verify_permission(optional_yield y)
 
     /* admin request overrides permission checks */
     if (!s->auth.identity->is_admin_of(src_acl.get_owner().get_id())) {
-      if (src_policy) {
-	auto e = src_policy->eval(s->env, *s->auth.identity,
-				  src_object->get_instance().empty() ?
-				  rgw::IAM::s3GetObject :
-				  rgw::IAM::s3GetObjectVersion,
-				  ARN(src_object->get_obj()));
+      if (src_policy || ! s->iam_user_policies.empty()) {
+        auto usr_policy_res = eval_user_policies(s->iam_user_policies, s->env,
+                                                  boost::none,
+                                                  src_object->get_instance().empty() ?
+                                                  rgw::IAM::s3GetObject :
+                                                  rgw::IAM::s3GetObjectVersion,
+                                                  ARN(src_object->get_obj()));
+        if (usr_policy_res == Effect::Deny) {
+          return -EACCES;
+        }
+        auto e = Effect::Pass;
+        if (src_policy) {
+	        e = src_policy->eval(s->env, *s->auth.identity,
+            src_object->get_instance().empty() ?
+            rgw::IAM::s3GetObject :
+            rgw::IAM::s3GetObjectVersion,
+            ARN(src_object->get_obj()));
+        }
 	if (e == Effect::Deny) {
 	  return -EACCES;
-	} else if (e == Effect::Pass &&
+	} else if (usr_policy_res == Effect::Pass && e == Effect::Pass &&
 		   !src_acl.verify_permission(this, *s->auth.identity, s->perm_mask,
 					      RGW_PERM_READ)) { 
 	  return -EACCES;
@@ -4948,6 +4960,7 @@ int RGWCopyObj::verify_permission(optional_yield y)
     op_ret = store->get_bucket(s->user.get(), RGWBucketInfo(), &dest_bucket);
     if (op_ret < 0) {
       if (op_ret == -ENOENT) {
+        ldpp_dout(this, 0) << "ERROR: Destination Bucket not found for user: " << s->user->get_id().to_str() << dendl;
 	op_ret = -ERR_NO_SUCH_BUCKET;
       }
       return op_ret;
@@ -4956,6 +4969,7 @@ int RGWCopyObj::verify_permission(optional_yield y)
 				      s->sysobj_ctx, s->yield);
     if (op_ret < 0) {
       if (op_ret == -ENOENT) {
+        ldpp_dout(this, 0) << "ERROR: Destination Bucket not found for destination tenant: " << dest_tenant_name << "destination bucket: " << dest_bucket_name << dendl;
         op_ret = -ERR_NO_SUCH_BUCKET;
       }
       return op_ret;
@@ -4976,18 +4990,28 @@ int RGWCopyObj::verify_permission(optional_yield y)
   auto dest_iam_policy = get_iam_policy_from_attr(s->cct, dest_bucket->get_attrs(), dest_bucket->get_tenant());
   /* admin request overrides permission checks */
   if (! s->auth.identity->is_admin_of(dest_policy.get_owner().get_id())){
-    if (dest_iam_policy != boost::none) {
+    if (dest_iam_policy != boost::none || ! s->iam_user_policies.empty()) {
       rgw_add_to_iam_environment(s->env, "s3:x-amz-copy-source", copy_source);
       if (md_directive)
 	rgw_add_to_iam_environment(s->env, "s3:x-amz-metadata-directive",
 				   *md_directive);
 
-      auto e = dest_iam_policy->eval(s->env, *s->auth.identity,
-                                     rgw::IAM::s3PutObject,
-                                     ARN(dest_object->get_obj()));
+      auto usr_policy_res = eval_user_policies(s->iam_user_policies,
+                                                s->env, boost::none,
+                                                rgw::IAM::s3PutObject,
+                                                ARN(dest_object->get_obj()));
+      if (usr_policy_res == Effect::Deny) {
+        return -EACCES;
+      }
+      auto e = Effect::Pass;
+      if (dest_iam_policy) {
+        e = dest_iam_policy->eval(s->env, *s->auth.identity,
+                                      rgw::IAM::s3PutObject,
+                                      ARN(dest_object->get_obj()));
+      }
       if (e == Effect::Deny) {
         return -EACCES;
-      } else if (e == Effect::Pass &&
+      } else if (usr_policy_res == Effect::Pass && e == Effect::Pass &&
                  ! dest_bucket_policy.verify_permission(this,
                                                         *s->auth.identity,
                                                         s->perm_mask,

@@ -1604,13 +1604,12 @@ int PrimaryLogPG::do_scrub_ls(const MOSDOp *m, OSDOp *osd_op)
     r = -EAGAIN;
   } else {
     bool store_queried = m_scrubber->get_store_errors(arg, result);
-    if (store_queried) {
-      encode(result, osd_op->outdata); 
-    } else {
+    if (!store_queried) {
       // the scrubber's store is not initialized
       r = -ENOENT;
     }
   }
+  encode(result, osd_op->outdata);  // RRR really? even if no store?
 
   return r;
 }

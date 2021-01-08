@@ -15,7 +15,6 @@ namespace Scrub {
 /// used when PgScrubber is called by the scrub-machine, to tell the FSM
 /// how to continue
 enum class FsmNext { do_discard, next_chunk, goto_notactive };
-enum class PreemptionNoted { no_preemption, preempted };
 
 /// the interface exposed by the PgScrubber into its internal
 /// preemption_data object
@@ -56,6 +55,8 @@ struct ScrubMachineListener {
 
   virtual eversion_t get_last_update_applied() const = 0;
 
+  virtual void requeue_waiting() const = 0;
+
   virtual int pending_active_pushes() const = 0;
 
   virtual int build_primary_map_chunk() = 0;
@@ -70,11 +71,9 @@ struct ScrubMachineListener {
 
   virtual void replica_handling_done() = 0;
 
-  // no virtual void discard_reservation_by_primary() = 0;
-
   /// the version of 'scrub_clear_state()' that does not try to invoke FSM services
   /// (thus can be called from FSM reactions)
-  virtual void clear_pgscrub_state() = 0;
+  virtual void clear_pgscrub_state(bool keep_repair_state) = 0;
 
   virtual void add_delayed_scheduling() = 0;
 
@@ -87,7 +86,9 @@ struct ScrubMachineListener {
 
   virtual Scrub::FsmNext on_digest_updates() = 0;
 
-  virtual void send_replica_map(Scrub::PreemptionNoted was_preempted) = 0;
+  virtual void send_replica_map(bool was_preempted) = 0;
+
+  virtual void replica_update_start_epoch() = 0;
 
   [[nodiscard]] virtual bool has_pg_marked_new_updates() const = 0;
 
@@ -95,7 +96,7 @@ struct ScrubMachineListener {
 
   [[nodiscard]] virtual bool was_epoch_changed() const = 0;
 
-  virtual Scrub::preemption_t& get_preemptor() = 0;
+  virtual Scrub::preemption_t* get_preemptor() = 0;
 
   /**
    *  a "technical" collection of the steps performed once all

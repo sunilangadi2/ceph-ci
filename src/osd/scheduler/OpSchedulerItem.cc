@@ -52,24 +52,6 @@ void PGSnapTrim::run(
   pg->unlock();
 }
 
-void PGScrubResourcesOK::run(OSD* osd,
-			     OSDShard* sdata,
-			     PGRef& pg,
-			     ThreadPool::TPHandle& handle)
-{
-  pg->scrub_send_resources_granted(epoch_queued, handle);
-  pg->unlock();
-}
-
-void PGScrubDenied::run(OSD* osd,
-			OSDShard* sdata,
-			PGRef& pg,
-			ThreadPool::TPHandle& handle)
-{
-  pg->scrub_send_resources_denied(epoch_queued, handle);
-  pg->unlock();
-}
-
 void PGScrub::run(
   OSD *osd,
   OSDShard *sdata,

@@ -674,4 +674,7 @@ class PgScrubber : public ScrubPgIF, public ScrubMachineListener {
   };
 
   preemption_data_t preemption_data;
+
+  // debug/development temporary code:
+  void debug_dump_reservations(std::string_view header_txt) const;
 };

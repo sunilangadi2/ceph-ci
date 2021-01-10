@@ -25,6 +25,7 @@ int main(int argc, char **argv) {
 
 class mClockSchedulerTest : public testing::Test {
 public:
+  uint32_t num_shards;
   mClockScheduler q;
 
   uint64_t client1;
@@ -32,7 +33,8 @@ public:
   uint64_t client3;
 
   mClockSchedulerTest() :
-    q(g_ceph_context),
+    num_shards(1),
+    q(g_ceph_context, num_shards),
     client1(1001),
     client2(9999),
     client3(100000001)

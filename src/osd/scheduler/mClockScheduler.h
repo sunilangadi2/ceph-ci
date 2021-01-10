@@ -33,6 +33,9 @@
 
 namespace ceph::osd::scheduler {
 
+constexpr uint64_t default_min = 1;
+constexpr uint64_t default_max = 999999;
+
 using client_id_t = uint64_t;
 using profile_id_t = uint64_t;
 
@@ -60,6 +63,10 @@ WRITE_CMP_OPERATORS_2(scheduler_id_t, class_id, client_profile_id)
  */
 class mClockScheduler : public OpScheduler, md_config_obs_t {
 
+  CephContext *cct;
+  const uint32_t num_shards;
+  double client_iops_limit;
+  double rec_iops_limit;
   class ClientRegistry {
     std::array<
       crimson::dmclock::ClientInfo,
@@ -101,7 +108,19 @@ class mClockScheduler : public OpScheduler, md_config_obs_t {
   }
 
 public:
-  mClockScheduler(CephContext *cct);
+  mClockScheduler(CephContext *cct, uint32_t num_shards);
+
+  // Set the mclock related config params based on the profile
+  void enable_mclock_profile();
+
+  // Set "balanced" profile parameters
+  void set_balanced_profile_config();
+
+  // Set "high_recovery_ops" profile parameters
+  void set_high_recovery_ops_profile_config();
+
+  // Set "high_client_ops" profile parameters
+  void set_high_client_ops_profile_config();
 
   // Enqueue op in the back of the regular queue
   void enqueue(OpSchedulerItem &&item) final;

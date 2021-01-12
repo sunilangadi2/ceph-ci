@@ -55,7 +55,7 @@ from .schedule import HostAssignment
 from .inventory import Inventory, SpecStore, HostCache, EventStore
 from .upgrade import CEPH_UPGRADE_ORDER, CephadmUpgrade
 from .template import TemplateMgr
-from .utils import forall_hosts, CephadmNoImage, cephadmNoImage
+from .utils import forall_hosts, CephadmNoImage, cephadmNoImage, config_dump
 
 try:
     import remoto
@@ -1344,7 +1344,7 @@ To check that the host is reachable:
                                            addr=spec.addr,
                                            error_ok=True, no_fsid=True)
         if code:
-            # err will contain stdout and stderr, so we filter on the message text to 
+            # err will contain stdout and stderr, so we filter on the message text to
             # only show the errors
             errors = [_i.replace("ERROR: ", "") for _i in err if _i.startswith('ERROR')]
             raise OrchestratorError('New host %s (%s) failed check(s): %s' % (
@@ -2158,6 +2158,16 @@ To check that the host is reachable:
                 # remove item from cache
                 self.cache.rm_daemon(host, name)
             self.cache.invalidate_host_daemons(host)
+
+            config_entry = utils.name_to_config_section(daemon.name())
+            if daemon_id in config_entry:
+                for conf in config_dump(self):
+                    if conf.section == config_entry:
+                        self.check_mon_command({
+                            'prefix': 'config rm',
+                            'name': conf.name,
+                            'who': conf.section,
+                        })
 
             self.cephadm_services[daemon_type_to_service(daemon_type)].post_remove(daemon)
 

@@ -3,7 +3,7 @@ import json
 import socket
 from enum import Enum
 from functools import wraps
-from typing import Callable, TypeVar, List, NewType, TYPE_CHECKING, Any
+from typing import Callable, TypeVar, List, NewType, TYPE_CHECKING, Any, NamedTuple
 from orchestrator import OrchestratorError
 
 if TYPE_CHECKING:
@@ -81,6 +81,32 @@ def get_cluster_health(mgr: 'CephadmOrchestrator') -> str:
         raise OrchestratorError('failed to parse health status')
 
     return j['status']
+
+
+class ConfigEntry(NamedTuple):
+    section: ConfEntity
+    name: str
+    value: str
+
+    @classmethod
+    def from_json(cls, data: dict) -> 'ConfigEntry':
+        return cls(**data)
+
+
+def config_dump(mgr: 'CephadmOrchestrator') -> List[ConfigEntry]:
+    """get all distinct settings"""
+    ret, out, err = mgr.check_mon_command({
+        'prefix': 'config dump',
+        'format': 'json',
+    })
+
+    try:
+        j = json.loads(out)
+        return [ConfigEntry.from_json(d) for d in j]
+    except (ValueError, KeyError):
+        msg = 'Failed to config dump'
+        logger.exception('%s: \'%s\'' % (msg, out))
+        raise OrchestratorError('failed to parse config dump')
 
 
 def is_repo_digest(image_name: str) -> bool:

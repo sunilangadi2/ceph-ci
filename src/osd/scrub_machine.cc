@@ -415,7 +415,7 @@ ScrubMachine::ScrubMachine(PG* pg, ScrubMachineListener* pg_scrub)
 
 ScrubMachine::~ScrubMachine()
 {
-  dout(20) << "~ScrubMachine " << m_pg_id << dendl;
+  // dout(20) << "~ScrubMachine " << m_pg_id << dendl;
 }
 
 // -------- for replicas -----------------------------------------------------

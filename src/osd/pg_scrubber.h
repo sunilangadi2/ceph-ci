@@ -697,7 +697,7 @@ class PgScrubber : public ScrubPgIF, public ScrubMachineListener {
     mutable std::mutex m_preemption_lock;
     bool m_preemptable{false};
     bool m_preempted{false};
-    int m_left;
+    unsigned m_left;
     size_t m_size_divisor{1};
     bool are_preemptions_left() const { return m_left > 0; }
 

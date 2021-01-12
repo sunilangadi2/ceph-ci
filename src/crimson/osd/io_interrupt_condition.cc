@@ -12,7 +12,7 @@ IOInterruptCondition::IOInterruptCondition(Ref<PG>& pg)
   : pg(pg), e(pg->get_osdmap_epoch()) {}
 
 bool IOInterruptCondition::new_interval_created() {
-  bool ret = e < pg->get_last_peering_reset();
+  bool ret = e < pg->get_interval_start_epoch();
   if (ret)
     ::crimson::get_logger(ceph_subsys_osd).debug(
       "{} new interval, should interrupt, e{}", *pg);

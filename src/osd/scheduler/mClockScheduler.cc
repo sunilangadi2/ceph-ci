@@ -16,6 +16,7 @@
 #include <memory>
 #include <functional>
 
+#include "include/stringify.h"
 #include "osd/scheduler/mClockScheduler.h"
 #include "common/dout.h"
 
@@ -25,20 +26,35 @@ using namespace std::placeholders;
 #define dout_context cct
 #define dout_subsys ceph_subsys_osd
 #undef dout_prefix
-#define dout_prefix *_dout
+#define dout_prefix *_dout << "mClockScheduler: "
 
 
 namespace ceph::osd::scheduler {
 
-mClockScheduler::mClockScheduler(CephContext *cct) :
-  scheduler(
-    std::bind(&mClockScheduler::ClientRegistry::get_info,
-	      &client_registry,
-	      _1),
-    dmc::AtLimit::Wait,
-    cct->_conf.get_val<double>("osd_mclock_scheduler_anticipation_timeout"))
+mClockScheduler::mClockScheduler(CephContext *cct,
+  uint32_t num_shards,
+  bool is_rotational)
+  : cct(cct),
+    num_shards(num_shards),
+    is_rotational(is_rotational),
+    scheduler(
+      std::bind(&mClockScheduler::ClientRegistry::get_info,
+                &client_registry,
+                _1),
+      dmc::AtLimit::Wait,
+      cct->_conf.get_val<double>("osd_mclock_scheduler_anticipation_timeout"))
 {
   cct->_conf.add_observer(this);
+  ceph_assert(num_shards > 0);
+  // Set default blocksize and cost for all op types.
+  for (op_type_t op_type = op_type_t::client_op;
+       op_type <= op_type_t::bg_pg_delete;
+       op_type = op_type_t(static_cast<size_t>(op_type) + 1)) {
+    client_blocksize_infos[op_type] = 4 * 1024;
+    client_cost_infos[op_type] = 1;
+  }
+  set_max_osd_capacity();
+  enable_mclock_profile();
   client_registry.update_from_config(cct->_conf);
 }
 
@@ -86,6 +102,177 @@ const dmc::ClientInfo *mClockScheduler::ClientRegistry::get_info(
   }
 }
 
+void mClockScheduler::set_max_osd_capacity()
+{
+  if (cct->_conf.get_val<double>("osd_mclock_max_capacity_iops")) {
+    max_osd_capacity =
+      cct->_conf.get_val<double>("osd_mclock_max_capacity_iops");
+  } else {
+    if (is_rotational) {
+      max_osd_capacity =
+        cct->_conf.get_val<double>("osd_mclock_max_capacity_iops_hdd");
+    } else {
+      max_osd_capacity =
+        cct->_conf.get_val<double>("osd_mclock_max_capacity_iops_ssd");
+    }
+  }
+  dout(1) <<  "osd_mclock_max_capacity_iops:" << max_osd_capacity << dendl;
+  // Set per op-shard iops limit
+  max_osd_capacity /= num_shards;
+}
+
+void mClockScheduler::enable_mclock_profile()
+{
+  mclock_profile =
+    cct->_conf.get_val<std::string>("osd_mclock_profile");
+
+  // Nothing to do for "custom" profile
+  if (mclock_profile == "custom") {
+    return;
+  }
+
+  // Set mclock and ceph config options for the chosen profile
+  if (mclock_profile == "balanced") {
+    set_balanced_profile_config();
+  } else if (mclock_profile == "high_recovery_ops") {
+    set_high_recovery_ops_profile_config();
+  } else if (mclock_profile == "high_client_ops") {
+    set_high_client_ops_profile_config();
+  } else {
+    ceph_assert("Invalid choice of mclock profile" == 0);
+    return;
+  }
+  dout(1) << mclock_profile << " profile enabled" << dendl;
+}
+
+void mClockScheduler::set_balanced_profile_config()
+{
+  int client_wgt = 10;
+  // Set client limit to 50% of max osd capacity
+  double client_lim = std::round(max_osd_capacity * 0.5);
+  // Set recovery limit to 50% of max osd capacity
+  double rec_lim = std::round(max_osd_capacity * 0.5);
+
+  // Set external client params
+  cct->_conf.set_val(
+    "osd_mclock_scheduler_client_res", stringify(default_min));
+  cct->_conf.set_val(
+    "osd_mclock_scheduler_client_wgt", stringify(client_wgt));
+  cct->_conf.set_val(
+    "osd_mclock_scheduler_client_lim", stringify(client_lim));
+
+  // Set background recovery client params
+  cct->_conf.set_val(
+    "osd_mclock_scheduler_background_recovery_res", stringify(default_min));
+  cct->_conf.set_val(
+    "osd_mclock_scheduler_background_recovery_wgt", stringify(default_min));
+  cct->_conf.set_val(
+    "osd_mclock_scheduler_background_recovery_lim", stringify(rec_lim));
+}
+
+void mClockScheduler::set_high_recovery_ops_profile_config()
+{
+  int rec_wgt = 10;
+  // Set client limit to 25% of max osd capacity
+  double client_lim = std::round(max_osd_capacity * 0.25);
+  // Set recovery limit to 75% of max osd capacity
+  double rec_lim = std::round(max_osd_capacity * 0.75);
+
+  // Set external client params
+  cct->_conf.set_val(
+    "osd_mclock_scheduler_client_res", stringify(default_min));
+  cct->_conf.set_val(
+    "osd_mclock_scheduler_client_wgt", stringify(default_min));
+  cct->_conf.set_val(
+    "osd_mclock_scheduler_client_lim", stringify(client_lim));
+
+  // Set background recovery client params
+  cct->_conf.set_val(
+    "osd_mclock_scheduler_background_recovery_res", stringify(default_min));
+  cct->_conf.set_val(
+    "osd_mclock_scheduler_background_recovery_wgt", stringify(rec_wgt));
+  cct->_conf.set_val(
+    "osd_mclock_scheduler_background_recovery_lim", stringify(rec_lim));
+}
+
+void mClockScheduler::set_high_client_ops_profile_config()
+{
+  int client_wgt = 10;
+  // Set client limit to 75% of max osd capacity
+  double client_lim = std::round(max_osd_capacity * 0.75);
+  // Set recovery limit to 25% of max osd capacity
+  double rec_lim = std::round(max_osd_capacity * 0.25);
+
+  // Set external client params
+  cct->_conf.set_val(
+    "osd_mclock_scheduler_client_res", stringify(default_min));
+  cct->_conf.set_val(
+    "osd_mclock_scheduler_client_wgt", stringify(client_wgt));
+  cct->_conf.set_val(
+    "osd_mclock_scheduler_client_lim", stringify(client_lim));
+
+  // Set background recovery client params
+  cct->_conf.set_val(
+    "osd_mclock_scheduler_background_recovery_res", stringify(default_min));
+  cct->_conf.set_val(
+    "osd_mclock_scheduler_background_recovery_wgt", stringify(default_min));
+  cct->_conf.set_val(
+    "osd_mclock_scheduler_background_recovery_lim", stringify(rec_lim));
+}
+
+int mClockScheduler::calc_cost_per_blocksize(int blocksize)
+{
+  int min_blocksize = 4 * 1024;        // 4KiB
+  int max_blocksize = 4 * 1024 * 1024; // 4MiB
+  int min_cost = 1;
+  //TODO: Set proper max cost for hdd
+  int max_cost = is_rotational ? 100 : 50;
+
+  if (blocksize < min_blocksize) {
+    return min_cost;
+  }
+
+  if (blocksize > max_blocksize) {
+    return max_cost;
+  }
+
+  // Use simple min-max linear scaling until actual benchmark data
+  // can be used. Scale cost according to the blocksize used by
+  // mclock client. Higher the blocksize, higher the cost.
+  double cost_diff = max_cost - min_cost;
+  double blk_size_diff = max_blocksize - min_blocksize;
+  double scaled_cost =
+    (cost_diff) * ((blocksize - min_blocksize) / blk_size_diff);
+  scaled_cost += min_cost;
+  return std::floor(scaled_cost);
+}
+
+bool mClockScheduler::maybe_update_client_cost_info(
+  op_type_t op_type, int new_blocksize)
+{
+  if (new_blocksize == 0) {
+    return false;
+  }
+  // The mclock params represented in terms of the per-osd capacity
+  // are scaled up or down according to the cost associated with
+  // blocksize and updated within the dmclock server for the op types.
+  int cur_blocksize = client_blocksize_infos[op_type];
+  bool blocksize_changed =
+    ((std::floor(new_blocksize / cur_blocksize) >= 2.0) ||
+     (std::floor(cur_blocksize / new_blocksize) >= 2.0)) ? true : false;
+  if (blocksize_changed) {
+    // Update client blocksize info
+    client_blocksize_infos[op_type] = new_blocksize;
+    int new_cost = calc_cost_per_blocksize(new_blocksize);
+    if (client_cost_infos[op_type] != new_cost) {
+      // Update client cost info
+      client_cost_infos[op_type] = new_cost;
+      return true;
+    }
+  }
+  return false;
+}
+
 void mClockScheduler::dump(ceph::Formatter &f) const
 {
 }
@@ -93,8 +280,22 @@ void mClockScheduler::dump(ceph::Formatter &f) const
 void mClockScheduler::enqueue(OpSchedulerItem&& item)
 {
   auto id = get_scheduler_id(item);
-  // TODO: express cost, mclock params in terms of per-node capacity?
-  auto cost = 1; //std::max(item.get_cost(), 1);
+  auto cost = 1;
+
+  // Calculate the cost if the client blocksize (aka cost) changes
+  // for the client-op and bg_recovery op types..
+  auto op = item.maybe_get_op();
+  if (op != std::nullopt) {
+    auto op_type = item.get_op_type();
+    if (op_type == op_type_t::client_op ||
+        op_type == op_type_t::bg_recovery) {
+      // Use item cost (clients' blocksize forms the major component)
+      int blocksize = item.get_cost();
+      if (maybe_update_client_cost_info(op_type, blocksize)) {
+        cost = client_cost_infos[op_type];
+      }
+    }
+  }
 
   // TODO: move this check into OpSchedulerItem, handle backwards compat
   if (op_scheduler_class::immediate == item.get_scheduler_class()) {
@@ -149,6 +350,10 @@ const char** mClockScheduler::get_tracked_conf_keys() const
     "osd_mclock_scheduler_background_best_effort_res",
     "osd_mclock_scheduler_background_best_effort_wgt",
     "osd_mclock_scheduler_background_best_effort_lim",
+    "osd_mclock_max_capacity_iops",
+    "osd_mclock_max_capacity_iops_hdd",
+    "osd_mclock_max_capacity_iops_ssd",
+    "osd_mclock_profile",
     NULL
   };
   return KEYS;

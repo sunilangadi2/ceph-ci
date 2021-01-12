@@ -1960,7 +1960,7 @@ ostream& PgScrubber::show(ostream& out) const
 
 PgScrubber::preemption_data_t::preemption_data_t(PG* pg) : m_pg{pg}
 {
-  m_left = static_cast<int>(
+  m_left =
     m_pg->get_cct()->_conf.get_val<uint64_t>("osd_scrub_max_preemptions"));
 }
 
@@ -1971,7 +1971,7 @@ void PgScrubber::preemption_data_t::reset()
   m_preemptable = false;
   m_preempted = false;
   m_left =
-    static_cast<int>(m_pg->cct->_conf.get_val<uint64_t>("osd_scrub_max_preemptions"));
+    m_pg->cct->_conf.get_val<uint64_t>("osd_scrub_max_preemptions"));
   m_size_divisor = 1;
 }
 

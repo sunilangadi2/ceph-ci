@@ -124,6 +124,10 @@ public:
     return peering_state.get_min_last_complete_ondisk();
   }
 
+  epoch_t get_interval_start_epoch() const {
+    return get_info().history.same_interval_since;
+  }
+
   const pg_info_t& get_info() const final {
     return peering_state.get_info();
   }

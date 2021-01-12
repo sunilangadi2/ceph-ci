@@ -62,7 +62,7 @@ seastar::future<> ClientRequest::start()
   logger().debug("{}: start", *this);
 
   IRef opref = this;
-  return ors.repeat(opref, [this, opref]() mutable {
+  return seastar::repeat([this, opref]() mutable {
       logger().debug("{}: in repeat", *this);
       return with_blocking_future(handle.enter(cp().await_map))
       .then([this]() {
@@ -73,38 +73,46 @@ seastar::future<> ClientRequest::start()
 	return with_blocking_future(handle.enter(cp().get_pg));
       }).then([this] {
 	return with_blocking_future(osd.wait_for_pg(m->get_spg()));
-      }).then([this, opref](Ref<PG> pgref) {
-	return interruptor::with_interruption([this, opref, pgref] {
-	  return [this, opref, pgref]() -> interruptible_future<> {
-	    PG &pg = *pgref;
-	    if (pg.can_discard_op(*m)) {
-	      return osd.send_incremental_map(conn, m->get_map_epoch());
-	    }
-	    return with_blocking_future_interruptible<IOInterruptCondition>(
-	      handle.enter(pp(pg).await_map)
-	    ).then_interruptible([this, &pg]() mutable {
-	      return with_blocking_future_interruptible<IOInterruptCondition>(
-		  pg.osdmap_gate.wait_for_map(m->get_min_epoch()));
-	    }).then_interruptible([this, &pg](auto map) mutable {
-	      return with_blocking_future_interruptible<IOInterruptCondition>(
-		  handle.enter(pp(pg).wait_for_active));
-	    }).then_interruptible([this, &pg]() mutable {
-	      return with_blocking_future_interruptible<IOInterruptCondition>(
-		  pg.wait_for_active_blocker.wait());
-	    }).then_interruptible([this, pgref=std::move(pgref)]() mutable {
-	      if (m->finish_decode()) {
-		m->clear_payload();
+      }).then([this, opref](Ref<PG> pgref) mutable {
+	return interruptor::with_interruption([this, opref, pgref]() mutable {
+	  epoch_t same_interval_since = pgref->get_interval_start_epoch();
+	  logger().debug("{} same_interval_since: ", *this, same_interval_since);
+	  return ors.preserve_sequence(
+	    handle, same_interval_since, opref, pgref->get_pgid(),
+	    interruptor::wrap_function(
+	      [this, opref, pgref]() -> interruptible_future<> {
+	      PG &pg = *pgref;
+	      if (pg.can_discard_op(*m)) {
+		logger().debug("{} op discarded, {}, same_primary_since: {}", *this, pg, pg.get_info().history.same_primary_since);
+		return osd.send_incremental_map(conn, m->get_map_epoch());
 	      }
-	      if (is_pg_op()) {
-		return process_pg_op(pgref);
-	      } else {
-		return process_op(pgref);
-	      }
-	    });
-	  }().then_interruptible([] {
+	      return with_blocking_future_interruptible<IOInterruptCondition>(
+		handle.enter(pp(pg).await_map)
+	      ).then_interruptible([this, &pg]() mutable {
+		return with_blocking_future_interruptible<IOInterruptCondition>(
+		    pg.osdmap_gate.wait_for_map(m->get_min_epoch()));
+	      }).then_interruptible([this, &pg](auto map) mutable {
+		return with_blocking_future_interruptible<IOInterruptCondition>(
+		    handle.enter(pp(pg).wait_for_active));
+	      }).then_interruptible([this, &pg]() mutable {
+		return with_blocking_future_interruptible<IOInterruptCondition>(
+		    pg.wait_for_active_blocker.wait());
+	      }).then_interruptible([this, pgref=std::move(pgref)]() mutable {
+		if (m->finish_decode()) {
+		  m->clear_payload();
+		}
+		if (is_pg_op()) {
+		  return process_pg_op(pgref);
+		} else {
+		  return process_op(pgref);
+		}
+	      });
+	    })
+	  ).then_interruptible([this, opref, pgref]() mutable {
+	    ors.operation_finished(opref, pgref->get_pgid());
 	    return seastar::stop_iteration::yes;
 	  });
-	}, [this](std::exception_ptr eptr) {
+	}, [this, opref, pgref](std::exception_ptr eptr) mutable {
 	  if (*eptr.__cxa_exception_type() ==
 	      typeid(::crimson::common::actingset_changed)) {
 	    try {
@@ -115,6 +123,7 @@ seastar::future<> ClientRequest::start()
 		return seastar::stop_iteration::no;
 	      } else {
 		logger().debug("{} operation abort, up primary changed", *this);
+		ors.operation_finished(opref, pgref->get_pgid(), true);
 		return seastar::stop_iteration::yes;
 	      }
 	    }

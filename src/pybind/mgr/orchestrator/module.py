@@ -284,7 +284,7 @@ class OrchestratorCli(OrchestratorClientMixin, MgrModule,
         'name=labels,type=CephString,n=N,req=false '
         'name=maintenance,type=CephBool,req=false',
         'Add a host')
-    def _add_host(self, hostname: str, addr: Optional[str] = None, labels: Optional[List[str]] = None, maintenance: bool = False):
+    def _add_host(self, hostname: str, addr: Optional[str] = None, labels: Optional[List[str]] = None, maintenance: Optional[bool] = False):
         _status = 'maintenance' if maintenance else ''
         s = HostSpec(hostname=hostname, addr=addr, labels=labels, status=_status)
         completion = self.add_host(s)

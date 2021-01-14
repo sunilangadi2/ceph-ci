@@ -599,7 +599,8 @@ seastar::future<Ref<PG>> OSD::load_pg(spg_t pgid)
 
   return seastar::do_with(PGMeta(store.get(), pgid), [] (auto& pg_meta) {
     return pg_meta.get_epoch();
-  }).then([this](epoch_t e) {
+  }).then([this, pgid](epoch_t e) {
+    logger().debug("load_pg: {}, osdmap: {}", pgid, e);
     return get_map(e);
   }).then([pgid, this] (auto&& create_map) {
     return make_pg(std::move(create_map), pgid, false);

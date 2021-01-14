@@ -76,7 +76,7 @@ seastar::future<> ClientRequest::start()
       }).then([this, opref](Ref<PG> pgref) mutable {
 	return interruptor::with_interruption([this, opref, pgref]() mutable {
 	  epoch_t same_interval_since = pgref->get_interval_start_epoch();
-	  logger().debug("{} same_interval_since: ", *this, same_interval_since);
+	  logger().debug("{} same_interval_since: {}", *this, same_interval_since);
 	  return ors.preserve_sequence(
 	    handle, same_interval_since, opref, pgref->get_pgid(),
 	    interruptor::wrap_function(

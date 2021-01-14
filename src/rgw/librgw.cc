@@ -497,7 +497,6 @@ namespace rgw {
     /* alternative default for module */
     map<string,string> defaults = {
       { "debug_rgw", "1/5" },
-      { "keyring", "$rgw_data/keyring" },
       { "log_file", "/var/log/radosgw/$cluster-$name.log" }
     };
 

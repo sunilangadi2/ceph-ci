@@ -310,6 +310,7 @@ int main(int argc, char **argv)
   po_positional.add_options()
     ("command", po::value<string>(&action),
         "fsck, "
+        "allocmap, "
         "repair, "
         "quick-fix, "
         "bluefs-export, "
@@ -360,8 +361,8 @@ int main(int argc, char **argv)
     cerr << "must specify an action; --help for help" << std::endl;
     exit(EXIT_FAILURE);
   }
-
-  if (action == "fsck" || action == "repair" || action == "quick-fix") {
+    
+  if (action == "fsck" || action == "repair" || action == "quick-fix" || action == "allocmap") {
     if (path.empty()) {
       cerr << "must specify bluestore path" << std::endl;
       exit(EXIT_FAILURE);
@@ -505,8 +506,21 @@ int main(int argc, char **argv)
 			 CINIT_FLAG_NO_DEFAULT_CONFIG_FILE);
 
   common_init_finish(cct.get());
-
-  if (action == "fsck" ||
+  
+  if( action == "allocmap" ) {
+    cout << action << " bluestore.allocmap" << std::endl;
+    validate_path(cct.get(), path, false);
+    BlueStore bluestore(cct.get(), path);
+    int r = bluestore.read_allocation_from_drive();
+    cout << action << " bluestore.allocmap ret_code=" << r << std::endl;
+    if (r < 0) {
+      cerr << action << " failed: " << cpp_strerror(r) << std::endl;
+      exit(EXIT_FAILURE);
+    } else {
+      cout << action << " success" << std::endl;
+    }    
+  }
+  else if (action == "fsck" ||
       action == "repair" ||
       action == "quick-fix") {
     validate_path(cct.get(), path, false);

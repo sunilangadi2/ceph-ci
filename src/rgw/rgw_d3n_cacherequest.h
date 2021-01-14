@@ -64,29 +64,29 @@ struct D3nL1CacheRequest : public D3nCacheRequest {
     lsubdout(g_ceph_context, rgw_datacache, 20) << "D3nDataCache: " << __func__ << "(): Read From Cache, location='" << location << "', ofs=" << ofs << ", read_ofs=" << read_ofs << " read_len=" << read_len << dendl;
     int rfd;
     if ((rfd = ::open(location.c_str(), O_RDONLY)) == -1) {
-      lsubdout(g_ceph_context, rgw, 0) << "Error: " << __func__ << "():  ::open(" << location << ") errno=" << errno << dendl;
+      lsubdout(g_ceph_context, rgw, 0) << "D3nDataCache: Error: " << __func__ << "():  ::open(" << location << ") errno=" << errno << dendl;
       return -errno;
     }
     if((ret = posix_fadvise(rfd, 0, 0, g_conf()->rgw_d3n_l1_fadvise)) != 0) {
-      lsubdout(g_ceph_context, rgw, 0) << "Warning: " << __func__ << "()  posix_fadvise( , , , "  << g_conf()->rgw_d3n_l1_fadvise << ") ret=" << ret << dendl;
+      lsubdout(g_ceph_context, rgw, 0) << "D3nDataCache: Warning: " << __func__ << "()  posix_fadvise( , , , "  << g_conf()->rgw_d3n_l1_fadvise << ") ret=" << ret << dendl;
     }
     if ((read_ofs > 0) && (::lseek(rfd, read_ofs, SEEK_SET) != read_ofs)) {
-      lsubdout(g_ceph_context, rgw, 0) << "Error: " << __func__ << "()  ::lseek(" << location << ", read_ofs=" << read_ofs << ") errno=" << errno << dendl;
+      lsubdout(g_ceph_context, rgw, 0) << "D3nDataCache: Error: " << __func__ << "()  ::lseek(" << location << ", read_ofs=" << read_ofs << ") errno=" << errno << dendl;
       return -errno;
     }
     char* io_buf = (char*)malloc(read_len);
     if (io_buf == NULL) {
-      lsubdout(g_ceph_context, rgw, 0) << "Error: " << __func__ << "()  malloc(" << read_len << ") errno=" << errno << dendl;
+      lsubdout(g_ceph_context, rgw, 0) << "D3nDataCache: Error: " << __func__ << "()  malloc(" << read_len << ") errno=" << errno << dendl;
       return -errno;
     }
     ssize_t nbytes;
     if ((nbytes = ::read(rfd, io_buf, read_len)) == -1) {
-      lsubdout(g_ceph_context, rgw, 0) << "Error: " << __func__ << "()  ::read(" << location << ", read_ofs=" << read_ofs << ", read_len=" << read_len << ") errno=" << errno << dendl;
+      lsubdout(g_ceph_context, rgw, 0) << "D3nDataCache: Error: " << __func__ << "()  ::read(" << location << ", read_ofs=" << read_ofs << ", read_len=" << read_len << ") errno=" << errno << dendl;
       free(io_buf);
       return -errno;
     }
     if (nbytes != read_len) {
-      lsubdout(g_ceph_context, rgw, 0) << "Error: " << __func__ << "()  ::read(" << location << ", read_ofs=" << read_ofs << ", read_len=" << read_len << ") read_len!=nbytes = " << nbytes << dendl;
+      lsubdout(g_ceph_context, rgw, 0) << "D3nDataCache: Error: " << __func__ << "()  ::read(" << location << ", read_ofs=" << read_ofs << ", read_len=" << read_len << ") read_len!=nbytes = " << nbytes << dendl;
       free(io_buf);
       return -EIO;
     }

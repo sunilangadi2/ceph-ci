@@ -162,12 +162,12 @@ void D3nDataCache::put(bufferlist& bl, unsigned int len, std::string& oid)
   int r = 0;
   uint64_t freed_size = 0, _free_data_cache_size = 0, _outstanding_write_size = 0;
 
-  ldout(cct, 20) << "D3nDataCache: D3nDataCache::" << __func__ << "(): Write To Cache, oid=" << oid << dendl;
+  ldout(cct, 20) << "D3nDataCache::" << __func__ << "(): oid=" << oid << dendl;
   cache_lock.lock();
   map<string, D3nChunkDataInfo*>::iterator iter = cache_map.find(oid);
   if (iter != cache_map.end()) {
     cache_lock.unlock();
-    ldout(cct, 10) << "D3nDataCache: Warning: data already cached, no rewrite" << dendl;
+    ldout(cct, 10) << "D3nDataCache: Info: data already cached, no rewrite" << dendl;
     return;
   }
   std::list<std::string>::iterator it = std::find(outstanding_write_list.begin(), outstanding_write_list.end(),oid);

@@ -271,6 +271,27 @@ void mClockScheduler::set_high_client_ops_profile_config()
     "osd_mclock_scheduler_background_recovery_lim", stringify(rec_lim));
 }
 
+void mClockScheduler::set_global_recovery_options()
+{
+  // Set low recovery min cost
+  cct->_conf.set_val("osd_async_recovery_min_cost", stringify(1));
+
+  // Set high value for recovery max active and max backfill
+  int rec_max_active = 1000;
+  int max_backfills = 1000;
+  cct->_conf.set_val("osd_recovery_max_active", stringify(rec_max_active));
+  cct->_conf.set_val("osd_max_backfills", stringify(max_backfills));
+
+  // Disable recovery sleep
+  cct->_conf.set_val("osd_recovery_sleep", stringify(0));
+  cct->_conf.set_val("osd_recovery_sleep_hdd", stringify(0));
+  cct->_conf.set_val("osd_recovery_sleep_ssd", stringify(0));
+  cct->_conf.set_val("osd_recovery_sleep_hybrid", stringify(0));
+
+  // Apply the changes
+  cct->_conf.apply_changes(nullptr);
+}
+
 int mClockScheduler::calc_scaled_cost(op_type_t op_type, int cost)
 {
   double client_alloc = get_client_allocation(op_type);

@@ -111,9 +111,6 @@ class PgAutoscaler(MgrModule):
         # So much of what we do peeks at the osdmap that it's easiest
         # to just keep a copy of the pythonized version.
         self._osd_map = None
-        self._full_pg = None
-        self._pool_count = None
-        self._pgs_left = None
 
     def config_notify(self):
         for opt in self.NATIVE_OPTIONS:
@@ -231,9 +228,12 @@ class PgAutoscaler(MgrModule):
                 self.osd_count = None  # Number of OSDs
                 self.pg_target = None  # Ideal full-capacity PG count?
                 self.pg_current = 0  # How many PGs already?
+                self.pg_left = 0
                 self.capacity = None  # Total capacity of OSDs in subtree
                 self.pool_ids = []
                 self.pool_names = []
+                self.pool_count = None
+                self.pool_used = 0
                 self.total_target_ratio = 0.0
                 self.total_target_bytes = 0 # including replication / EC overhead
 
@@ -272,7 +272,8 @@ class PgAutoscaler(MgrModule):
         for s in roots:
             s.osd_count = len(s.osds)
             s.pg_target = s.osd_count * self.mon_target_pg_per_osd
-
+            s.pg_left = s.pg_target
+            s.pool_count = len(s.pool_ids)
             capacity = 0.0
             for osd_stats in all_stats['osd_stats']:
                 if osd_stats['osd'] in s.osds:
@@ -291,67 +292,80 @@ class PgAutoscaler(MgrModule):
                            s.pg_target)
 
         return result, pool_root
-    
-    def _get_full_pg(self, pools, root_map, pool_root, crush_map, pool_stats):
-        ret = 0
-        pool_count = len(pools.items())
-        # iterate over all pools to determine how they should be sized
-        for pool_name, p in pools.items():
-            pool_id = p['pool']
-            if pool_id not in pool_stats:
-                # race with pool deletion; skip
-                continue
 
-            cr_name = crush_map.get_rule_by_id(p['crush_rule'])['rule_name']
-            root_id = int(crush_map.get_rule_root(cr_name))
-            pool_root[pool_name] = root_id
-            osd_count = root_map[root_id].osd_count
-            total_ideal_pg_count = root_map[root_id].pg_target
-            ideal_pg_per_pool = total_ideal_pg_count/pool_count 
-            total_pgs = ideal_pg_per_pool / p['size'] 
-            ret += nearest_power_of_two(total_pgs)
+    def _calc_final_pg_target(
+            self, 
+            p, 
+            pool_name, 
+            root_map,
+            root_id,
+            capacity_ratio, 
+            even_pools, 
+            bias, 
+            is_used,
+    ):
+        """
+        is_used flag used to determine if this is the first
+        pass where the caller tries to calculate/adjust pools that has 
+        used_ratio > even_ratio else this is the second pass, 
+        we calculate final_ratio by giving it 1 / pool_count 
+        of the root we are looking.
+        """
+        if is_used:
+            even_ratio = 1 / root_map[root_id].pool_count
+            used_ratio = capacity_ratio
 
-        return ret
+            if used_ratio > even_ratio:
+                root_map[root_id].pool_used += 1
+            else:
+                # keep track of even_pools to be used in second pass
+                # of the caller function
+                even_pools[pool_name] = p
+                return None, None, None
 
-    def _get_final_pg_target_and_ratio(self, capacity_ratio):
+            final_ratio = max(used_ratio, even_ratio)
+            used_pg = final_ratio * root_map[root_id].pg_target 
+            root_map[root_id].pg_left -= used_pg
+            pool_pg_target = used_pg / p['size'] * bias
 
-        even_ratio = 1 / self._pool_count
-        used_ratio = capacity_ratio
-        
-        if used_ratio > even_ratio:
-            self._pool_count -= 1
+        else:
+            final_ratio = 1 / (root_map[root_id].pool_count - root_map[root_id].pool_used)
+            pool_pg_target = (final_ratio * root_map[root_id].pg_left) / p['size'] * bias
 
-        final_ratio = max(used_ratio, even_ratio)
+        final_pg_target = max(p.get('options', {}).get('pg_num_min', PG_NUM_MIN),
+                nearest_power_of_two(pool_pg_target))
 
-        # So what proportion of pg allowance should we be using?
-        pool_pg_target = final_ratio * self._full_pg
-        final_pg_target = nearest_power_of_two(pool_pg_target)
-        self._pgs_left -= final_pg_target
-        
-        return final_pg_target, final_ratio, pool_pg_target
+        self.log.info("Pool '{0}' root_id {1} using {2} of space, bias {3}, "
+                      "pg target {4} quantized to {5} (current {6})".format(
+                          p['pool_name'],
+                          root_id,
+                          capacity_ratio,
+                          bias,
+                          pool_pg_target,
+                          final_pg_target,
+                          p['pg_num_target']
+                      ))
 
+        return final_ratio, pool_pg_target, final_pg_target
 
-    def _get_pool_status(
+    def _calc_pool_targets(
             self,
             osdmap,
-            pools,
-            threshold=3.0,
+            pools, 
+            crush_map,
+            root_map, 
+            pool_root,
+            pool_stats,
+            ret,
+            threshold,
+            is_used,
     ):
-        assert threshold >= 2.0
-
-        crush_map = osdmap.get_crush()
-        root_map, pool_root = self.get_subtree_resource_status(osdmap, crush_map)
-        df = self.get('df')
-        pool_stats = dict([(p['id'], p['stats']) for p in df['pools']])
-        self.log.debug(
-                    "dfpools: {0}".format(json.dumps(df['pools'], indent=4, sort_keys=True)))
-
-        ret = []
-        
-        self._full_pg = self._get_full_pg(pools, root_map, pool_root, crush_map, pool_stats)
-        self._pgs_left = self._full_pg
-        self._pool_count = len(pools.items())
-        # iterate over all pools to determine how they should be sized
+        """
+        Calculates final_pg_target of each pools and determine if it needs
+        scaling by starting out with a full complement of pgs and only
+        descreasing it when other pools need more due to increased usage.
+        """
+        even_pools = {}
         for pool_name, p in pools.items():
             pool_id = p['pool']
             if pool_id not in pool_stats:
@@ -366,7 +380,6 @@ class PgAutoscaler(MgrModule):
             pool_root[pool_name] = root_id
 
             capacity = root_map[root_id].capacity
-            osd_count = root_map[root_id].osd_count
             if capacity == 0:
                 self.log.debug('skipping empty subtree %s', cr_name)
                 continue
@@ -398,19 +411,12 @@ class PgAutoscaler(MgrModule):
                                                   root_map[root_id].total_target_bytes,
                                                   capacity)
 
-            final_pg_target, final_ratio, pool_pg_target = self._get_final_pg_target_and_ratio(
-                                                                    capacity_ratio)
-            
-            self.log.info("Pool '{0}' root_id {1} using {2} of space, bias {3}, "
-                          "pg target {4} quantized to {5} (current {6})".format(
-                              p['pool_name'],
-                              root_id,
-                              final_ratio,
-                              bias,
-                              pool_pg_target,
-                              final_pg_target,
-                              p['pg_num_target']
-                          ))
+            capacity_ratio = max(capacity_ratio, target_ratio)
+            final_ratio, pool_pg_target, final_pg_target = self._calc_final_pg_target(p, 
+                    pool_name, root_map, root_id, capacity_ratio, even_pools, bias, is_used)
+
+            if final_ratio == None:
+                continue
 
             adjust = False
             if (final_pg_target > p['pg_num_target'] * threshold or \
@@ -440,7 +446,36 @@ class PgAutoscaler(MgrModule):
                 'would_adjust': adjust,
                 'bias': p.get('options', {}).get('pg_autoscale_bias', 1.0),
                 });
-         
+
+        return ret, even_pools
+
+    
+    def _get_pool_status(
+            self,
+            osdmap,
+            pools,
+            threshold=3.0,
+    ):
+        assert threshold >= 2.0
+
+        crush_map = osdmap.get_crush()
+        root_map, pool_root = self.get_subtree_resource_status(osdmap, crush_map)
+        df = self.get('df')
+        pool_stats = dict([(p['id'], p['stats']) for p in df['pools']])
+
+        ret = []
+        # Iterate over all pools to determine how they should be sized.
+        # First call is to find/adjust pools that uses more capacaity than
+        # the even_ratio of other pools and we adjust those first.
+        # Second call make use of the even_pools we keep track of in the first call.
+        # All we need to do is iterate over those and give them 1/pool_count of the 
+        # total pgs.
+        ret, even_pools = self._calc_pool_targets(osdmap, pools, crush_map, root_map, pool_root, 
+                pool_stats, ret, threshold, True)
+        
+        ret, _ = self._calc_pool_targets(osdmap, even_pools, crush_map, root_map, pool_root, 
+                pool_stats, ret, threshold, False) 
+
         return (ret, root_map, pool_root)
 
     def _update_progress_events(self):

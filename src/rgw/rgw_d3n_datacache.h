@@ -58,7 +58,7 @@ struct D3nCacheAioWriteRequest{
 		cb->aio_buf = nullptr;
 		free(data);
 		data = nullptr;
-		free(cb);
+		delete(cb);
   }
 };
 
@@ -225,10 +225,10 @@ int D3nRGWDataCache<T>::flush_read_list(struct get_obj_data* d) {
       break;
     }
     if (bl.length() <= g_conf()->rgw_get_obj_max_req_size) {
-      lsubdout(g_ceph_context, rgw_datacache, 30) << "D3nDataCache: " << __func__ << "(): bl.len<=rgw_get_obj_max_req_size (default 4MB), bl.length()=" << bl.length() << dendl;
+      lsubdout(g_ceph_context, rgw, 20) << "D3nDataCache: " << __func__ << "(): Read From Cache: bl.length <= rgw_get_obj_max_req_size (default 4MB), bl.length=" << bl.length() << dendl;
       d3n_data_cache.put(bl, bl.length(), oid);
     } else {
-      lsubdout(g_ceph_context, rgw_datacache, 30) << "D3nDataCache: " << __func__ << "(): bl.length()=" << bl.length() << dendl;
+      lsubdout(g_ceph_context, rgw, 20) << "D3nDataCache: " << __func__ << "(): Read From Cache: bl.length > rgw_get_obj_max_req_size (default 4MB), bl.length()=" << bl.length() << dendl;
     }
   }
 
@@ -294,15 +294,22 @@ int D3nRGWDataCache<T>::get_obj_iterate_cb(const rgw_raw_obj& read_obj, off_t ob
 
     d->d3n_add_pending_oid(oid);
 
-    if (d3n_data_cache.get(read_obj.oid)) {
+    auto obj = d->store->svc.rados->obj(read_obj);
+    r = obj.open();
+    if (r < 0) {
+      lsubdout(g_ceph_context, rgw, 0) << "D3nDataCache: Error: failed to open rados context for " << read_obj << ", r=" << r << dendl;
+      return r;
+    }
+
+    if (read_ofs != 0 || astate->size != astate->accounted_size) {
+      lsubdout(g_ceph_context, rgw, 5) << "D3nDataCache: " << __func__ << "(): bypassing cache: oid=" << read_obj.oid << ", read_ofs!=0 = " << read_ofs << ", size=" << astate->size << " != accounted_size=" << astate->accounted_size << dendl;
+      auto completed = d->aio->get(obj, rgw::Aio::librados_op(std::move(op), d->yield), cost, id);
+      return d->flush(std::move(completed));
+    }
+
+    if (d3n_data_cache.get(oid)) {
       // Read From Cache
       lsubdout(g_ceph_context, rgw_datacache, 30) << "D3nDataCache: " << __func__ << "(): Read From Cache starting, oid=" << read_obj.oid << ", obj-ofs=" << obj_ofs << ", read_ofs=" << read_ofs << ", len=" << len << dendl;
-      auto obj = d->store->svc.rados->obj(read_obj);
-      r = obj.open();
-      if (r < 0) {
-        lsubdout(g_ceph_context, rgw, 0) << "D3nDataCache: Error: failed to open rados context for " << read_obj << ", r=" << r << dendl;
-        return r;
-      }
       auto completed = d->aio->get(obj, rgw::Aio::cache_op(std::move(op), d->yield, obj_ofs, read_ofs, len, g_conf()->rgw_d3n_l1_datacache_persistent_path), cost, id);
       if (g_conf()->rgw_d3n_l1_libaio_read) {
         r = d->drain();
@@ -316,12 +323,6 @@ int D3nRGWDataCache<T>::get_obj_iterate_cb(const rgw_raw_obj& read_obj, off_t ob
     } else {
       // Write To Cache
       lsubdout(g_ceph_context, rgw_datacache, 30) << "D3nDataCache: " << __func__ << "(): Write To Cache, oid=" << read_obj.oid << ", obj-ofs=" << obj_ofs << ", read_ofs=" << read_ofs << ", len=" << len << dendl;
-      auto obj = d->store->svc.rados->obj(read_obj);
-      r = obj.open();
-      if (r < 0) {
-        lsubdout(g_ceph_context, rgw, 0) << "D3nDataCache: Error: failed to open rados context for " << read_obj << ", r=" << r << dendl;
-        return r;
-      }
       auto completed = d->aio->get(obj, rgw::Aio::librados_op(std::move(op), d->yield), cost, id);
       return d->flush(std::move(completed));
     }

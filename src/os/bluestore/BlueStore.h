@@ -2368,7 +2368,7 @@ private:
   * opens both DB and dependant super_meta, FreelistManager and allocator
   * in the proper order
   */
-  int _open_db_and_around(bool read_only, bool to_repair = false);
+  int _open_db_and_around(bool read_only, bool to_repair = false, bool skip_allocation_init = false);
   void _close_db_and_around(bool read_only);
 
   int _prepare_db_environment(bool create, bool read_only,
@@ -3434,7 +3434,7 @@ public:
       repairer(_repairer) {
     }
   };
-
+  
   OnodeRef fsck_check_objects_shallow(
     FSCKDepth depth,
     int64_t pool_id,
@@ -3446,7 +3446,28 @@ public:
     std::map<BlobRef, bluestore_blob_t::unused_t>* referenced,
     const BlueStore::FSCK_ObjectCtx& ctx);
 
+  int  read_allocation_from_drive();
 private:
+#define MAX_BLOBS_IN_ONODE 64
+typedef struct {
+  uint32_t onode_count;
+  uint32_t shard_count;
+  uint32_t processed_blob_count;
+  uint32_t skipped_blob_count;
+  uint32_t collection_search;
+  uint32_t blobs_in_onode[MAX_BLOBS_IN_ONODE+1];
+} read_alloc_stats_t;
+
+  int  read_allocation_from_onodes(interval_set<uint64_t>& freemap, read_alloc_stats_t& stats);
+  void read_allocation_from_single_onode(
+    interval_set<uint64_t>&  freemap,
+    BlueStore::CollectionRef collection_ref,
+    const ghobject_t&        oid,
+    const string&            key,
+    const bufferlist&        value,
+    unsigned                 onode_num,
+    read_alloc_stats_t&      stats);
+
   void _fsck_check_object_omap(FSCKDepth depth,
     OnodeRef& o,
     const BlueStore::FSCK_ObjectCtx& ctx);

@@ -5291,6 +5291,7 @@ int BlueStore::_open_fm(KeyValueDB::Transaction t, bool read_only)
 {
   int r;
 
+  // GBH - Load allocation from vault image (after a graceful shutdown) or ONode (in failure recovery case)
   ceph_assert(fm == NULL);
   fm = FreelistManager::create(cct, freelist_type, PREFIX_ALLOC);
   ceph_assert(fm);
@@ -5857,7 +5858,7 @@ int BlueStore::_is_bluefs(bool create, bool* ret)
 * opens both DB and dependant super_meta, FreelistManager and allocator
 * in the proper order
 */
-int BlueStore::_open_db_and_around(bool read_only, bool to_repair)
+int BlueStore::_open_db_and_around(bool read_only, bool to_repair, bool skip_allocation_init)
 {
   dout(0) << __func__ << " read-only:" << read_only
           << " repair:" << to_repair << dendl;
@@ -5906,14 +5907,16 @@ int BlueStore::_open_db_and_around(bool read_only, bool to_repair)
     goto out_db;
   }
 
-  r = _open_fm(nullptr, true);
-  if (r < 0)
-    goto out_db;
-
-  r = _init_alloc();
-  if (r < 0)
-    goto out_fm;
-
+  // don't read allocation meta data from rocksdb
+  if (!skip_allocation_init) {
+    r = _open_fm(nullptr, true);
+    if (r < 0)
+      goto out_db;
+    
+    r = _init_alloc();
+    if (r < 0)
+      goto out_fm;
+  }
   // Re-open in the proper mode(s).
 
   // Can't simply bypass second open for read-only mode as we need to
@@ -7025,6 +7028,10 @@ int BlueStore::_mount()
     goto out_db;
   }
 
+
+  // GBH: read Onodes and recover allocation-map in failure-case.
+  // check of graceful shutdown
+  
   r = _open_collections();
   if (r < 0)
     goto out_db;
@@ -7105,6 +7112,8 @@ int BlueStore::umount()
     dout(20) << __func__ << " closing" << dendl;
 
   }
+
+  // GBH - Vault the allocation state
   _close_db_and_around(false);
 
   if (cct->_conf->bluestore_fsck_on_umount) {
@@ -7318,6 +7327,332 @@ void BlueStore::_fsck_check_pool_statfs(
     // error of having global stats
     repairer->inc_repaired();
   }
+}
+
+//---------------------------------------------------------
+void BlueStore::read_allocation_from_single_onode(
+  interval_set<uint64_t>&  freemap,
+  BlueStore::CollectionRef collection_ref,
+  const ghobject_t&        oid,
+  const string&            key,
+  const bufferlist&        value,
+  unsigned                 onode_num,
+  read_alloc_stats_t&      stats)
+{
+  BlueStore::OnodeRef onode_ref;
+  onode_ref.reset(BlueStore::Onode::decode(collection_ref, oid, key, value));
+
+  // TBD - consider caching iterater objs and scan all shards before processing the object
+  // This might add PERF
+  onode_ref->extent_map.fault_range(db, 0, OBJECT_MAX_SIZE);
+
+  unsigned blobs_count = 0;
+  std::unordered_map<uint64_t, uint16_t> sbid_map;
+  uint64_t pos = 0;
+  for (struct Extent& l_extent : onode_ref->extent_map.extent_map) {
+    //dout(1) << "BCF::l_extent=" << l_extent << dendl;
+    //std::cout << "BCF::l_extent=" << l_extent << std::endl;
+    ceph_assert(l_extent.logical_offset >= pos);
+
+    pos = l_extent.logical_offset + l_extent.length;
+    ceph_assert(l_extent.blob);
+    const bluestore_blob_t& blob         = l_extent.blob->get_blob();
+    const PExtentVector&    p_extent_vec = blob.get_extents();
+    // we only check for shared blobs within the same ONode
+    const SharedBlobRef& shared_blob     = l_extent.blob->shared_blob;
+
+    if (shared_blob) {
+      // use the first offset as the blob unique id
+      //ceph_assert(p_extent_vec.begin());
+      auto p_extent = p_extent_vec.begin();
+      if (p_extent == p_extent_vec.end()) {
+	continue;
+      }
+      auto blob_unique_id = p_extent->offset;
+      //uint64_t sbid   = shared_blob->get_sbid();
+      auto     sb_itr = sbid_map.find(blob_unique_id);
+      if ( sb_itr != sbid_map.end() ) {
+	// skip existing blobs
+	(sb_itr->second)++;
+	stats.skipped_blob_count++;
+	ceph_assert( blobs_count > 0 );
+	continue;
+      }
+      else {
+	sbid_map[blob_unique_id] = 1;
+	stats.processed_blob_count++;
+      }
+    }
+    blobs_count++;
+    // process all physical extent in this blob
+    unsigned i = 0;
+    for (auto p_extent = p_extent_vec.begin(); p_extent != p_extent_vec.end(); i++, p_extent++) {
+      auto offset = p_extent->offset;
+      auto length = p_extent->length;
+      //dout(1) << "BCF::P_EXTNT[" << i << "] <" << offset << "," << length << ">" << dendl;
+      //std::cout << "BCF::P_EXTNT[" << onode_num << "," << i << "] <" << offset << "," << length << ">" << std::endl;
+      // clear allocate space from freemap
+      freemap.erase(offset, length, nullptr);
+    }
+  }
+  
+  if (blobs_count < MAX_BLOBS_IN_ONODE) {
+    stats.blobs_in_onode[blobs_count]++;
+  } else {
+    // store all counts higher than MAX_BLOBS_IN_ONODE in a single bucket at offset zero
+    //std::cout << "***BCF::Blob-count=" << blobs_count << std::endl;
+    stats.blobs_in_onode[MAX_BLOBS_IN_ONODE]++;
+  }
+}
+
+#if 0
+//-------------------------------------------------------------------------
+int BlueStore::read_allocation_from_onodes(interval_set<uint64_t>& freemap, read_alloc_stats_t& stats)
+{
+  // finally add all space take by user data
+  auto it = db->get_iterator(PREFIX_OBJ, KeyValueDB::ITERATOR_NOCACHE);
+  if (!it) {
+    // TBD - find a better error code
+    return -1;
+  }
+  
+  CollectionRef collection_ref;
+  spg_t         pgid;
+  unsigned      i = 0;
+  for (it->lower_bound(string()); it->valid(); it->next()) {
+    // skip extent shards
+    if (is_extent_shard_key(it->key())) {
+      stats.shard_count++;
+      continue;
+    }
+
+    stats.onode_count++;
+    ghobject_t oid;
+    int ret = get_key_object(it->key(), &oid);
+    if (ret < 0) {
+      derr << "fsck error: bad object key " << pretty_binary_string(it->key()) << dendl;
+      continue;
+    }
+
+    // fill collection_ref if doesn't exist yet
+    if (!collection_ref                                     ||
+        oid.shard_id                != pgid.shard           ||
+        oid.hobj.get_logical_pool() != (int64_t)pgid.pool() ||
+        !collection_ref->contains(oid)) {
+      collection_ref = nullptr;
+
+      // coll_map was created by _open_collections() we called above
+      for (auto& p : coll_map) {
+	if (p.second->contains(oid)) {
+	  collection_ref = p.second;
+	  break;
+	}
+      }
+	
+      if (!collection_ref) {
+	derr << "fsck error: stray object " << oid << " not owned by any collection" << dendl;
+	continue;
+      }
+
+      collection_ref->cid.is_pg(&pgid);	
+    }
+
+    // remove space allocated by this OBJ from the freemap
+    read_allocation_from_single_onode(freemap, collection_ref, oid, it->key(), it->value(), i++, stats);    
+  }
+
+  return 0;
+}
+#else
+int BlueStore::read_allocation_from_onodes(interval_set<uint64_t>& freemap, read_alloc_stats_t& stats)
+{
+  // finally add all space take by user data
+  auto it = db->get_iterator(PREFIX_OBJ, KeyValueDB::ITERATOR_NOCACHE);
+  if (!it) {
+    // TBD - find a better error code
+    return -1;
+  }
+
+  CollectionRef collection_ref;
+  spg_t         pgid;
+  for (it->lower_bound(string()); it->valid(); it->next()) {
+    // skip extent shards
+    if (is_extent_shard_key(it->key())) {
+      stats.shard_count++;
+      continue;
+    }
+    
+    stats.onode_count++;
+
+#if 1
+    ghobject_t oid;
+    int ret = get_key_object(it->key(), &oid);
+    if (ret < 0) {
+      derr << "fsck error: bad object key " << pretty_binary_string(it->key()) << dendl;
+      continue;
+    }
+
+    // fill collection_ref if doesn't exist yet
+    if (!collection_ref                                     ||
+        oid.shard_id                != pgid.shard           ||
+        oid.hobj.get_logical_pool() != (int64_t)pgid.pool() ||
+        !collection_ref->contains(oid)) {
+
+      stats.collection_search++;
+      collection_ref = nullptr;
+
+      // coll_map was created by _open_collections() we called above
+      for (auto& p : coll_map) {
+	if (p.second->contains(oid)) {
+	  collection_ref = p.second;
+	  break;
+	}
+      }
+	
+      if (!collection_ref) {
+	derr << "fsck error: stray object " << oid << " not owned by any collection" << dendl;
+	continue;
+      }
+
+      collection_ref->cid.is_pg(&pgid);	
+    }
+
+    BlueStore::OnodeRef onode_ref;
+    onode_ref.reset(BlueStore::Onode::decode(collection_ref, oid, it->key(), it->value()));
+    
+    // TBD - consider caching iterater objs and scan all shards before processing the object
+    // This might add PERF
+    onode_ref->extent_map.fault_range(db, 0, OBJECT_MAX_SIZE);
+#endif
+  }
+
+  return 0;
+}
+#endif
+//---------------------------------------------------------
+int BlueStore::read_allocation_from_drive()
+{
+  int ret = 0;
+
+  ret = _open_db_and_around(true, false/*, true*/);
+  if (ret < 0) {
+    return ret;
+  }
+  
+  ret = _open_collections();
+  if (ret < 0) {
+    _close_db_and_around(false); return ret;
+  }
+
+  //utime_t start = ceph_clock_now();
+  // create allocator
+  uint64_t alloc_size = min_alloc_size;
+  if (bdev->is_smr()) {
+    ret = _zoned_check_config_settings();
+    if (ret < 0) {
+      _close_db_and_around(false); return ret;
+    }       
+    alloc_size = _zoned_piggyback_device_parameters_onto(alloc_size);
+  }
+  Allocator* allocator = Allocator::create(cct, cct->_conf->bluestore_allocator,
+					   bdev->get_size(), alloc_size, "block");
+  if (!allocator) {
+    _close_db_and_around(false); return -1;
+  }
+
+  // create a freemap representing the full bdev unallocated space
+  interval_set<uint64_t> freemap;
+  // start with everything marked as unallocated 
+  freemap.insert(0, bdev->get_size());
+
+  // first add space used by superblock
+  auto super_length = std::max<uint64_t>(min_alloc_size, SUPER_RESERVED);
+  freemap.erase(0, super_length, nullptr);
+  //dout(1) << "BCF::SuperBlock=<0," << super_length << ">" << dendl;
+  //std::cout << "BCF::SuperBlock=<0," << super_length << ">" << std::endl;
+  
+  // then add space used by bluefs to store rocksdb
+  if (bluefs) {
+    interval_set<uint64_t> bluefs_extents;
+    ret = bluefs->get_block_extents(bluefs_layout.shared_bdev, &bluefs_extents);
+    if (ret < 0) {
+      delete allocator; _close_db_and_around(false); return ret;
+    }
+    // freemap uses reverse logic to the bluefs_extents map
+    unsigned i = 0;
+    for (auto itr = bluefs_extents.begin(); itr != bluefs_extents.end(); i++, itr++) {
+      freemap.erase(itr.get_start(), itr.get_len(), nullptr);
+      //dout(1) << "BCF::BlueFS[" << i << "] <" << itr.get_start() << "," << itr.get_len() << ">" << dendl;
+      //std::cout << "BCF::BlueFS[" << i << "] <" << itr.get_start() << "," << itr.get_len() << ">" << std::endl;
+    }
+  }
+
+  read_alloc_stats_t stats;
+  memset(&stats, 0, sizeof(stats));
+
+  utime_t start = ceph_clock_now();
+  ret = read_allocation_from_onodes(freemap, stats);
+  if (ret < 0) {
+    delete allocator; _close_db_and_around(false); return ret;
+  }  
+  utime_t duration = ceph_clock_now() - start;
+  
+  // translate from freemap interval_set to allocator
+  uint64_t num_free_ranges = 0;
+  uint64_t free_bytes      = 0;
+  unsigned i = 0;
+  for (auto itr = freemap.begin(); itr != freemap.end(); itr++, i++) {
+    auto offset = itr.get_start();
+    auto length = itr.get_len();
+    allocator->init_add_free(offset, length);
+    //std::cout << "BCF::FREEMAP[" << i << "] <" << offset << "," << length << ">" << std::endl;
+    num_free_ranges++;
+    free_bytes += length;
+  }
+
+  std::cout << __func__ << " <<<FINISH>>> in " << duration << " seconds" << std::endl;
+  std::cout << "num_free_ranges=" << num_free_ranges << " free_bytes=" << free_bytes << std::endl;
+  std::cout << "onode_count="           << stats.onode_count
+	    << " shard_count="          << stats.shard_count
+	    << " collection search="    << stats.collection_search
+	    << " processed_blob_count=" << stats.processed_blob_count
+	    << " skipped_blob_count="   << stats.skipped_blob_count << std::endl;
+
+  for (unsigned i = 0; i < MAX_BLOBS_IN_ONODE; i++ ) {
+    if (stats.blobs_in_onode[i]) {
+      std::cout << "We had " << stats.blobs_in_onode[i] << " ONodes with " << i << " blobs" << std::endl;
+    }
+  }
+
+  if (stats.blobs_in_onode[MAX_BLOBS_IN_ONODE]) {
+    std::cout << "We had " << stats.blobs_in_onode[MAX_BLOBS_IN_ONODE] << " ONodes with more than " << MAX_BLOBS_IN_ONODE << " blobs" << std::endl;
+  }
+
+  
+#if 0
+  // compare allocator content
+  //std::unordered_map<uint64_t, uint32_t> ;
+
+  uint64_t num = 0, bytes = 0;
+  fm->enumerate_reset();
+  uint64_t offset, length;
+  while (fm->enumerate_next(db, &offset, &length)) {
+    shared_alloc.a->init_add_free(offset, length);
+    ++num;
+    bytes += length;
+  }
+  fm->enumerate_reset();
+  std::cout << "\n\n***num_free_ranges=" << num << " free_bytes=" << bytes << "***\n\n" << std::endl;
+  
+  ceph_assert(num == num_free_ranges);
+  ceph_assert(bytes == free_bytes);
+#endif
+  
+  //out_db:
+  delete allocator; 
+  _shutdown_cache();
+  _close_db_and_around(false);
+  return ret;
 }
 
 BlueStore::OnodeRef BlueStore::fsck_check_objects_shallow(

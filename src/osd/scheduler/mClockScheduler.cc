@@ -158,6 +158,9 @@ void mClockScheduler::enable_mclock_profile()
     ceph_assert("Invalid choice of mclock profile" == 0);
     return;
   }
+
+  // Set global recovery ceph options
+  set_global_recovery_options();
 }
 
 std::string mClockScheduler::get_mclock_profile()
@@ -238,6 +241,25 @@ void mClockScheduler::set_high_client_ops_profile_config()
     "osd_mclock_scheduler_background_recovery_wgt", stringify(default_min));
   cct->_conf.set_val(
     "osd_mclock_scheduler_background_recovery_lim", stringify(rec_lim));
+}
+
+void mClockScheduler::set_global_recovery_options()
+{
+  // Set low recovery min cost
+  cct->_conf.set_val("osd_async_recovery_min_cost", stringify(1));
+
+  // Set high value for recovery max active and max backfills
+  cct->_conf.set_val("osd_recovery_max_active", stringify(1000));
+  cct->_conf.set_val("osd_max_backfills", stringify(1000));
+
+  // Disable recovery sleep
+  cct->_conf.set_val("osd_recovery_sleep", stringify(0));
+  cct->_conf.set_val("osd_recovery_sleep_hdd", stringify(0));
+  cct->_conf.set_val("osd_recovery_sleep_ssd", stringify(0));
+  cct->_conf.set_val("osd_recovery_sleep_hybrid", stringify(0));
+
+  // Apply the changes
+  cct->_conf.apply_changes(nullptr);
 }
 
 int mClockScheduler::calc_scaled_cost(int cost)

@@ -1,6 +1,9 @@
+import errno
 import logging
 import os
 from typing import List, Any, Tuple, Dict
+
+from mgr_module import HandleCommandResult
 
 from orchestrator import DaemonDescription
 from ceph.deployment.service_spec import AlertManagerSpec
@@ -77,6 +80,20 @@ class GrafanaService(CephadmService):
             'dashboard set-grafana-api-url',
             service_url
         )
+
+    def ok_to_stop(self, daemon_ids: List[str], force: bool = False) -> HandleCommandResult:
+        # Provide a warning if Grafana daemon being checked is only one in service.
+        # Only okay to stop last daemon if force flag is set
+        names = [f'{self.TYPE}.{d_id}' for d_id in daemon_ids]
+        out = f'It is presumed safe to stop {names}'
+        grafana_daemons = self.mgr.cache.get_daemons_by_type(self.TYPE)
+        if len(grafana_daemons) == 1:
+            # if only one grafana daemon, the one we are checking must be the only one
+            out = ('WARNING: Stopping only daemon in Grafana service. Service will not be ' +
+                   'active while this daemon is stopped. ')
+            if not force:
+                return HandleCommandResult(-errno.EBUSY, None, out)
+        return HandleCommandResult(0, out, None)
 
 
 class AlertmanagerService(CephadmService):
@@ -159,6 +176,20 @@ class AlertmanagerService(CephadmService):
             'dashboard set-alertmanager-api-host',
             service_url
         )
+
+    def ok_to_stop(self, daemon_ids: List[str], force: bool = False) -> HandleCommandResult:
+        # Provide a warning if Alertmanager daemon being checked is only one in service.
+        # Only okay to stop last daemon if force flag is set
+        names = [f'{self.TYPE}.{d_id}' for d_id in daemon_ids]
+        out = f'It is presumed safe to stop {names}'
+        alertmanager_daemons = self.mgr.cache.get_daemons_by_type(self.TYPE)
+        if len(alertmanager_daemons) == 1:
+            # if only one Alertmanager daemon, the one we are checking must be the only one
+            out = ('WARNING: Stopping only daemon in Alertmanager service. Service will not be ' +
+                   'active while this daemon is stopped. ')
+            if not force:
+                return HandleCommandResult(-errno.EBUSY, None, out)
+        return HandleCommandResult(0, out, None)
 
 
 class PrometheusService(CephadmService):
@@ -254,6 +285,20 @@ class PrometheusService(CephadmService):
             service_url
         )
 
+    def ok_to_stop(self, daemon_ids: List[str], force: bool = False) -> HandleCommandResult:
+        # Provide a warning if Prometheus daemon being checked is only one in service.
+        # Only okay to stop last daemon if force flag is set
+        names = [f'{self.TYPE}.{d_id}' for d_id in daemon_ids]
+        out = f'It is presumed safe to stop {names}'
+        prometheus_daemons = self.mgr.cache.get_daemons_by_type(self.TYPE)
+        if len(prometheus_daemons) == 1:
+            # if only one prometheus daemon, the one we are checking must be the only one
+            out = ('WARNING: Stopping only daemon in Prometheus service. Service will not be ' +
+                   'active while this daemon is stopped. ')
+            if not force:
+                return HandleCommandResult(-errno.EBUSY, None, out)
+        return HandleCommandResult(0, out, None)
+
 
 class NodeExporterService(CephadmService):
     TYPE = 'node-exporter'
@@ -265,3 +310,11 @@ class NodeExporterService(CephadmService):
     def generate_config(self, daemon_spec: CephadmDaemonSpec) -> Tuple[Dict[str, Any], List[str]]:
         assert self.TYPE == daemon_spec.daemon_type
         return {}, []
+
+    def ok_to_stop(self, daemon_ids: List[str], force: bool = False) -> HandleCommandResult:
+        # always ok to stop as NodeExporter is a third party daemon that should
+        # not compromisse any data by stopping.
+        # since node exporter runs on each host, no extra checks required
+        names = [f'{self.TYPE}.{d_id}' for d_id in daemon_ids]
+        out = f'It is presumed safe to stop {names}'
+        return HandleCommandResult(0, out, None)

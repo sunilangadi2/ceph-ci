@@ -207,7 +207,7 @@ class CephadmService(metaclass=ABCMeta):
             except MonCommandFailed as e:
                 logger.warning('Failed to set Dashboard config for %s: %s', service_name, e)
 
-    def ok_to_stop(self, daemon_ids: List[str]) -> HandleCommandResult:
+    def ok_to_stop(self, daemon_ids: List[str], force: bool = False) -> HandleCommandResult:
         names = [f'{self.TYPE}.{d_id}' for d_id in daemon_ids]
         out = f'It is presumed safe to stop {names}'
         err = f'It is NOT safe to stop {names}'

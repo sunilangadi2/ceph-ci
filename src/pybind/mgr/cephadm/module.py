@@ -1178,7 +1178,7 @@ class CephadmOrchestrator(orchestrator.Orchestrator, MgrModule,
                                                          addr=spec.addr,
                                                          error_ok=True, no_fsid=True)
         if code:
-            # err will contain stdout and stderr, so we filter on the message text to 
+            # err will contain stdout and stderr, so we filter on the message text to
             # only show the errors
             errors = [_i.replace("ERROR: ", "") for _i in err if _i.startswith('ERROR')]
             raise OrchestratorError('New host %s (%s) failed check(s): %s' % (
@@ -1620,6 +1620,10 @@ class CephadmOrchestrator(orchestrator.Orchestrator, MgrModule,
 
         self.log.info(f'Schedule {action} daemon {daemon_name}')
         return self._schedule_daemon_action(daemon_name, action)
+
+    @property
+    def this_daemon_name(self) -> str:
+        return f'mgr.{self.get_mgr_id()}'
 
     def daemon_is_self(self, daemon_type: str, daemon_id: str) -> bool:
         return daemon_type == 'mgr' and daemon_id == self.get_mgr_id()

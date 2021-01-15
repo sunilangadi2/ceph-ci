@@ -100,7 +100,8 @@ extern int rgw_get_user_info_by_email(RGWUserCtl *user_ctl,
                                       string& email, RGWUserInfo& info,
 				      optional_yield y,
                                       RGWObjVersionTracker *objv_tracker = NULL,
-                                      real_time *pmtime = nullptr);
+                                      real_time *pmtime = nullptr,
+                                      map<string, bufferlist> *pattrs = nullptr);
 /**
  * Given an swift username, finds the user info associated with it.
  * returns: 0 on success, -ERR# on failure (including nonexistence)
@@ -110,7 +111,8 @@ extern int rgw_get_user_info_by_swift(RGWUserCtl *user_ctl,
                                       RGWUserInfo& info,        /* out */
 				      optional_yield y,
                                       RGWObjVersionTracker *objv_tracker = nullptr,
-                                      real_time *pmtime = nullptr);
+                                      real_time *pmtime = nullptr,
+                                      map<string, bufferlist> *pattrs = nullptr);
 /**
  * Given an access key, finds the user info associated with it.
  * returns: 0 on success, -ERR# on failure (including nonexistence)
@@ -120,7 +122,8 @@ extern int rgw_get_user_info_by_access_key(RGWUserCtl *user_ctl,
                                            RGWUserInfo& info,
 					   optional_yield y,
 					   RGWObjVersionTracker* objv_tracker = nullptr,
-                                           real_time* pmtime = nullptr);
+                                           real_time* pmtime = nullptr,
+                                           map<string, bufferlist> *pattrs = nullptr);
 
 extern void rgw_perm_to_str(uint32_t mask, char *buf, int len);
 extern uint32_t rgw_str_to_perm(const char *str);
@@ -232,6 +235,7 @@ struct RGWUserAdminOpState {
 
   list<string> placement_tags;  // user default placement_tags
   bool placement_tags_specified;
+  map<string, bufferlist> attrs;
 
   void set_access_key(const std::string& access_key) {
     if (access_key.empty())

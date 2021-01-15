@@ -220,7 +220,7 @@ class CephadmServe:
     def _refresh_host_daemons(self, host: str) -> Optional[str]:
         try:
             out, err, code = self._run_cephadm(
-                host, 'mon', 'ls', [], no_fsid=True)
+                host, cephadmNoImage, 'ls', [], no_fsid=True)
             if code:
                 return 'host %s cephadm ls returned %d: %s' % (
                     host, code, err)
@@ -292,7 +292,7 @@ class CephadmServe:
     def _refresh_host_devices(self, host: str) -> Optional[str]:
         try:
             out, err, code = self._run_cephadm(
-                host, 'osd',
+                host, self.mgr.this_daemon_name,
                 'ceph-volume',
                 ['--', 'inventory', '--format=json', '--filter-for-batch'])
             if code:
@@ -307,7 +307,7 @@ class CephadmServe:
             return 'host %s ceph-volume inventory failed: %s' % (host, e)
         try:
             out, err, code = self._run_cephadm(
-                host, 'mon',
+                host, cephadmNoImage,
                 'list-networks',
                 [],
                 no_fsid=True)
@@ -1010,7 +1010,7 @@ class CephadmServe:
             'password': password,
         })
         out, err, code = self._run_cephadm(
-            host, 'mon', 'registry-login',
+            host, cephadmNoImage, 'registry-login',
             ['--registry-json', '-'], stdin=args_str, error_ok=True)
         if code:
             return f"Host {host} failed to login to {url} as {username} with given password"

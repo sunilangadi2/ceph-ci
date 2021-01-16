@@ -518,9 +518,20 @@ void Mgr::handle_mon_map()
   std::set<std::string> names_exist;
   cluster_state.with_monmap([&] (auto &monmap) {
     for (unsigned int i = 0; i < monmap.size(); i++) {
-      names_exist.insert(monmap.get_name(i));
+      const string name = monmap.get_name(i);
+      names_exist.insert(name);
     }
   });
+  for (const auto& name : names_exist) {
+    const auto k = DaemonKey{"osd", name};
+    if (daemon_state.is_updating(k)) {
+      continue;
+    }
+    auto c = new MetadataUpdate(daemon_state, k);
+    const char* cmd = R"(P{{"prefix": "mon metadata", "id": "{}"}})";
+    monc->start_mon_command({fmt::format(cmd, name)}, {},
+			    &c->outbl, &c->outs, c);
+  }
   daemon_state.cull("mon", names_exist);
 }
 

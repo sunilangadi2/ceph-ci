@@ -40,6 +40,8 @@ def start_rgw(ctx, config, clients):
         (remote,) = ctx.cluster.only(client).remotes.keys()
         cluster_name, daemon_type, client_id = teuthology.split_role(client)
         client_with_id = daemon_type + '.' + client_id
+        base_cmd = "ceph config set " + client_id + " "
+        client_cmd = []
         client_with_cluster = cluster_name + '.' + client_with_id
 
         client_config = config.get(client)
@@ -74,7 +76,11 @@ def start_rgw(ctx, config, clients):
                 frontends += ' ssl_port={}'.format(endpoint.port)
         else:
             frontends += ' port={}'.format(endpoint.port)
-
+        client_cmd.append(base_cmd + "rgw_frontends " + frontends)
+        client_cmd.append(base_cmd + "keyring " + '/etc/ceph/{client_with_cluster}.keyring'.format(client_with_cluster=client_with_cluster))
+        client_cmd.append(base_cmd + "log_file " + '/var/log/ceph/rgw.{client_with_cluster}.log'.format(client_with_cluster=client_with_cluster)
+        client_cmd.append(base_cmd + "rgw_ops_log_socket_path " + '{tdir}/rgw.opslog.{client_with_cluster}.sock'.format(tdir=testdir,client_with_cluster=client_with_cluster))
+        """
         rgw_cmd.extend([
             '--rgw-frontends', frontends,
             '-n', client_with_id,
@@ -86,7 +92,7 @@ def start_rgw(ctx, config, clients):
             '{tdir}/rgw.opslog.{client_with_cluster}.sock'.format(tdir=testdir,
                                                      client_with_cluster=client_with_cluster),
 	    ])
-
+        """
         keystone_role = client_config.get('use-keystone-role', None)
         if keystone_role is not None:
             if not ctx.keystone:
@@ -97,17 +103,21 @@ def start_rgw(ctx, config, clients):
 
             keystone_host, keystone_port = \
                 ctx.keystone.public_endpoints[keystone_role]
+            client_cmd.append(base_cmd + "rgw_keystone_url " + 'http://{khost}:{kport}'.format(khost=keystone_host,kport=keystone_port))
+            """
             rgw_cmd.extend([
                 '--rgw_keystone_url',
                 'http://{khost}:{kport}'.format(khost=keystone_host,
                                                 kport=keystone_port),
                 ])
-
+            """
 
         if client_config.get('dns-name') is not None:
-            rgw_cmd.extend(['--rgw-dns-name', endpoint.dns_name])
+            client_cmd.append(base_cmd + "rgw-dns-name " + endpoint.dns_name)
+            #rgw_cmd.extend(['--rgw-dns-name', endpoint.dns_name])
         if client_config.get('dns-s3website-name') is not None:
-            rgw_cmd.extend(['--rgw-dns-s3website-name', endpoint.website_dns_name])
+            client_cmd.append(base_cmd + "dns-s3website-name " +  endpoint.website_dns_name
+            #rgw_cmd.extend(['--rgw-dns-s3website-name', endpoint.website_dns_name])
 
 
         vault_role = client_config.get('use-vault-role', None)
@@ -121,12 +131,14 @@ def start_rgw(ctx, config, clients):
             barbican_host, barbican_port = \
                 ctx.barbican.endpoints[barbican_role]
             log.info("Use barbican url=%s:%s", barbican_host, barbican_port)
-
+            client_cmd.append(base_cmd + "rgw_barbican_url " + 'http://{bhost}:{bport}'.format(bhost=barbican_host,bport=barbican_port))
+            """
             rgw_cmd.extend([
                 '--rgw_barbican_url',
                 'http://{bhost}:{bport}'.format(bhost=barbican_host,
                                                 bport=barbican_port),
                 ])
+            """
         elif vault_role is not None:
             if not ctx.vault.root_token:
                 raise ConfigError('vault: no "root_token" specified')
@@ -137,12 +149,15 @@ def start_rgw(ctx, config, clients):
             log.info("Restrict access to token file")
             ctx.cluster.only(client).run(args=['chmod', '600', token_path])
             ctx.cluster.only(client).run(args=['sudo', 'chown', 'ceph', token_path])
-
+            client_cmd.append(base_cmd + "rgw_crypt_vault_addr " + "{}:{}".format(*ctx.vault.endpoints[vault_role]))
+            client_cmd.append(base_cmd + "rgw_crypt_vault_token_file " + token_path)
+            """
             rgw_cmd.extend([
                 '--rgw_crypt_vault_addr', "{}:{}".format(*ctx.vault.endpoints[vault_role]),
                 '--rgw_crypt_vault_token_file', token_path
             ])
-
+            """
+        """
         rgw_cmd.extend([
             '--foreground',
             run.Raw('|'),
@@ -151,7 +166,7 @@ def start_rgw(ctx, config, clients):
             '/var/log/ceph/rgw.{client_with_cluster}.stdout'.format(client_with_cluster=client_with_cluster),
             run.Raw('2>&1'),
             ])
-
+        """
         if client_config.get('valgrind'):
             cmd_prefix = teuthology.get_valgrind_args(
                 testdir,
@@ -162,15 +177,27 @@ def start_rgw(ctx, config, clients):
 
         run_cmd = list(cmd_prefix)
         run_cmd.extend(rgw_cmd)
-
-        ctx.daemons.add_daemon(
-            remote, 'rgw', client_with_id,
-            cluster=cluster_name,
-            args=run_cmd,
-            logger=log.getChild(client),
-            stdin=run.PIPE,
-            wait=False,
-            )
+        for cmd in client_cmd:
+            ctx.daemons.add_daemon(
+                remote, 'rgw', client_with_id,
+                cluster=cluster_name,
+                args=cmd,
+                logger=log.getChild(client),
+                stdin=run.PIPE,
+                wait=True,
+                )
+        systemctl_cmds = []
+        systemctl_cmds.append("systemctl enable ceph-radosgw@" + client_with_id)
+        systemctl_cmds.append("systemctl start ceph-radosgw@" + client_with_id)
+        for cmd in systemctl_cmds:
+            ctx.daemons.add_daemon(
+                remote, 'rgw', client_with_id,
+                cluster=cluster_name,
+                args=cmd,
+                logger=log.getChild(client),
+                stdin=run.PIPE,
+                wait=True,
+                )        
 
     # XXX: add_daemon() doesn't let us wait until radosgw finishes startup
     for client in clients:

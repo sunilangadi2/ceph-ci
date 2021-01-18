@@ -390,10 +390,9 @@ class CephadmServe:
                 for s in daemons:
                     name = '%s.%s' % (s.get('type'), s.get('id'))
                     if s.get('type') == 'rbd-mirror':
-                        defaults = defaultdict(lambda: None, {'id': None})
                         metadata = self.mgr.get_metadata(
-                            "rbd-mirror", s.get('id'), default=defaults)
-                        if metadata['id']:
+                            "rbd-mirror", s.get('id'))
+                        if metadata and 'id' in metadata:
                             name = '%s.%s' % (s.get('type'), metadata['id'])
                         else:
                             self.log.debug(

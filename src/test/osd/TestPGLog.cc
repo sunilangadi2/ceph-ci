@@ -358,22 +358,23 @@ struct TestHandler : public PGLog::LogEntryHandler {
 };
 
 TEST_F(PGLogTest, rewind_divergent_log) {
-  /*        +----------------+
-            |  log           |
-            +--------+-------+
-            |        |object |
-            |version | hash  |
-            |        |       |
-       tail > (1,1)  |  x5   |
-            |        |       |
-            |        |       |
-            | (1,4)  |  x9   < newhead
-            | MODIFY |       |
-            |        |       |
-       head > (1,5)  |  x9   |
-            | DELETE |       |
-            |        |       |
-            +--------+-------+
+  /* Before                           After
+          +----------------+
+          |  log           |                      +----------------+
+          +----------------+                      |  log           |
+          |        |object |                      +----------------+
+         +>version | hash  |                      |        |object |
+          |        |       |                     +>version | hash  |
+     tail > (1,1)  |  x5   |                      |        |       |
+          |        |       |                 tail > (1,1)  | NULL  |
+          |        |       |                      |        |       |
+          | (1,4)  |  x9   < newhead              | (1,4)  | NULL  < newhead
+          | MODIFY |       |                      |        |       |
+          |        |       |                 head > (1,5)  |  x9   |
+     head > (1,5)  |  x9   |                      |        |       |
+          | DELETE |       |                      +--------+-------+
+          |        |       |
+          +--------+-------+
 
   */
   {
@@ -441,21 +442,6 @@ TEST_F(PGLogTest, rewind_divergent_log) {
     EXPECT_TRUE(dirty_big_info);
   }
 
-  /*        +----------------+
-            |  log           |
-            +--------+-------+
-            |        |object |
-            |version | hash  |
-            |        |       |
-       tail > (1,1)  | NULL  |
-            |        |       |
-            | (1,4)  | NULL  < newhead
-            |        |       |
-       head > (1,5)  |  x9   |
-            |        |       |
-            +--------+-------+
-
-  */
   {
     clear();
 
@@ -961,42 +947,27 @@ TEST_F(PGLogTest, merge_log) {
     EXPECT_FALSE(dirty_big_info);
   }
 
-  /*         Before
-            +--------------------------+
-            |  log              olog   |
-            +--------+-------+---------+
-            |        |object |         |
-            |version | hash  | version |
-            |        |       |         |
-            |        |  x5   |  (1,1)  < tail
-            |        |       |         |
-            |        |       |         |
-       tail > (1,4)  |  x7   |         |
-            |        |       |         |
-            |        |       |         |
-       head > (1,5)  |  x9   |  (1,5)  < head
-            |        |       |         |
-            |        |       |         |
-            +--------+-------+---------+
+/*         Before                                    After
+          +--------------------------+              +----------------+
+          |  log              olog   |              |  log           |
+          +----------------+---------+              +----------------+
+          |        |object |         |              |        |object |
+         +>version | hash  | version |             +>version | hash  |
+          |        |       |         |              |        |       |
+          |        |  x5   |  (1,1)  < tail    tail > (1,1)  |  x5   |
+          |        |       |         |              |        |       |
+          |        |       |         |              |        |       |
+     tail > (1,4)  |  x7   |         |              | (1,4)  |  x7   |
+          |        |       |         |              |        |       |
+          |        |       |         |              |        |       |
+     head > (1,5)  |  x9   |  (1,5)  < head    head > (1,5)  |  x9   |
+          |        |       |         |              |        |       |
+          |        |       |         |              |        |       |
+          +--------+-------+---------+              +--------+-------+
 
-             After
-            +-----------------
-            |  log           |
-            +--------+-------+
-            |        |object |
-            |version | hash  |
-            |        |       |
-       tail > (1,1)  |  x5   |
-            |        |       |
-            |        |       |
-            | (1,4)  |  x7   |
-            |        |       |
-            |        |       |
-       head > (1,5)  |  x9   |
-            |        |       |
-            |        |       |
-            +--------+-------+
-  */
+
+*/
+
   {
     //case: 2
     clear();
@@ -1067,7 +1038,8 @@ TEST_F(PGLogTest, merge_log) {
     EXPECT_TRUE(dirty_big_info);
   }
 
-  /*        +--------------------------+
+  /*      Before
+            +--------------------------+
             |  log              olog   |
             +--------+-------+---------+
             |        |object |         |

@@ -290,18 +290,24 @@ class CephadmServe:
         return None
 
     def _refresh_host_devices(self, host: str) -> Optional[str]:
-        try:
+        def _call(*args: str) -> List[Dict[str, Any]]:
             out, err, code = self._run_cephadm(
                 host, 'osd',
                 'ceph-volume',
-                ['--', 'inventory', '--format=json', '--filter-for-batch'])
-            if code:
-                return 'host %s ceph-volume inventory returned %d: %s' % (
-                    host, code, err)
-            devices = json.loads(''.join(out))
-        except ValueError:
-            msg = 'host %s scrape failed: Cannot decode JSON' % host
-            self.log.exception('%s: \'%s\'' % (msg, ''.join(out)))
+                list(args))
+            return json.loads(''.join(out))
+
+        try:
+            try:
+                devices = _call('--', 'inventory', '--format=json', '--filter-for-batch')
+            except OrchestratorError as e:
+                if 'unrecognized arguments: --filter-for-batch' in str(e):
+                    devices = _call('--', 'inventory', '--format=json')
+                else:
+                    raise
+        except ValueError as e:
+            msg = f'host {host} scrape failed: Cannot decode JSON: {e}'
+            self.log.exception(msg)
             return msg
         except Exception as e:
             return 'host %s ceph-volume inventory failed: %s' % (host, e)
@@ -317,14 +323,14 @@ class CephadmServe:
             networks = json.loads(''.join(out))
         except ValueError:
             msg = 'host %s scrape failed: Cannot decode JSON' % host
-            self.log.exception('%s: \'%s\'' % (msg, ''.join(out)))
+            self.log.exception(msg)
             return msg
         except Exception as e:
             return 'host %s list-networks failed: %s' % (host, e)
         self.log.debug('Refreshed host %s devices (%d) networks (%s)' % (
             host, len(devices), len(networks)))
-        devices = inventory.Devices.from_json(devices)
-        self.mgr.cache.update_host_devices_networks(host, devices.devices, networks)
+        ret = inventory.Devices.from_json(devices)
+        self.mgr.cache.update_host_devices_networks(host, ret.devices, networks)
         self.update_osdspec_previews(host)
         self.mgr.cache.save_host(host)
         return None

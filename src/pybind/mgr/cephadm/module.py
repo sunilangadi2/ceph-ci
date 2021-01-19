@@ -819,6 +819,7 @@ class CephadmOrchestrator(orchestrator.Orchestrator, MgrModule,
         """
         Show user for SSHing to cluster hosts
         """
+        assert self.ssh_user
         return 0, self.ssh_user, ''
 
     @orchestrator._cli_read_command(
@@ -1092,6 +1093,7 @@ class CephadmOrchestrator(orchestrator.Orchestrator, MgrModule,
                 return conn, r
             else:
                 self._reset_con(host)
+        assert self.ssh_user
         n = self.ssh_user + '@' + host
         self.log.debug("Opening connection to {} with ssh options '{}'".format(
             n, self._ssh_options))

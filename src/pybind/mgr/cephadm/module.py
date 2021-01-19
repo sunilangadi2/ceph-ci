@@ -367,6 +367,7 @@ class CephadmOrchestrator(orchestrator.Orchestrator, MgrModule,
 
         path = self.get_ceph_option('cephadm_path')
         try:
+            assert isinstance(path, str)
             with open(path, 'r') as f:
                 self._cephadm = f.read()
         except (IOError, TypeError) as e:
@@ -1125,6 +1126,7 @@ class CephadmOrchestrator(orchestrator.Orchestrator, MgrModule,
 
     def _get_container_image(self, daemon_name: str) -> Optional[str]:
         daemon_type = daemon_name.split('.', 1)[0]  # type: ignore
+        image: Optional[str] = None
         if daemon_type in CEPH_TYPES or \
                 daemon_type == 'nfs' or \
                 daemon_type == 'iscsi':
@@ -1134,7 +1136,7 @@ class CephadmOrchestrator(orchestrator.Orchestrator, MgrModule,
                 'who': utils.name_to_config_section(daemon_name),
                 'key': 'container_image',
             })
-            image = image.strip()  # type: ignore
+            image = image.strip()
         elif daemon_type == 'prometheus':
             image = self.container_image_prometheus
         elif daemon_type == 'grafana':
@@ -1332,10 +1334,10 @@ class CephadmOrchestrator(orchestrator.Orchestrator, MgrModule,
                 raise OrchestratorError(msg, errno=rc)
 
             # call the host-maintenance function
-            out, _err, _code = CephadmServe(self)._run_cephadm(hostname, cephadmNoImage, "host-maintenance",
+            _out, _err, _code = CephadmServe(self)._run_cephadm(hostname, cephadmNoImage, "host-maintenance",
                                                                ["enter"],
                                                                error_ok=True)
-            if out:
+            if _out:
                 raise OrchestratorError(
                     f"Failed to place {hostname} into maintenance for cluster {self._cluster_fsid}")
 
@@ -1383,10 +1385,10 @@ class CephadmOrchestrator(orchestrator.Orchestrator, MgrModule,
         if tgt_host['status'] != "maintenance":
             raise OrchestratorError(f"Host {hostname} is not in maintenance mode")
 
-        out, _err, _code = CephadmServe(self)._run_cephadm(hostname, cephadmNoImage, 'host-maintenance',
+        outs, errs, _code = CephadmServe(self)._run_cephadm(hostname, cephadmNoImage, 'host-maintenance',
                                                            ['exit'],
                                                            error_ok=True)
-        if out:
+        if outs:
             raise OrchestratorError(
                 f"Failed to exit maintenance state for host {hostname}, cluster {self._cluster_fsid}")
 

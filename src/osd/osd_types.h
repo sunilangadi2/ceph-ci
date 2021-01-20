@@ -4499,7 +4499,8 @@ public:
 
   mempool::osd_pglog::list<pg_log_entry_t> rewind_from_head(eversion_t newhead) {
     ceph_assert(newhead >= tail);
-
+    CephContext *cct = g_ceph_context;
+    lgeneric_dout(cct, 10) << __func__ << dendl;
     mempool::osd_pglog::list<pg_log_entry_t>::iterator p = log.end();
     mempool::osd_pglog::list<pg_log_entry_t> divergent;
     while (true) {

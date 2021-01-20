@@ -377,6 +377,7 @@ void PGLog::merge_log(pg_info_t &oinfo, pg_log_t&& olog, pg_shard_t fromosd,
   }
 
   bool changed = false;
+  bool should_rollforward = false;
 
   // extend on tail?
   //  this is just filling in history.  it does not affect our
@@ -463,6 +464,7 @@ void PGLog::merge_log(pg_info_t &oinfo, pg_log_t&& olog, pg_shard_t fromosd,
       false,
       &log,
       missing,
+      &should_rollforward,
       rollbacker,
       this);
 
@@ -476,6 +478,10 @@ void PGLog::merge_log(pg_info_t &oinfo, pg_log_t&& olog, pg_shard_t fromosd,
       this);
 
     info.last_update = log.head = olog.head;
+
+    if (!should_rollforward && log.get_can_rollback_to() != original_crt) {
+     dout(10) << "crt updated without log addition " << dendl;
+    }
 
     // We cannot rollback into the new log entries
     log.skip_can_rollback_to_to_head();

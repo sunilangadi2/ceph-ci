@@ -1200,7 +1200,9 @@ protected:
     std::map<hobject_t, mempool::osd_pglog::list<pg_log_entry_t> > split;
     split_by_object(entries, &split);
     for (auto i = split.begin(); i != split.end(); ++i) {
-      _merge_object_divergent_entries(
+    CephContext *cct = g_ceph_context;
+    lgeneric_dout(cct, 10) << " merging divergent entries " << dendl;
+    _merge_object_divergent_entries(
 	log,
 	i->first,
 	i->second,
@@ -1257,17 +1259,27 @@ public:
     bool maintain_rollback,
     IndexedLog *log,
     missing_type &missing,
+    bool *should_rollforward,
     LogEntryHandler *rollbacker,
     const DoutPrefixProvider *dpp) {
     bool invalidate_stats = false;
     if (log && !entries.empty()) {
       ceph_assert(log->head < entries.begin()->version);
     }
+
     for (auto p = entries.begin(); p != entries.end(); ++p) {
       invalidate_stats = invalidate_stats || !p->is_error();
+      ldpp_dout(dpp, 20) << "last_backfill " << last_backfill
+      << " entries " << entries
+      << " maintain_rollback " << maintain_rollback
+      << " log was " << log
+      << dendl;
       if (log) {
-	ldpp_dout(dpp, 20) << "update missing, append " << *p << dendl;
-	log->add(*p);
+       log->add(*p);
+       ldpp_dout(dpp, 20) << __func__ << " appended " << *p << dendl;
+       if (should_rollforward) {
+          *should_rollforward = true;
+       }
       }
       if (p->soid <= last_backfill &&
 	  !p->is_error()) {
@@ -1302,6 +1314,7 @@ public:
       true,
       &log,
       missing,
+      nullptr,
       rollbacker,
       this);
     if (!entries.empty()) {

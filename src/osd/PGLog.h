@@ -1257,6 +1257,7 @@ public:
     bool maintain_rollback,
     IndexedLog *log,
     missing_type &missing,
+    bool &should_rollforward,
     LogEntryHandler *rollbacker,
     const DoutPrefixProvider *dpp) {
     bool invalidate_stats = false;
@@ -1266,27 +1267,27 @@ public:
     for (auto p = entries.begin(); p != entries.end(); ++p) {
       invalidate_stats = invalidate_stats || !p->is_error();
       if (log) {
-	ldpp_dout(dpp, 20) << "update missing, append " << *p << dendl;
-	log->add(*p);
+       log->add(*p);
+       should_rollforward = true;
+       ldpp_dout(dpp, 20) << "update missing, appended " << *p << dendl;
       }
-      if (p->soid <= last_backfill &&
-	  !p->is_error()) {
-	if (missing.may_include_deletes) {
-	  missing.add_next_event(*p);
-	} else {
-	  if (p->is_delete()) {
-	    missing.rm(p->soid, p->version);
-	  } else {
-	    missing.add_next_event(*p);
-	  }
-	  if (rollbacker) {
-	    // hack to match PG::mark_all_unfound_lost
-	    if (maintain_rollback && p->is_lost_delete() && p->can_rollback()) {
-	      rollbacker->try_stash(p->soid, p->version.version);
-	    } else if (p->is_delete()) {
-	      rollbacker->remove(p->soid);
-	    }
-	  }
+      if (p->soid <= last_backfill && !p->is_error()) {
+        if (missing.may_include_deletes) {
+          missing.add_next_event(*p);
+        } else {
+          if (p->is_delete()) {
+            missing.rm(p->soid, p->version);
+          } else {
+            missing.add_next_event(*p);
+          }
+          if (rollbacker) {
+            // hack to match PG::mark_all_unfound_lost
+            if (maintain_rollback && p->is_lost_delete() && p->can_rollback()) {
+              rollbacker->try_stash(p->soid, p->version.version);
+            } else if (p->is_delete()) {
+              rollbacker->remove(p->soid);
+            }
+          }
 	}
       }
     }
@@ -1296,12 +1297,14 @@ public:
     const hobject_t &last_backfill,
     const mempool::osd_pglog::list<pg_log_entry_t> &entries,
     LogEntryHandler *rollbacker) {
+    bool should_rollforward = false;
     bool invalidate_stats = append_log_entries_update_missing(
       last_backfill,
       entries,
       true,
       &log,
       missing,
+      should_rollforward,
       rollbacker,
       this);
     if (!entries.empty()) {

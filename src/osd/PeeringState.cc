@@ -4107,12 +4107,14 @@ void PeeringState::merge_new_log_entries(
     psdout(20) << __func__ << " peer_missing for " << peer
 	       << " = " << pmissing << dendl;
     pg_info_t& pinfo(peer_info[peer]);
+    bool should_rollforward = false;
     bool invalidate_stats = PGLog::append_log_entries_update_missing(
       pinfo.last_backfill,
       entries,
       true,
       NULL,
       pmissing,
+      should_rollforward,
       NULL,
       dpp);
     pinfo.last_update = info.last_update;

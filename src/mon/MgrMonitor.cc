@@ -960,7 +960,7 @@ bool MgrMonitor::preprocess_command(MonOpRequestRef op)
     f->dump_string("active_name", map.get_active_name());
     f->dump_unsigned("num_standby", map.get_num_standby());
     f->close_section();
-    f->flush(rdata)
+    f->flush(rdata);
   } else if (prefix == "mgr dump") {
     int64_t epoch = 0;
     cmd_getval(cmdmap, "epoch", epoch, (int64_t)map.get_epoch());

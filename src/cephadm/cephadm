@@ -3727,6 +3727,7 @@ def command_bootstrap(ctx):
     def wait_for_mgr_restart():
         # first get latest mgrmap epoch from the mon
         out = cli(['mgr', 'dump'])
+        logger.debug(f"mgr dump len is {len(out)}")
         j = json.loads(out)
         epoch = j['epoch']
         # wait for mgr to have it

@@ -485,6 +485,11 @@ public:
         j.dump(f);
       }
       f->close_section();
+      f->open_array_section("available_modules_again_biiiiiiig");
+      for (const auto& j : i.second.available_modules) {
+        j.dump(f);
+      }
+      f->close_section();
       f->close_section();
     }
     f->close_section();

@@ -6,6 +6,8 @@
 
 #include "Protocol.h"
 #include "crypto_onwire.h"
+#include "compression_meta.h"
+#include "compression_onwire.h"
 #include "frames_v2.h"
 
 class ProtocolV2 : public Protocol {
@@ -19,6 +21,7 @@ private:
     AUTH_CONNECTING_SIGN,
     SESSION_CONNECTING,
     SESSION_RECONNECTING,
+    COMPRESSION_CONNECTING,
     START_ACCEPT,
     BANNER_ACCEPTING,
     HELLO_ACCEPTING,
@@ -26,6 +29,7 @@ private:
     AUTH_ACCEPTING_MORE,
     AUTH_ACCEPTING_SIGN,
     SESSION_ACCEPTING,
+    COMPRESSION_ACCEPTING,
     READY,
     THROTTLE_MESSAGE,
     THROTTLE_BYTES,
@@ -46,6 +50,7 @@ private:
                                       "AUTH_CONNECTING_SIGN",
                                       "SESSION_CONNECTING",
                                       "SESSION_RECONNECTING",
+                                      "COMPRESSION_CONNECTING",
                                       "START_ACCEPT",
                                       "BANNER_ACCEPTING",
                                       "HELLO_ACCEPTING",
@@ -53,6 +58,7 @@ private:
                                       "AUTH_ACCEPTING_MORE",
                                       "AUTH_ACCEPTING_SIGN",
                                       "SESSION_ACCEPTING",
+                                      "COMPRESSION_ACCEPTING",
                                       "READY",
                                       "THROTTLE_MESSAGE",
                                       "THROTTLE_BYTES",
@@ -67,7 +73,9 @@ private:
 
   // TODO: move into auth_meta?
   ceph::crypto::onwire::rxtx_t session_stream_handlers;
-
+  ceph::compression::onwire::rxtx_t session_compression_handlers;
+  
+private:
   entity_name_t peer_name;
   State state;
   uint64_t peer_supported_features;  // CEPH_MSGR2_FEATURE_*
@@ -114,6 +122,7 @@ private:
   bool keepalive;
   bool write_in_progress = false;
 
+  CompConnectionMeta comp_meta;
   std::ostream& _conn_prefix(std::ostream *_dout);
   void run_continuation(Ct<ProtocolV2> *pcontinuation);
   void run_continuation(Ct<ProtocolV2> &continuation);
@@ -143,6 +152,7 @@ private:
   out_queue_entry_t _get_next_outgoing();
   ssize_t write_message(Message *m, bool more);
   void handle_message_ack(uint64_t seq);
+  void reset_compression();
 
   CONTINUATION_DECL(ProtocolV2, _wait_for_peer_banner);
   READ_BPTR_HANDLER_CONTINUATION_DECL(ProtocolV2, _handle_peer_banner);
@@ -162,6 +172,7 @@ private:
   CONTINUATION_DECL(ProtocolV2, throttle_message);
   CONTINUATION_DECL(ProtocolV2, throttle_bytes);
   CONTINUATION_DECL(ProtocolV2, throttle_dispatch_queue);
+  CONTINUATION_DECL(ProtocolV2, finish_compression);
 
   Ct<ProtocolV2> *read_frame();
   Ct<ProtocolV2> *finish_auth();
@@ -174,6 +185,7 @@ private:
   Ct<ProtocolV2> *_handle_read_frame_epilogue_main();
   Ct<ProtocolV2> *handle_read_frame_dispatch();
   Ct<ProtocolV2> *handle_frame_payload();
+  Ct<ProtocolV2> *finish_compression();
 
   Ct<ProtocolV2> *ready();
 
@@ -230,6 +242,8 @@ private:
   Ct<ProtocolV2> *handle_wait(ceph::bufferlist &payload);
   Ct<ProtocolV2> *handle_reconnect_ok(ceph::bufferlist &payload);
   Ct<ProtocolV2> *handle_server_ident(ceph::bufferlist &payload);
+  Ct<ProtocolV2> *send_compression_request();
+  Ct<ProtocolV2> *handle_compression_done(ceph::bufferlist &payload);
 
   // Server Protocol
   CONTINUATION_DECL(ProtocolV2, start_server_banner_exchange);
@@ -251,6 +265,7 @@ private:
   Ct<ProtocolV2> *send_server_ident();
   Ct<ProtocolV2> *send_reconnect_ok();
   Ct<ProtocolV2> *server_ready();
+  Ct<ProtocolV2> *handle_compression_request(ceph::bufferlist &payload);
 
   size_t get_current_msg_size() const;
 };

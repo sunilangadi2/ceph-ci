@@ -1250,7 +1250,7 @@ def call(ctx: CephadmContext,
         for fd in reads:
             try:
                 message = str()
-                message_b = os.read(fd, 1024)
+                message_b = os.read(fd, 1024 * 1024)
                 if not message_b:
                     continue
                 if isinstance(message_b, bytes):

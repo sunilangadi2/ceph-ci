@@ -38,6 +38,7 @@ You can invoke cephadm in two ways:
        injected_stdin = '...'
 """
 import asyncio
+import asyncio.subprocess
 import argparse
 import datetime
 import fcntl
@@ -64,17 +65,17 @@ from socketserver import ThreadingMixIn
 from http.server import BaseHTTPRequestHandler, HTTPServer
 import signal
 import io
-from contextlib import closing, redirect_stdout
+from contextlib import redirect_stdout
 import ssl
 from enum import Enum
 
 
-from typing import cast, Dict, List, Tuple, Optional, Union, Any, NoReturn, Callable, IO
+from typing import Dict, List, Tuple, Optional, Union, Any, NoReturn, Callable, IO
 
 import re
 import uuid
 
-from functools import partial, wraps
+from functools import wraps
 from glob import glob
 from threading import Thread, RLock
 
@@ -1185,39 +1186,6 @@ class CallVerbosity(Enum):
     VERBOSE = 3
 
 
-class StreamReaderProto(asyncio.SubprocessProtocol):
-    def __init__(self,
-                 exited: asyncio.Future,
-                 desc: str,
-                 verbosity: CallVerbosity) -> None:
-        self.exited = exited
-        self.desc = desc
-        self.verbosity = verbosity
-        self.stdout = ''
-        self.stderr = ''
-
-    def pipe_data_received(self, fd: int, data: bytes) -> None:
-        prefix = ''
-        lines = data.decode('utf-8')
-
-        if fd == sys.stdout.fileno():
-            prefix = self.desc + 'stdout'
-            self.stdout += lines
-        elif fd == sys.stderr.fileno():
-            prefix = self.desc + 'stderr'
-            self.stderr += lines
-        else:
-            assert False, f"unknown data received from fd: {fd}"
-
-        for line in lines.split('\n'):
-            if self.verbosity == CallVerbosity.VERBOSE:
-                logger.info(prefix + line)
-            elif self.verbosity != CallVerbosity.SILENT:
-                logger.debug(prefix + line)
-
-    def process_exited(self) -> None:
-        self.exited.set_result(True)
-
 try:
     from asyncio import run as async_run   # type: ignore[attr-defined]
 except ImportError:
@@ -1253,47 +1221,48 @@ def call(ctx: CephadmContext,
 
     logger.debug("Running command: %s" % ' '.join(command))
 
-    async def run_with_timeout():
-        loop = asyncio.get_event_loop()
-        proc_exited = loop.create_future()
-        protocol_factory = partial(StreamReaderProto,
-                                   proc_exited,
-                                   prefix, verbosity)
-        transport, protocol = await loop.subprocess_exec(
-            protocol_factory,
+    async def tee(reader: asyncio.StreamReader) -> str:
+        collected = StringIO()
+        while True:
+            line = await reader.readline()
+            if not line:
+                break
+            message = line.decode('utf-8')
+            collected.write(message)
+            if verbosity == CallVerbosity.VERBOSE:
+                logger.info(prefix + message.rstrip())
+            elif verbosity != CallVerbosity.SILENT:
+                logger.debug(prefix + message.rstrip())
+        return collected.getvalue()
+
+    async def run_with_timeout() -> Tuple[str, str, int]:
+        process = await asyncio.create_subprocess_exec(
             *command,
-            close_fds=True,
-            **kwargs)
-        proc_transport = cast(asyncio.SubprocessTransport, transport)
-        proc_protocol = cast(StreamReaderProto, protocol)
-        returncode = 0
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE)
+        assert process.stdout
+        assert process.stderr
         try:
-            if timeout:
-                await asyncio.wait_for(proc_exited, timeout)
-            else:
-                await proc_exited
+            stdout, stderr, returncode = await asyncio.wait_for(
+                asyncio.gather(tee(process.stdout),
+                               tee(process.stderr),
+                               process.wait()),
+                timeout)
         except asyncio.TimeoutError:
             logger.info(prefix + f'timeout after {timeout} seconds')
-            returncode = 124
+            return '', '', 124
         else:
-            returncode = cast(int, proc_transport.get_returncode())
-        finally:
-            proc_transport.close()
-        return (returncode,
-                proc_protocol.stdout,
-                proc_protocol.stderr)
+            return stdout, stderr, returncode
 
-    returncode, out, err = async_run(run_with_timeout())
+    stdout, stderr, returncode = async_run(run_with_timeout())
     if returncode != 0 and verbosity == CallVerbosity.VERBOSE_ON_FAILURE:
-        # dump stdout + stderr
         logger.info('Non-zero exit code %d from %s',
                     returncode, ' '.join(command))
-        for line in out.splitlines():
+        for line in stdout.splitlines():
             logger.info(prefix + 'stdout ' + line)
-        for line in err.splitlines():
+        for line in stderr.splitlines():
             logger.info(prefix + 'stderr ' + line)
-
-    return out, err, returncode
+    return stdout, stderr, returncode
 
 
 def call_throws(

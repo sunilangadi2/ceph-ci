@@ -932,10 +932,11 @@ class MgrModule(ceph_module.BaseMgrModule, MgrModuleLoggingMixin):
         mgr_level = cast(str, self.get_ceph_option("debug_mgr"))
         module_level = cast(str, self.get_module_option("log_level"))
         cluster_level = cast(str, self.get_module_option("log_to_cluster_level"))
+        assert isinstance(cluster_level, str), f'_config_notify: {cluster_level} is not a str'
         log_to_file = self.get_module_option("log_to_file", False)
-        assert isinstance(cluster_level, bool)
+        assert isinstance(log_to_file, bool), f'_config_notify: {log_to_file} is not a bool'
         log_to_cluster = self.get_module_option("log_to_cluster", False)
-        assert isinstance(log_to_cluster, bool)
+        assert isinstance(log_to_cluster, bool), f'_config_notify: {log_to_cluster} is not a bool'
         self._set_log_level(mgr_level, module_level, cluster_level)
 
         if log_to_file != self.log_to_file:

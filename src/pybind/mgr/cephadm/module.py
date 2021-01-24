@@ -367,7 +367,7 @@ class CephadmOrchestrator(orchestrator.Orchestrator, MgrModule,
 
         path = self.get_ceph_option('cephadm_path')
         try:
-            assert isinstance(path, str)
+            assert isinstance(path, str), f'CephadmOrchestrator.__init__: {path} is not a str'
             with open(path, 'r') as f:
                 self._cephadm = f.read()
         except (IOError, TypeError) as e:
@@ -1095,7 +1095,7 @@ class CephadmOrchestrator(orchestrator.Orchestrator, MgrModule,
                 return conn, r
             else:
                 self._reset_con(host)
-        assert self.ssh_user
+        assert self.ssh_user, f'_get_connection: {self.ssh_user} is empty or None'
         n = self.ssh_user + '@' + host
         self.log.debug("Opening connection to {} with ssh options '{}'".format(
             n, self._ssh_options))
@@ -1452,8 +1452,8 @@ class CephadmOrchestrator(orchestrator.Orchestrator, MgrModule,
         osd_count = 0
         for h, dm in self.cache.get_daemons_with_volatile_status():
             for name, dd in dm.items():
-                assert dd.hostname is not None
-                assert dd.daemon_type is not None
+                assert dd.hostname is not None, f'describe_service: "{dd.hostname}" is None'
+                assert dd.daemon_type is not None, f'describe_service: "{dd.daemon_type}" is None'
 
                 if service_type and service_type != dd.daemon_type:
                     continue

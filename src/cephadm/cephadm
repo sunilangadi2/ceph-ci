@@ -1239,7 +1239,8 @@ def call(ctx: CephadmContext,
         process = await asyncio.create_subprocess_exec(
             *command,
             stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE)
+            stderr=asyncio.subprocess.PIPE,
+            limit=2**18)        # 256 KiB
         assert process.stdout
         assert process.stderr
         try:

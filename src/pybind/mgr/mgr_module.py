@@ -232,7 +232,7 @@ class CRUSHMap(ceph_module.BasePyCRUSH):
     @staticmethod
     def get_default_choose_args(dump: Dict[str, Any]) -> List[Dict[str, Any]]:
         choose_args = dump.get('choose_args')
-        assert isinstance(choose_args, dict)
+        assert isinstance(choose_args, dict), f'get_default_choose_args: "{choose_args}" is not dict'
         return choose_args.get(CRUSHMap.DEFAULT_CHOOSE_ARGS, [])
 
     def get_rule(self, rule_name: str) -> Optional[Dict[str, Any]]:
@@ -840,9 +840,9 @@ class MgrModule(ceph_module.BaseMgrModule, MgrModuleLoggingMixin):
         log_level = cast(str, self.get_module_option("log_level"))
         cluster_level = cast(str, self.get_module_option('log_to_cluster_level'))
         log_to_file = self.get_module_option("log_to_file")
-        assert isinstance(log_to_file, bool)
+        assert isinstance(log_to_file, bool), f'MgrModule.__init__: "{log_to_file}" is not a bool'
         log_to_cluster = self.get_module_option("log_to_cluster")
-        assert isinstance(log_to_cluster, bool)
+        assert isinstance(log_to_cluster, bool), f'MgrModule.__init__: "{log_to_cluster}" is not a bool'
         self._configure_logging(mgr_level, log_level, cluster_level,
                                 log_to_file, log_to_cluster)
 

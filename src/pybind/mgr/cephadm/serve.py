@@ -401,13 +401,13 @@ class CephadmServe:
             daemon_detail = []  # type: List[str]
             for item in ls:
                 host = item.get('hostname')
-                assert isinstance(host, str)
+                assert isinstance(host, str), f'_check_for_strays: "{host}" is not a str'
                 daemons = item.get('services')  # misnomer!
-                assert isinstance(daemons, list)
+                assert isinstance(daemons, list), f'_check_for_strays: "{daemons}" is not a list'
                 missing_names = []
                 for s in daemons:
                     daemon_id = s.get('id')
-                    assert daemon_id
+                    assert daemon_id, f'_check_for_strays: "{daemon_id}"'
                     name = '%s.%s' % (s.get('type'), daemon_id)
                     if s.get('type') == 'rbd-mirror':
                         metadata = self.mgr.get_metadata(

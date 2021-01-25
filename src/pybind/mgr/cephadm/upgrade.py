@@ -295,7 +295,8 @@ class CephadmUpgrade:
                 })
                 return
             self.upgrade_state.target_id = target_id
-            self.upgrade_state.target_version = target_version
+            # extract the version portion of 'ceph version {version} ({sha1})'
+            self.upgrade_state.target_version = target_version.split(' ')[2]
             self.upgrade_state.repo_digest = repo_digest
             self._save_upgrade_state()
             target_image = self.target_image

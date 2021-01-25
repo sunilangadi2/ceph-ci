@@ -491,6 +491,7 @@ function TEST_scrub_parallelism() {
     ceph pg dump pgs
 
     ceph osd set noscrub
+    sleep 3
     for i in $(seq 0 $(expr $PGS - 1))
     do
       ceph tell $poolid.$(printf '%x' $i) scrub || return 1
@@ -518,8 +519,9 @@ function TEST_scrub_parallelism() {
       return 1
     fi
 
-    zero_count=0
-    found_count=0
+    local zero_count=0
+    local found_count=0
+    local threshold="$(expr $maxscrubs - 1)"
     set -o pipefail
     while(true)
     do
@@ -528,7 +530,7 @@ function TEST_scrub_parallelism() {
       # Occasionally we still see scrubs that have finished with new scrubs starting
       # so more scrubs appear to be running then is possible.
       # Also, count 1 less than maximum possible scrubs
-      if test $scrubs -ge $(expr $maxscrubs - 1)
+      if test $scrubs -ge $threshold
       then
         found_count=$(expr $found_count + 1)
         continue
@@ -540,6 +542,8 @@ function TEST_scrub_parallelism() {
         then
           break
         fi
+      else
+	zero_count=0
       fi
     done
     set +o pipefail

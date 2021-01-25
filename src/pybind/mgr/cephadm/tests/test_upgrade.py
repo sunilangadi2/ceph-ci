@@ -35,8 +35,7 @@ def test_upgrade_start(cephadm_module: CephadmOrchestrator):
 def test_upgrade_run(use_repo_digest, cephadm_module: CephadmOrchestrator):
     with with_host(cephadm_module, 'test'):
         cephadm_module.set_container_image('global', 'from_image')
-        if use_repo_digest:
-            cephadm_module.use_repo_digest = True
+        cephadm_module.use_repo_digest = use_repo_digest
         with with_service(cephadm_module, ServiceSpec('mgr'), CephadmOrchestrator.apply_mgr, 'test'):
             assert wait(cephadm_module, cephadm_module.upgrade_start(
                 'to_image', None)) == 'Initiating upgrade to to_image'

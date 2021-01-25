@@ -1,5 +1,5 @@
 import logging
-from typing import TYPE_CHECKING, Iterator
+from typing import cast, TYPE_CHECKING, Iterator
 
 from ceph.deployment.service_spec import PlacementSpec, ServiceSpec, HostPlacementSpec
 from cephadm.schedule import HostAssignment
@@ -37,7 +37,7 @@ class Migrations:
         self.migrate()
 
     def set(self, val: int) -> None:
-        self.mgr.set_module_option('migration_current', val)
+        self.mgr.set_module_option('migration_current', str(val))
         self.mgr.migration_current = val
 
     def is_migration_ongoing(self) -> bool:

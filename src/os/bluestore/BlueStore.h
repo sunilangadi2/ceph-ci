@@ -725,6 +725,7 @@ public:
     void dump(ceph::Formatter* f) const;
 
     void assign_blob(const BlobRef& b) {
+
       ceph_assert(!blob);
       blob = b;
       blob->shared_blob->get_cache()->add_extent();
@@ -951,6 +952,8 @@ public:
 
     /// split a blob (and referring extents)
     BlobRef split_blob(BlobRef lb, uint32_t blob_offset, uint32_t pos);
+
+    void add_shard_info_to_onode(bufferlist v, int shard_id);
   };
 
   /// Compressed Blob Garbage collector
@@ -3448,26 +3451,58 @@ public:
 
   int  read_allocation_from_drive();
 private:
-#define MAX_BLOBS_IN_ONODE 64
-typedef struct {
-  uint32_t onode_count;
-  uint32_t shard_count;
-  uint32_t processed_blob_count;
-  uint32_t skipped_blob_count;
-  uint32_t collection_search;
-  uint32_t blobs_in_onode[MAX_BLOBS_IN_ONODE+1];
-} read_alloc_stats_t;
+#define MAX_BLOBS_IN_ONODE 128
+  struct  read_alloc_stats_t {
+    uint32_t onode_count;
+    uint32_t shard_count;
 
-  int  read_allocation_from_onodes(interval_set<uint64_t>& freemap, read_alloc_stats_t& stats);
+    uint32_t processed_blob_count;
+    uint32_t skipped_blob_count;
+
+    uint32_t collection_search;
+    uint32_t skipped_illegal_extent;
+
+    uint32_t extent_count;
+    uint32_t limit_count;
+    
+    uint32_t blobs_in_onode[MAX_BLOBS_IN_ONODE+1];    
+  };
+#if 1
+  friend std::ostream& operator<<(std::ostream& out, const read_alloc_stats_t& stats) {
+    out << "==========================================================" << std::endl;
+    out << "onode_count            = " ;out.width(10);out << stats.onode_count << std::endl
+	<< "shard_count            = " ;out.width(10);out << stats.shard_count << std::endl
+	<< "collection search      = " ;out.width(10);out << stats.collection_search << std::endl
+	<< "processed_blob_count   = " ;out.width(10);out << stats.processed_blob_count << std::endl
+	<< "skipped_blob_count     = " ;out.width(10);out << stats.skipped_blob_count << std::endl
+	<< "skipped_illegal_extent = " ;out.width(10);out << stats.skipped_illegal_extent << std::endl
+	<< "extent_count           = " ;out.width(10);out << stats.extent_count << std::endl
+      	<< "limit_count            = " ;out.width(10);out << stats.limit_count << std::endl;
+    out << "==========================================================" << std::endl;
+
+    for (unsigned i = 0; i < MAX_BLOBS_IN_ONODE; i++ ) {
+      if (stats.blobs_in_onode[i]) {
+	out << "We had " ;out.width(9); out << stats.blobs_in_onode[i]
+	    << " ONodes with "; out.width(3); out << i << " blobs" << std::endl;
+      }
+    }
+    
+    if (stats.blobs_in_onode[MAX_BLOBS_IN_ONODE]) {
+      out << "We had " ;out.width(9);out << stats.blobs_in_onode[MAX_BLOBS_IN_ONODE]
+	  << " ONodes with more than " << MAX_BLOBS_IN_ONODE << " blobs" << std::endl;
+    }
+    return out;
+  }
+#endif
+  Allocator* create_allocator(uint64_t bdev_size);
+  int  store_allocator(Allocator* allocator);
+  int  restore_allocator(Allocator* allocator);
+  int  read_allocation_from_onodes(Allocator* allocator, read_alloc_stats_t& stats);
   void read_allocation_from_single_onode(
-    interval_set<uint64_t>&  freemap,
-    BlueStore::CollectionRef collection_ref,
-    const ghobject_t&        oid,
-    const string&            key,
-    const bufferlist&        value,
-    unsigned                 onode_num,
+    Allocator*               allocator,
+    BlueStore::OnodeRef&     onode_ref,
     read_alloc_stats_t&      stats);
-
+  
   void _fsck_check_object_omap(FSCKDepth depth,
     OnodeRef& o,
     const BlueStore::FSCK_ObjectCtx& ctx);

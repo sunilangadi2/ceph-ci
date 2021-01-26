@@ -1286,7 +1286,7 @@ if sys.version_info < (3, 8):
         # ThreadedChildWatcher runs in a separated thread, hence allows us to
         # run create_subprocess_exec() in non-main thread, see
         # https://bugs.python.org/issue35621
-        asyncio.get_event_loop_policy().set_child_watcher(ThreadedChildWatcher())
+        asyncio.set_child_watcher(ThreadedChildWatcher())
 
 
 try:

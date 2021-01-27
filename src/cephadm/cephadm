@@ -3179,9 +3179,7 @@ def get_image_info_from_inspect(out, image):
         'image_id': normalize_container_id(image_id)
     }
     if digests:
-        json_digests = digests[1:-1].split(' ')
-        if json_digests:
-            r['repo_digest'] = json_digests[0]
+        r['repo_digests'] = digests[1:-1].split(' ')
     return r
 
 

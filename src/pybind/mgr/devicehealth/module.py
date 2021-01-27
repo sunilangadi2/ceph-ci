@@ -9,7 +9,7 @@ import operator
 import rados
 from threading import Event
 from datetime import datetime, timedelta
-from typing import Optional
+from typing import cast, Dict, List, Optional, Sequence, TYPE_CHECKING, Union
 
 TIME_FORMAT = '%Y%m%d-%H%M%S'
 
@@ -96,6 +96,18 @@ class Module(MgrModule):
         self.run = True
         self.event = Event()
         self.has_device_pool = False
+
+        # for mypy which does not run the code
+        if TYPE_CHECKING:
+            self.enable_monitoring = True
+            self.scrape_frequency = 0.0
+            self.pool_name = ''
+            self.device_health_metrics = ''
+            self.retention_period = 0.0
+            self.mark_out_threshold = 0.0
+            self.warn_threshold = 0.0
+            self.self_heal = True
+            self.sleep_interval = 0.0
 
     def is_valid_daemon_name(self, who):
         parts = who.split('.')
@@ -473,8 +485,8 @@ class Module(MgrModule):
         min_in_ratio = float(config.get('mon_osd_min_in_ratio'))
         mark_out_threshold_td = timedelta(seconds=self.mark_out_threshold)
         warn_threshold_td = timedelta(seconds=self.warn_threshold)
-        checks = {}
-        health_warnings = {
+        checks: Dict[str, Dict[str, Union[int, str, Sequence[str]]]] = {}
+        health_warnings: Dict[str, List[str]] = {
             DEVICE_HEALTH: [],
             DEVICE_HEALTH_IN_USE: [],
             }
@@ -624,7 +636,7 @@ class Module(MgrModule):
     def predict_lift_expectancy(self, devid):
         plugin_name = ''
         model = self.get_ceph_option('device_failure_prediction_mode')
-        if model and model.lower() == 'local':
+        if cast(str, model).lower() == 'local':
             plugin_name = 'diskprediction_local'
         else:
             return -1, '', 'unable to enable any disk prediction model[local/cloud]'
@@ -638,7 +650,7 @@ class Module(MgrModule):
     def predict_all_devices(self):
         plugin_name = ''
         model = self.get_ceph_option('device_failure_prediction_mode')
-        if model and model.lower() == 'local':
+        if cast(str, model).lower() == 'local':
             plugin_name = 'diskprediction_local'
         else:
             return -1, '', 'unable to enable any disk prediction model[local/cloud]'

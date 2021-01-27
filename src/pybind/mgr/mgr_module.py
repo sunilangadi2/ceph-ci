@@ -1276,7 +1276,8 @@ class MgrModule(ceph_module.BaseMgrModule, MgrModuleLoggingMixin):
         """
         self._ceph_send_command(result, svc_type, svc_id, command, tag, inbuf)
 
-    def set_health_checks(self, checks: Dict[str, Dict[str, Sequence[str]]]) -> None:
+    def set_health_checks(self,
+                          checks: Dict[str, Dict[str, Union[int, str, Sequence[str]]]]) -> None:
         """
         Set the module's current map of health checks.  Argument is a
         dict of check names to info, in this form:

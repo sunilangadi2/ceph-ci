@@ -68,6 +68,7 @@ class mClockScheduler : public OpScheduler, md_config_obs_t {
   const uint32_t num_shards;
   bool is_rotational;
   double max_osd_capacity;
+  double max_osd_bandwidth;
   uint64_t osd_mclock_cost_per_io_msec;
   std::string mclock_profile = "high_client_ops";
   struct ClientAllocs {
@@ -95,8 +96,6 @@ class mClockScheduler : public OpScheduler, md_config_obs_t {
     ClientAllocs(1, 1, 1), // immediate (not used)
     ClientAllocs(1, 1, 1)  // client
   };
-  std::map<op_type_t, int> client_cost_infos;
-  std::map<op_type_t, int> client_scaled_cost_infos;
   class ClientRegistry {
     std::array<
       crimson::dmclock::ClientInfo,

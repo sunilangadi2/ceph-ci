@@ -151,7 +151,8 @@ size_t PGRecovery::start_primary_recovery_ops(
     // TODO: handle lost/unfound
     if (pg->get_recovery_backend()->is_recovering(soid)) {
       auto& recovery_waiter = pg->get_recovery_backend()->get_recovering(soid);
-      out->push_back(recovery_waiter.wait_for_recovered_blocking());
+      out->push_back(recovery_waiter.wait_for_recovered_blocking<
+	    ::crimson::osd::IOInterruptCondition>());
       ++started;
     } else if (pg->get_recovery_backend()->is_recovering(head)) {
       ++skipped;

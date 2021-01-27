@@ -202,11 +202,6 @@ bool tri_mutex::is_write_acquired() const
   return writers != 0;
 }
 
-bool tri_mutex::is_excl_acquired() const
-{
-  return exclusively_used;
-}
-
 int tri_mutex::waiters_size() const
 {
   return waiters.size();

@@ -68,9 +68,8 @@ seastar::future<> BackgroundRecovery::start()
 UrgentRecovery::interruptible_future<bool>
 UrgentRecovery::do_recovery()
 {
+  logger().debug("{}: {}", __func__, *this);
   if (!pg->has_reset_since(epoch_started)) {
-    auto futopt = pg->get_recovery_handler()->recover_missing(soid, need);
-    assert(futopt);
     return with_blocking_future_interruptible<IOInterruptCondition>(
       pg->get_recovery_handler()->recover_missing(soid, need)
     ).then_interruptible([] {

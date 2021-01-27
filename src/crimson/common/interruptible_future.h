@@ -241,6 +241,8 @@ public:
     typename interruptor<InterruptCond>::template futurize_t<U>;
   using core_type::get0;
   using core_type::core_type;
+  using core_type::get_exception;
+  using core_type::ignore_ready_future;
 
   [[gnu::always_inline]]
   interruptible_future_detail(seastar::future<T>&& base)
@@ -336,7 +338,7 @@ public:
   template <typename Func>
   [[gnu::always_inline]]
   auto then_unpack_interruptible(Func&& func) {
-    return then_interruptible([func=std::forward<Func>(func)](T&& tuple) {
+    return then_interruptible([func=std::forward<Func>(func)](T&& tuple) mutable {
       return std::apply(std::forward<Func>(func), std::move(tuple));
     });
   }
@@ -701,32 +703,36 @@ public:
     return (interrupt_futurize_t<decltype(fut)>)(std::move(fut));
   }
 
-  template <typename ErrorFunc>
+  template <bool interruptible = true, typename ErrorFunc>
   auto handle_error_interruptible(ErrorFunc&& errfunc) {
-    assert(interrupt_cond<InterruptCond>);
-    auto fut = core_type::handle_error(
-      [errfunc=std::move(errfunc),
-       interrupt_condition=interrupt_cond<InterruptCond>]
-      (auto&& err) mutable -> decltype(auto) {
-	constexpr bool return_void = std::is_void_v<
-	  std::invoke_result_t<ErrorFunc,
-	    std::decay_t<decltype(err)>>>;
-	constexpr bool return_err = ::crimson::is_error_v<
-	  std::decay_t<std::invoke_result_t<ErrorFunc,
-	    std::decay_t<decltype(err)>>>>;
-	if constexpr (return_err || return_void) {
-	  return non_futurized_call_with_interruption(
-		    interrupt_condition,
-		    std::move(errfunc),
-		    std::move(err));
-	} else {
-	  return call_with_interruption(
-		    interrupt_condition,
-		    std::move(errfunc),
-		    std::move(err));
-	}
-      });
-    return (interrupt_futurize_t<decltype(fut)>)(std::move(fut));
+    if constexpr (interruptible) {
+      assert(interrupt_cond<InterruptCond>);
+      auto fut = core_type::handle_error(
+	[errfunc=std::move(errfunc),
+	 interrupt_condition=interrupt_cond<InterruptCond>]
+	(auto&& err) mutable -> decltype(auto) {
+	  constexpr bool return_void = std::is_void_v<
+	    std::invoke_result_t<ErrorFunc,
+	      std::decay_t<decltype(err)>>>;
+	  constexpr bool return_err = ::crimson::is_error_v<
+	    std::decay_t<std::invoke_result_t<ErrorFunc,
+	      std::decay_t<decltype(err)>>>>;
+	  if constexpr (return_err || return_void) {
+	    return non_futurized_call_with_interruption(
+		      interrupt_condition,
+		      std::move(errfunc),
+		      std::move(err));
+	  } else {
+	    return call_with_interruption(
+		      interrupt_condition,
+		      std::move(errfunc),
+		      std::move(err));
+	  }
+	});
+      return (interrupt_futurize_t<decltype(fut)>)(std::move(fut));
+    } else {
+      return core_type::handle_error(std::forward<ErrorFunc>(errfunc));
+    }
   }
 
   template <typename ErrorFuncHead,
@@ -1167,7 +1173,7 @@ public:
 	futurize_invoke_if_func(std::forward<FutOrFuncs>(fut_or_funcs))...);
   }
 
-  template <typename.. FutOrFuncs>
+  template <typename... FutOrFuncs>
   static inline auto when_all_succeed(FutOrFuncs&&... fut_or_funcs) noexcept {
     return ::seastar::internal::when_all_succeed_impl(
 	futurize_invoke_if_func(std::forward<FutOrFuncs>(fut_or_funcs))...);

@@ -46,6 +46,7 @@ public:
       backend{backend} {}
   virtual ~RecoveryBackend() {}
   WaitForObjectRecovery& add_recovering(const hobject_t& soid) {
+    ::crimson::get_logger(ceph_subsys_osd).debug("{}: {}", __func__, soid);
     auto [it, added] = recovering.emplace(soid, WaitForObjectRecovery{});
     assert(added);
     return it->second;

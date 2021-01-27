@@ -45,7 +45,7 @@ ReplicatedRecoveryBackend::recover_object(
   });
 }
 
-RecoveryBackend::interruptbile_future<>
+RecoveryBackend::interruptible_future<>
 ReplicatedRecoveryBackend::maybe_push_shards(
   const hobject_t& soid,
   eversion_t need)
@@ -60,9 +60,11 @@ ReplicatedRecoveryBackend::maybe_push_shards(
       msg->min_epoch = pg.get_last_peering_reset();
       msg->pushes.push_back(std::move(push));
       msg->set_priority(pg.get_recovery_op_priority());
-      return shard_services.send_to_osd(shard.osd,
-                                        std::move(msg),
-                                        pg.get_osdmap_epoch()).then_interruptible(
+      return interruptor::make_interruptible(
+	  shard_services.send_to_osd(shard.osd,
+				     std::move(msg),
+				     pg.get_osdmap_epoch()))
+      .then_interruptible(
         [this, soid, shard] {
         return recovering.at(soid).wait_for_pushes(shard);
       });
@@ -430,22 +432,25 @@ ReplicatedRecoveryBackend::read_metadata_for_push_op(
     eversion_t ver,
     PushOp* push_op)
 {
+  logger().debug("{}, {}", __func__, oid);
   if (!progress.first) {
     return seastar::make_ready_future<eversion_t>(ver);
   }
-  return interruptor::when_all_succeed(
-    backend->omap_get_header(coll, ghobject_t(oid)).handle_error_interruptible(
-      crimson::os::FuturizedStore::read_errorator::all_same_way(
-        [] (const std::error_code& e) {
-        return seastar::make_ready_future<bufferlist>();
-      })),
-    interruptor::make_interruptible(store->get_attrs(coll, ghobject_t(oid)))
-    .handle_error_interruptible(
-      crimson::os::FuturizedStore::get_attrs_ertr::all_same_way(
-        [] (const std::error_code& e) {
-        return seastar::make_ready_future<crimson::os::FuturizedStore::attrs_t>();
-      }))
-  ).then_unpack_interruptible([&new_progress, push_op](auto bl, auto attrs) {
+  return seastar::when_all_succeed(
+      backend->omap_get_header(coll, ghobject_t(oid)).handle_error_interruptible<false>(
+	crimson::os::FuturizedStore::read_errorator::all_same_way(
+	  [oid] (const std::error_code& e) {
+	  logger().debug("read_metadata_for_push_op, error {} when getting omap header: {}", e, oid);
+	  return seastar::make_ready_future<bufferlist>();
+	})),
+      interruptor::make_interruptible(store->get_attrs(coll, ghobject_t(oid)))
+      .handle_error_interruptible<false>(
+	crimson::os::FuturizedStore::get_attrs_ertr::all_same_way(
+	  [oid] (const std::error_code& e) {
+	  logger().debug("read_metadata_for_push_op, error {} when getting attrs: {}", e, oid);
+	  return seastar::make_ready_future<crimson::os::FuturizedStore::attrs_t>();
+	}))
+  ).then_unpack([&new_progress, push_op](auto bl, auto attrs) {
     if (bl.length() == 0) {
       logger().error("read_metadata_for_push_op: fail to read omap header");
       return eversion_t{};

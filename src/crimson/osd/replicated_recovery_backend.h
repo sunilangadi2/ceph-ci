@@ -130,7 +130,7 @@ private:
   /// be relatively small.
   ///
   /// @return @c oi.version
-  seastar::future<eversion_t> read_metadata_for_push_op(
+  interruptible_future<eversion_t> read_metadata_for_push_op(
     const hobject_t& oid,
     const ObjectRecoveryProgress& progress,
     ObjectRecoveryProgress& new_progress,

@@ -212,6 +212,7 @@ Mirror::Mirror(CephContext *cct, const std::vector<const char*> &args,
                          "cephfs::mirror::thread_pool", false, cct));
   auto safe_timer = &(cct->lookup_or_create_singleton_object<SafeTimerSingleton>(
                         "cephfs::mirror::safe_timer", false, cct));
+  m_thread_pool = thread_pool;
   m_work_queue = thread_pool->work_queue;
   m_timer = safe_timer;
   m_timer_lock = &safe_timer->timer_lock;
@@ -221,6 +222,8 @@ Mirror::Mirror(CephContext *cct, const std::vector<const char*> &args,
 
 Mirror::~Mirror() {
   dout(10) << dendl;
+  delete m_thread_pool;
+  delete m_timer;
 }
 
 int Mirror::init_mon_client() {

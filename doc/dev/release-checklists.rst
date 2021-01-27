@@ -35,9 +35,9 @@ Make sure X (and, ideally, X+1) is defined:
 Scripts
 ~~~~~~~
 
-- [x] src/script/backport-resolve-issue (`releases()`, `ver_to_release()`... but for X-1)
-- [x] src/script/ceph-release-notes (X-1)
-- [x] ceph-build.git scripts/build_utils.sh `release_from_version()`
+- [ ] src/script/backport-resolve-issue (`releases()`, `ver_to_release()`... but for X-1)
+- [ ] src/script/ceph-release-notes (X-1)
+- [ ] ceph-build.git scripts/build_utils.sh `release_from_version()`
 
 Misc
 ~~~~
@@ -55,23 +55,23 @@ Feature bits
 Compatsets
 ----------
 
-- [x] mon/Monitor.h (`CEPH_MON_FEATURE_INCOMPAT_X`)
-- [x] mon/Monitor.cc (include in `get_supported_features()`)
-- [x] mon/Monitor.cc (`apply_monmap_to_compatset_features()`)
-- [x] mon/Monitor.cc (`calc_quorum_requirements()`)
+- [ ] mon/Monitor.h (`CEPH_MON_FEATURE_INCOMPAT_X`)
+- [ ] mon/Monitor.cc (include in `get_supported_features()`)
+- [ ] mon/Monitor.cc (`apply_monmap_to_compatset_features()`)
+- [ ] mon/Monitor.cc (`calc_quorum_requirements()`)
 
 Mon
 ---
 
-- [x] qa/standalone/mon/misc adjust `TEST_mon_features` (add X cases and adjust `--mon-debug-no-require-X`)
+- [ ] qa/standalone/mon/misc adjust `TEST_mon_features` (add X cases and adjust `--mon-debug-no-require-X`)
 - [x] mon/MgrMonitor.cc adjust `always_on_modules`
-- [x] common/options.cc define `mon_debug_no_require_X`
-- [x] common/options.cc remove `mon_debug_no_require_X-2`
-- [x] mon/OSDMonitor.cc `create_initial`: adjust new `require_osd_release`, and add associated `mon_debug_no_require_X`
-- [x] mon/OSDMonitor.cc `preprocess_boot`: adjust "disallow boot of " condition to disallow X if `require_osd_release` < X-2.
-- [x] mon/OSDMonitor.cc: adjust "osd require-osd-release" to (1) allow setting X, and (2) check that all mons *and* OSDs have X
-- [x] mon/MonCommands.h: adjust "osd require-osd-release" allows options to include X
-- [x] qa/workunits/cephtool/test.sh: adjust `require-osd-release` test
+- [ ] common/options.cc define `mon_debug_no_require_X`
+- [ ] common/options.cc remove `mon_debug_no_require_X-2`
+- [ ] mon/OSDMonitor.cc `create_initial`: adjust new `require_osd_release`, and add associated `mon_debug_no_require_X`
+- [ ] mon/OSDMonitor.cc `preprocess_boot`: adjust "disallow boot of " condition to disallow X if `require_osd_release` < X-2.
+- [ ] mon/OSDMonitor.cc: adjust "osd require-osd-release" to (1) allow setting X, and (2) check that all mons *and* OSDs have X
+- [ ] mon/MonCommands.h: adjust "osd require-osd-release" allows options to include X
+- [ ] qa/workunits/cephtool/test.sh: adjust `require-osd-release` test
 
 
 Code cleanup
@@ -87,10 +87,10 @@ QA suite
 --------
 
 - [ ] create qa/suites/upgrade/(X-1)-x
-- [x] remove qa/suites/upgrade/(X-3)-x-*
-- [x] remove qa/suites/rados/upgrade/(X-3)-x-singleton symlink
-- [x] create qa/releases/X.yaml
-- [x] create qa/suites/rados/thrash-old-clients/1-install/(X-1).yaml
+- [ ] remove qa/suites/upgrade/(X-3)-x-*
+- [ ] remove qa/suites/rados/upgrade/(X-3)-x-singleton symlink
+- [ ] create qa/releases/X.yaml
+- [ ] create qa/suites/rados/thrash-old-clients/1-install/(X-1).yaml
 
 
 

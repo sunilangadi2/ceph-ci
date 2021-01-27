@@ -63,7 +63,8 @@ class RGWSI_User_RADOS : public RGWSI_User
                                RGWUserInfo *info,
                                RGWObjVersionTracker * const objv_tracker,
                                real_time * const pmtime,
-                               optional_yield y);
+                               optional_yield y,
+                               map<string, bufferlist> *pattrs = nullptr);
 
   int remove_uid_index(RGWSI_MetaBackend::Context *ctx, const RGWUserInfo& user_info, RGWObjVersionTracker *objv_tracker,
                        optional_yield y);
@@ -146,19 +147,22 @@ public:
                              const string& email, RGWUserInfo *info,
                              RGWObjVersionTracker *objv_tracker,
                              real_time *pmtime,
-                             optional_yield y) override;
+                             optional_yield y,
+                             map<string, bufferlist> *pattrs = nullptr) override;
   int get_user_info_by_swift(RGWSI_MetaBackend::Context *ctx,
                              const string& swift_name,
                              RGWUserInfo *info,        /* out */
                              RGWObjVersionTracker * const objv_tracker,
                              real_time * const pmtime,
-                             optional_yield y) override;
+                             optional_yield y,
+                             map<string, bufferlist> *pattrs = nullptr) override;
   int get_user_info_by_access_key(RGWSI_MetaBackend::Context *ctx,
                                   const std::string& access_key,
                                   RGWUserInfo *info,
                                   RGWObjVersionTracker* objv_tracker,
                                   real_time *pmtime,
-                                  optional_yield y) override;
+                                  optional_yield y,
+                                  map<string, bufferlist> *pattrs = nullptr) override;
 
   /* user buckets directory */
 

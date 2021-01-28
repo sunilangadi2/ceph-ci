@@ -9,7 +9,7 @@ from ._interface import \
     Orchestrator, OrchestratorClientMixin, \
     OrchestratorValidationError, OrchestratorError, NoOrchestrator, \
     ServiceDescription, InventoryFilter, HostSpec, \
-    DaemonDescription, \
+    DaemonDescription, DaemonDescriptionStatus, \
     OrchestratorEvent, set_exception_subject, \
     InventoryHost, DeviceLightLoc, \
     UpgradeStatusSpec, daemon_type_to_service, service_to_daemon_types
@@ -35,6 +35,7 @@ __all__ = [
     'InventoryFilter',
     'HostSpec',
     'DaemonDescription',
+    'DaemonDescriptionStatus',
     'OrchestratorEvent',
     'set_exception_subject',
     'InventoryHost',

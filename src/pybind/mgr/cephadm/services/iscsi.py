@@ -6,7 +6,7 @@ from typing import List, cast
 from mgr_module import HandleCommandResult
 from ceph.deployment.service_spec import IscsiServiceSpec
 
-from orchestrator import DaemonDescription
+from orchestrator import DaemonDescription, DaemonDescriptionStatus
 from .cephadmservice import CephadmDaemonSpec, CephService
 from .. import utils
 
@@ -133,7 +133,7 @@ class IscsiService(CephService):
             'ALERT: 1 iscsi daemon is already down. Please bring it back up before stopping this one')
         iscsi_daemons = self.mgr.cache.get_daemons_by_type(self.TYPE)
         for i in iscsi_daemons:
-            if i.status != 1:
+            if i.status != DaemonDescriptionStatus.running:
                 return HandleCommandResult(-errno.EBUSY, '', warn_message)
 
         names = [f'{self.TYPE}.{d_id}' for d_id in daemon_ids]

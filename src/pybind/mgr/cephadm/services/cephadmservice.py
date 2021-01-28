@@ -11,7 +11,7 @@ from mgr_module import HandleCommandResult, MonCommandFailed
 
 from ceph.deployment.service_spec import ServiceSpec, RGWSpec
 from ceph.deployment.utils import is_ipv6, unwrap_ipv6
-from orchestrator import OrchestratorError, DaemonDescription
+from orchestrator import OrchestratorError, DaemonDescription, DaemonDescriptionStatus
 from orchestrator._interface import daemon_type_to_service
 from cephadm import utils
 from mgr_util import ServerConfigException, verify_tls
@@ -77,7 +77,7 @@ class CephadmDaemonSpec(Generic[ServiceSpecs]):
 
         return files
 
-    def to_daemon_description(self, status: int, status_desc: str) -> DaemonDescription:
+    def to_daemon_description(self, status: DaemonDescriptionStatus, status_desc: str) -> DaemonDescription:
         return DaemonDescription(
             daemon_type=self.daemon_type,
             daemon_id=self.daemon_id,

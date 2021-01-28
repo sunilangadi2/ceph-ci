@@ -931,7 +931,8 @@ class CephadmExporter(CephadmService):
         config = {
             "crt": cfg.crt,
             "key": cfg.key,
-            "token": cfg.token
+            "token": cfg.token,
+            'binary': self.mgr.cephadm_binary_path,
         }
         return config, deps
 

@@ -374,6 +374,8 @@ class CephadmOrchestrator(orchestrator.Orchestrator, MgrModule,
             raise RuntimeError("unable to read cephadm at '%s': %s" % (
                 path, str(e)))
 
+        self.cephadm_binary_path = self._get_cephadm_binary_path()
+
         self._worker_pool = multiprocessing.pool.ThreadPool(10)
 
         self._reconfig_ssh()
@@ -461,6 +463,12 @@ class CephadmOrchestrator(orchestrator.Orchestrator, MgrModule,
     def _get_cephadm_service(self, service_type: str) -> CephadmService:
         assert service_type in ServiceSpec.KNOWN_SERVICE_TYPES
         return self.cephadm_services[service_type]
+
+    def _get_cephadm_binary_path(self) -> str:
+        import hashlib
+        m = hashlib.sha256()
+        m.update(self._cephadm.encode())
+        return f'/var/lib/ceph/cephadm/{m.hexdigest()}/cephadm'
 
     def _kick_serve_loop(self) -> None:
         self.log.debug('_kick_serve_loop')

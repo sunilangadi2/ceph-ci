@@ -585,6 +585,13 @@ bool PgScrubber::write_blocked_by_scrub(const hobject_t& soid)
 	   << preemption_data.is_preemptable() << " already preempted? "
 	   << preemption_data.was_preempted() << dendl;
 
+  if (preemption_data.was_preempted()) {
+    // otherwise - write requests arriving while 'already preempted' is set
+    // but 'preemptable' is not - will not be allowed to continue, and will
+    // not be requeued on time.
+    return false;
+  }
+
   if (preemption_data.is_preemptable()) {
 
     if (!preemption_data.was_preempted()) {
@@ -592,6 +599,7 @@ bool PgScrubber::write_blocked_by_scrub(const hobject_t& soid)
 
       // signal the preemption
       preemption_data.do_preempt();
+      m_end = m_start; // free the range we were scrubbing
 
     } else {
       dout(10) << __func__ << " " << soid << " already preempted" << dendl;
@@ -616,6 +624,8 @@ bool PgScrubber::range_intersects_scrub(const hobject_t& start, const hobject_t&
  */
 void PgScrubber::add_delayed_scheduling()
 {
+  m_end = m_start; // not blocking any range now
+
   milliseconds sleep_time{0ms};
   if (m_needs_sleep) {
     double scrub_sleep = 1000.0 * m_osds->osd->scrub_sleep_time(m_flags.required);
@@ -1288,7 +1298,6 @@ void PgScrubber::map_from_replica(OpRequestRef op)
 
   if (m->preempted) {
     dout(10) << __func__ << " replica was preempted, setting flag" << dendl;
-    ceph_assert(preemption_data.is_preemptable());  // otherwise - how dare the replica!
     preemption_data.do_preempt();
   }
 

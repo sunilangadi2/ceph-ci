@@ -964,3 +964,15 @@ class TestCephadm(object):
                 assert image == 'image@repo_digest'
             else:
                 assert image == 'image'
+
+    @mock.patch("cephadm.serve.CephadmServe._run_cephadm")
+    def test_maintenance(self, _run_cephadm, cephadm_module: CephadmOrchestrator):
+        _run_cephadm.return_value = '{}', '', 0
+        with with_host(cephadm_module, 'test', refresh_hosts=False):
+            with with_host(cephadm_module, 'test1', refresh_hosts=False):
+                out = wait(cephadm_module, cephadm_module.enter_host_maintenance('test'))
+                assert out == 'Ceph cluster fsid on test moved to maintenance'
+
+                _run_cephadm.return_value = '', '', 0
+                out = wait(cephadm_module, cephadm_module.exit_host_maintenance('test'))
+                assert out == 'Ceph cluster fsid on test has exited maintenance mode'

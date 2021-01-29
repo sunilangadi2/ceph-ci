@@ -1185,7 +1185,8 @@ class CephadmOrchestrator(orchestrator.Orchestrator, MgrModule,
         return [
             h for h in self.inventory.all_specs()
             if self.cache.host_had_daemon_refresh(h.hostname) and
-            h.status.lower() not in ['maintenance', 'offline']
+            h.status.lower() not in ['offline'] and
+            not h.maintenance
         ]
 
     def _add_host(self, spec):
@@ -1314,8 +1315,8 @@ class CephadmOrchestrator(orchestrator.Orchestrator, MgrModule,
     def _set_maintenance_healthcheck(self) -> None:
         """Raise/update or clear the maintenance health check as needed"""
 
-        in_maintenance = self.inventory.get_host_with_state("maintenance")
-        if not in_maintenance:
+        in_maintenance = [h for h in self.inventory.all_specs() if h.maintenance]
+        if not in_maintenance and 'HOST_IN_MAINTENANCE' in self.health_checks:
             del self.health_checks["HOST_IN_MAINTENANCE"]
         else:
             s = "host is" if len(in_maintenance) == 1 else "hosts are"
@@ -1348,8 +1349,8 @@ class CephadmOrchestrator(orchestrator.Orchestrator, MgrModule,
             raise OrchestratorError(
                 f"Unable to place {hostname} in maintenance with upgrade active/paused")
 
-        tgt_host = self.inventory._inventory[hostname]
-        if tgt_host.get("status", "").lower() == "maintenance":
+        tgt_host = self.inventory[hostname]
+        if tgt_host.maintenance:
             raise OrchestratorError(f"Host {hostname} is already in maintenance")
 
         host_daemons = self.cache.get_daemon_types(hostname)
@@ -1387,10 +1388,7 @@ class CephadmOrchestrator(orchestrator.Orchestrator, MgrModule,
                     self.log.info(
                         f"maintenance mode request for {hostname} has SET the noout group")
 
-        # update the host status in the inventory
-        tgt_host["status"] = "maintenance"
-        self.inventory._inventory[hostname] = tgt_host
-        self.inventory.save()
+        self.inventory.set_maintenance(hostname, True)
 
         self._set_maintenance_healthcheck()
 
@@ -1410,8 +1408,8 @@ class CephadmOrchestrator(orchestrator.Orchestrator, MgrModule,
         :raises OrchestratorError: Unable to return from maintenance, or unset the
                                    noout flag
         """
-        tgt_host = self.inventory._inventory[hostname]
-        if tgt_host['status'] != "maintenance":
+        tgt_host = self.inventory[hostname]
+        if not tgt_host.maintenance:
             raise OrchestratorError(f"Host {hostname} is not in maintenance mode")
 
         outs, errs, _code = CephadmServe(self)._run_cephadm(hostname, cephadmNoImage, 'host-maintenance',
@@ -1437,10 +1435,7 @@ class CephadmOrchestrator(orchestrator.Orchestrator, MgrModule,
                 self.log.info(
                     f"exit maintenance request has UNSET for the noout group on host {hostname}")
 
-        # update the host record status
-        tgt_host['status'] = ""
-        self.inventory._inventory[hostname] = tgt_host
-        self.inventory.save()
+        self.inventory.set_maintenance(hostname, False)
 
         self._set_maintenance_healthcheck()
 
@@ -2189,7 +2184,7 @@ class CephadmOrchestrator(orchestrator.Orchestrator, MgrModule,
 
     @trivial_completion
     def upgrade_check(self, image: str, version: str) -> str:
-        if self.inventory.get_host_with_state("maintenance"):
+        if any(h.maintenance for h in self.inventory.all_specs()):
             raise OrchestratorError("check aborted - you have hosts in maintenance state")
 
         if version:
@@ -2229,7 +2224,7 @@ class CephadmOrchestrator(orchestrator.Orchestrator, MgrModule,
 
     @trivial_completion
     def upgrade_start(self, image: str, version: str) -> str:
-        if self.inventory.get_host_with_state("maintenance"):
+        if any(h.maintenance for h in self.inventory.all_specs()):
             raise OrchestratorError("upgrade aborted - you have host(s) in maintenance state")
         return self.upgrade.upgrade_start(image, version)
 

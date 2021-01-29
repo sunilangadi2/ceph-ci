@@ -45,6 +45,10 @@ class Inventory:
     def __contains__(self, host: str) -> bool:
         return host in self._inventory
 
+    def __getitem__(self, host: str) -> HostSpec:
+        self.assert_host(host)
+        return self.spec_from_dict(self._inventory[host])
+
     def assert_host(self, host: str) -> None:
         if host not in self._inventory:
             raise OrchestratorError('host %s does not exist' % host)
@@ -85,6 +89,11 @@ class Inventory:
         self.assert_host(host)
         return self._inventory[host].get('addr', host)
 
+    def set_maintenance(self, host: str, val: bool) -> None:
+        self.assert_host(host)
+        self._inventory[host]['maintenance'] = val
+        self.save()
+
     def filter_by_label(self, label: Optional[str] = '', as_hostspec: bool = False) -> Iterator:
         for h, hostspec in self._inventory.items():
             if not label or label in hostspec.get('labels', []):
@@ -100,6 +109,7 @@ class Inventory:
             addr=info.get('addr', hostname),
             labels=info.get('labels', []),
             status='Offline' if hostname in self.mgr.offline_hosts else info.get('status', ''),
+            maintenance=info.get('maintenance', False),
         )
 
     def all_specs(self) -> List[HostSpec]:

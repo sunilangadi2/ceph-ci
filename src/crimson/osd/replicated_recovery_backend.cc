@@ -1011,7 +1011,7 @@ ReplicatedRecoveryBackend::submit_push_data(
     }
     return seastar::make_ready_future<>();
   }().then_interruptible([this, data_zeros=std::move(data_zeros),
-	    &recovery_info, &intervals_included, t, target_oid,
+	    &recovery_info, intervals_included, t, target_oid,
 	    &omap_entries, &attrs, data_included, complete, first]() mutable {
     uint32_t fadvise_flags = CEPH_OSD_OP_FLAG_FADVISE_SEQUENTIAL;
     // Punch zeros for data, if fiemap indicates nothing but it is marked dirty

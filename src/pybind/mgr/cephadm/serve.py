@@ -1022,7 +1022,7 @@ class CephadmServe:
             conn, _connr = tpl
             _out, _err, code = remoto.process.check(
                 conn,
-                ['tee', '-', '/var/lib/ceph/{}/cephadm'.format(self.mgr._cluster_fsid)],
+                ['tee', '-', self.mgr.cephadm_binary_path],
                 stdin=self.mgr._cephadm.encode('utf-8'))
         return code == 0
 

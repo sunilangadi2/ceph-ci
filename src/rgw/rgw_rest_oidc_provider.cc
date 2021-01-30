@@ -114,7 +114,7 @@ int RGWCreateOIDCProvider::get_params()
   return 0;
 }
 
-void RGWCreateOIDCProvider::execute(optional_yield y)
+void RGWCreateOIDCProvider::execute(const DoutPrefixProvider *dpp, optional_yield y)
 {
   op_ret = get_params();
   if (op_ret < 0) {
@@ -141,12 +141,12 @@ void RGWCreateOIDCProvider::execute(optional_yield y)
 
 }
 
-void RGWDeleteOIDCProvider::execute(optional_yield y)
+void RGWDeleteOIDCProvider::execute(const DoutPrefixProvider *dpp, optional_yield y)
 {
   std::unique_ptr<rgw::sal::RGWOIDCProvider> provider = store->get_oidc_provider();
   provider->set_arn(provider_arn);
   provider->set_tenant(s->user->get_tenant());
-  op_ret = provider->delete_obj(this, y);
+  op_ret = provider->delete_obj(dpp, y);
 
   if (op_ret < 0 && op_ret != -ENOENT && op_ret != -EINVAL) {
     op_ret = ERR_INTERNAL_ERROR;
@@ -161,7 +161,7 @@ void RGWDeleteOIDCProvider::execute(optional_yield y)
   }
 }
 
-void RGWGetOIDCProvider::execute(optional_yield y)
+void RGWGetOIDCProvider::execute(const DoutPrefixProvider *dpp, optional_yield y)
 {
   std::unique_ptr<rgw::sal::RGWOIDCProvider> provider = store->get_oidc_provider();
   provider->set_arn(provider_arn);
@@ -204,7 +204,7 @@ int RGWListOIDCProviders::verify_permission(optional_yield y)
   return 0;
 }
 
-void RGWListOIDCProviders::execute(optional_yield y)
+void RGWListOIDCProviders::execute(const DoutPrefixProvider *dpp, optional_yield y)
 {
   vector<std::unique_ptr<rgw::sal::RGWOIDCProvider>> result;
   op_ret = store->get_oidc_providers(s, s->user->get_tenant(), result);

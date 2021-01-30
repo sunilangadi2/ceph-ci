@@ -53,15 +53,16 @@ class RadosUser : public User {
 		     optional_yield y) override;
     virtual Bucket* create_bucket(rgw_bucket& bucket, ceph::real_time creation_time) override;
     virtual int read_attrs(const DoutPrefixProvider* dpp, optional_yield y, Attrs* uattrs, RGWObjVersionTracker* tracker) override;
-    virtual int read_stats(optional_yield y, RGWStorageStats* stats,
+    virtual int read_stats(const DoutPrefixProvider *dpp,
+                           optional_yield y, RGWStorageStats* stats,
 			   ceph::real_time* last_stats_sync = nullptr,
 			   ceph::real_time* last_stats_update = nullptr) override;
     virtual int read_stats_async(RGWGetUserStats_CB* cb) override;
-    virtual int complete_flush_stats(optional_yield y) override;
+    virtual int complete_flush_stats(const DoutPrefixProvider *dpp, optional_yield y) override;
     virtual int read_usage(uint64_t start_epoch, uint64_t end_epoch, uint32_t max_entries,
 			   bool* is_truncated, RGWUsageIter& usage_iter,
 			   map<rgw_user_bucket, rgw_usage_log_entry>& usage) override;
-    virtual int trim_usage(uint64_t start_epoch, uint64_t end_epoch) override;
+    virtual int trim_usage(const DoutPrefixProvider *dpp, uint64_t start_epoch, uint64_t end_epoch) override;
 
     /* Placeholders */
     virtual int load_by_id(const DoutPrefixProvider* dpp, optional_yield y) override;
@@ -217,15 +218,15 @@ class RadosObject : public Object {
     virtual std::unique_ptr<StatOp> get_stat_op(RGWObjectCtx*) override;
 
     /* OMAP */
-    virtual int omap_get_vals(const std::string& marker, uint64_t count,
+    virtual int omap_get_vals(const DoutPrefixProvider *dpp, const std::string& marker, uint64_t count,
 			      std::map<std::string, bufferlist> *m,
 			      bool* pmore, optional_yield y) override;
-    virtual int omap_get_all(std::map<std::string, bufferlist> *m,
+    virtual int omap_get_all(const DoutPrefixProvider *dpp, std::map<std::string, bufferlist> *m,
 			     optional_yield y) override;
     virtual int omap_get_vals_by_keys(const std::string& oid,
 			      const std::set<std::string>& keys,
 			      Attrs* vals) override;
-    virtual int omap_set_val_by_key(const std::string& key, bufferlist& val,
+    virtual int omap_set_val_by_key(const DoutPrefixProvider *dpp, const std::string& key, bufferlist& val,
 				    bool must_exist, optional_yield y) override;
 
   private:
@@ -318,7 +319,7 @@ class RadosBucket : public Bucket {
     virtual int read_usage(uint64_t start_epoch, uint64_t end_epoch, uint32_t max_entries,
 			   bool* is_truncated, RGWUsageIter& usage_iter,
 			   map<rgw_user_bucket, rgw_usage_log_entry>& usage) override;
-    virtual int trim_usage(uint64_t start_epoch, uint64_t end_epoch) override;
+    virtual int trim_usage(const DoutPrefixProvider *dpp, uint64_t start_epoch, uint64_t end_epoch) override;
     virtual int remove_objs_from_index(std::list<rgw_obj_index_key>& objs_to_unlink) override;
     virtual int check_index(std::map<RGWObjCategory, RGWStorageStats>& existing_stats, std::map<RGWObjCategory, RGWStorageStats>& calculated_stats) override;
     virtual int rebuild_index() override;
@@ -390,7 +391,7 @@ class RadosStore : public Store {
 			    std::unique_ptr<Bucket>* bucket,
 			    optional_yield y) override;
     virtual bool is_meta_master() override;
-    virtual int forward_request_to_master(User* user, obj_version* objv,
+    virtual int forward_request_to_master(const DoutPrefixProvider *dpp, User* user, obj_version* objv,
 					  bufferlist& in_data, JSONParser* jp, req_info& info,
 					  optional_yield y) override;
     virtual int defer_gc(const DoutPrefixProvider* dpp, RGWObjectCtx* rctx, Bucket* bucket, Object* obj,
@@ -408,12 +409,12 @@ class RadosStore : public Store {
               const DoutPrefixProvider* dpp, optional_yield y) override;
     virtual RGWLC* get_rgwlc(void) override { return rados->get_lc(); }
     virtual RGWCoroutinesManagerRegistry* get_cr_registry() override { return rados->get_cr_registry(); }
-    virtual int delete_raw_obj(const rgw_raw_obj& obj) override;
+    virtual int delete_raw_obj(const DoutPrefixProvider *dpp, const rgw_raw_obj& obj) override;
     virtual int delete_raw_obj_aio(const rgw_raw_obj& obj, Completions* aio) override;
     virtual void get_raw_obj(const rgw_placement_rule& placement_rule, const rgw_obj& obj, rgw_raw_obj* raw_obj) override;
     virtual int get_raw_chunk_size(const DoutPrefixProvider* dpp, const rgw_raw_obj& obj, uint64_t* chunk_size) override;
 
-    virtual int log_usage(map<rgw_user_bucket, RGWUsageBatch>& usage_info) override;
+    virtual int log_usage(const DoutPrefixProvider *dpp, map<rgw_user_bucket, RGWUsageBatch>& usage_info) override;
     virtual int log_op(std::string& oid, bufferlist& bl) override;
     virtual int register_to_service_map(const std::string& daemon_type,
 				const map<std::string, std::string>& meta) override;
@@ -428,12 +429,12 @@ class RadosStore : public Store {
     virtual RGWDataSyncStatusManager* get_data_sync_manager(const rgw_zone_id& source_zone) override;
     virtual void wakeup_meta_sync_shards(set<int>& shard_ids) override { rados->wakeup_meta_sync_shards(shard_ids); }
     virtual void wakeup_data_sync_shards(const rgw_zone_id& source_zone, map<int, set<std::string> >& shard_ids) override { rados->wakeup_data_sync_shards(source_zone, shard_ids); }
-    virtual int clear_usage() override { return rados->clear_usage(); }
+    virtual int clear_usage(const DoutPrefixProvider *dpp) override { return rados->clear_usage(dpp); }
     virtual int read_all_usage(uint64_t start_epoch, uint64_t end_epoch,
 			       uint32_t max_entries, bool* is_truncated,
 			       RGWUsageIter& usage_iter,
 			       map<rgw_user_bucket, rgw_usage_log_entry>& usage) override;
-    virtual int trim_all_usage(uint64_t start_epoch, uint64_t end_epoch) override;
+    virtual int trim_all_usage(const DoutPrefixProvider *dpp, uint64_t start_epoch, uint64_t end_epoch) override;
     virtual int get_config_key_val(std::string name, bufferlist* bl) override;
     virtual int meta_list_keys_init(const std::string& section, const std::string& marker, void** phandle) override;
     virtual int meta_list_keys_next(void* handle, int max, list<std::string>& keys, bool* truncated) override;
@@ -494,7 +495,7 @@ class MPRadosSerializer : public MPSerializer {
 public:
   MPRadosSerializer(RadosStore* store, RadosObject* obj, const std::string& lock_name);
 
-  virtual int try_lock(utime_t dur, optional_yield y) override;
+  virtual int try_lock(const DoutPrefixProvider *dpp, utime_t dur, optional_yield y) override;
   virtual int unlock() override {
     return lock.unlock(&ioctx, oid);
   }
@@ -508,7 +509,7 @@ class LCRadosSerializer : public LCSerializer {
 public:
   LCRadosSerializer(RadosStore* store, const std::string& oid, const std::string& lock_name, const std::string& cookie);
 
-  virtual int try_lock(utime_t dur, optional_yield y) override;
+  virtual int try_lock(const DoutPrefixProvider *dpp, utime_t dur, optional_yield y) override;
   virtual int unlock() override {
     return lock.unlock(ioctx, oid);
   }
@@ -539,7 +540,7 @@ class RadosNotification : public Notification {
     RadosNotification(RadosStore* _store, Object* _obj, req_state* _s, rgw::notify::EventType _type) : Notification(_obj, _type), store(_store), res(_store, _s, _obj) { }
     ~RadosNotification() = default;
 
-    virtual int publish_reserve(RGWObjTags* obj_tags = nullptr) override;
+    virtual int publish_reserve(const DoutPrefixProvider *dpp, RGWObjTags* obj_tags = nullptr) override;
     virtual int publish_commit(const DoutPrefixProvider* dpp, uint64_t size,
 			       const ceph::real_time& mtime, const std::string& etag) override;
 };
@@ -553,7 +554,7 @@ protected:
     RadosGCChain(RadosStore* _store, Object* _obj) : GCChain(_obj), store(_store) {}
     ~RadosGCChain() = default;
 
-    virtual void update(RGWObjManifest* manifest) override;
+    virtual void update(const DoutPrefixProvider *dpp, RGWObjManifest* manifest) override;
     virtual int send(const std::string& tag) override;
     virtual void delete_inline(const std::string& tag) override;
 };

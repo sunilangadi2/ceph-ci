@@ -218,30 +218,30 @@ class RGWDataChangesLog {
   int choose_oid(const rgw_bucket_shard& bs);
   bool going_down() const;
   bool filter_bucket(const DoutPrefixProvider *dpp, const rgw_bucket& bucket, optional_yield y) const;
-  int renew_entries();
+  int renew_entries(const DoutPrefixProvider *dpp);
 
 public:
 
   RGWDataChangesLog(CephContext* cct);
   ~RGWDataChangesLog();
 
-  int start(const RGWZone* _zone, const RGWZoneParams& zoneparams,
+  int start(const DoutPrefixProvider *dpp, const RGWZone* _zone, const RGWZoneParams& zoneparams,
 	    librados::Rados* lr);
 
   int add_entry(const DoutPrefixProvider *dpp, const RGWBucketInfo& bucket_info, int shard_id);
   int get_log_shard_id(rgw_bucket& bucket, int shard_id);
-  int list_entries(int shard, int max_entries,
+  int list_entries(const DoutPrefixProvider *dpp, int shard, int max_entries,
 		   std::vector<rgw_data_change_log_entry>& entries,
 		   std::optional<std::string_view> marker,
 		   std::string* out_marker, bool* truncated);
-  int trim_entries(int shard_id, std::string_view marker);
-  int trim_entries(int shard_id, std::string_view marker,
+  int trim_entries(const DoutPrefixProvider *dpp, int shard_id, std::string_view marker);
+  int trim_entries(const DoutPrefixProvider *dpp, int shard_id, std::string_view marker,
 		   librados::AioCompletion* c); // :(
-  int get_info(int shard_id, RGWDataChangesLogInfo *info);
+  int get_info(const DoutPrefixProvider *dpp, int shard_id, RGWDataChangesLogInfo *info);
 
   using LogMarker = RGWDataChangesLogMarker;
 
-  int list_entries(int max_entries,
+  int list_entries(const DoutPrefixProvider *dpp, int max_entries,
 		   std::vector<rgw_data_change_log_entry>& entries,
 		   LogMarker& marker, bool* ptruncated);
 

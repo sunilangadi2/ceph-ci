@@ -65,7 +65,7 @@ void create_meta(lr::ObjectWriteOperation* op,
   op->exec(fifo::op::CLASS, fifo::op::CREATE_META, in);
 }
 
-int get_meta(lr::IoCtx& ioctx, const std::string& oid,
+int get_meta(const DoutPrefixProvider *dpp, lr::IoCtx& ioctx, const std::string& oid,
 	     std::optional<fifo::objv> objv, fifo::info* info,
 	     std::uint32_t* part_header_size,
 	     std::uint32_t* part_entry_overhead,
@@ -81,7 +81,7 @@ int get_meta(lr::IoCtx& ioctx, const std::string& oid,
 
   op.exec(fifo::op::CLASS, fifo::op::GET_META, in,
 	  &bl, nullptr);
-  auto r = rgw_rados_operate(ioctx, oid, &op, nullptr, y);
+  auto r = rgw_rados_operate(dpp, ioctx, oid, &op, nullptr, y);
   if (r >= 0) try {
       fifo::op::get_meta_reply reply;
       auto iter = bl.cbegin();
@@ -91,13 +91,13 @@ int get_meta(lr::IoCtx& ioctx, const std::string& oid,
       if (part_entry_overhead)
 	*part_entry_overhead = reply.part_entry_overhead;
     } catch (const cb::error& err) {
-      lderr(static_cast<CephContext*>(ioctx.cct()))
+      ldpp_dout(dpp, -1)
 	<< __PRETTY_FUNCTION__ << ":" << __LINE__
 	<< " decode failed: " << err.what()
 	<< " tid=" << tid << dendl;
       r = from_error_code(err.code());
     } else if (!(probe && (r == -ENOENT || r == -ENODATA))) {
-    lderr(static_cast<CephContext*>(ioctx.cct()))
+    ldpp_dout(dpp, -1)
       << __PRETTY_FUNCTION__ << ":" << __LINE__
       << " fifo::op::GET_META failed r=" << r << " tid=" << tid
       << dendl;
@@ -137,7 +137,7 @@ void part_init(lr::ObjectWriteOperation* op, std::string_view tag,
   op->exec(fifo::op::CLASS, fifo::op::INIT_PART, in);
 }
 
-int push_part(lr::IoCtx& ioctx, const std::string& oid, std::string_view tag,
+int push_part(const DoutPrefixProvider *dpp, lr::IoCtx& ioctx, const std::string& oid, std::string_view tag,
 	      std::deque<cb::list> data_bufs, std::uint64_t tid,
 	      optional_yield y)
 {
@@ -155,16 +155,16 @@ int push_part(lr::IoCtx& ioctx, const std::string& oid, std::string_view tag,
   encode(pp, in);
   auto retval = 0;
   op.exec(fifo::op::CLASS, fifo::op::PUSH_PART, in, nullptr, &retval);
-  auto r = rgw_rados_operate(ioctx, oid, &op, y, lr::OPERATION_RETURNVEC);
+  auto r = rgw_rados_operate(dpp, ioctx, oid, &op, y, lr::OPERATION_RETURNVEC);
   if (r < 0) {
-    lderr(static_cast<CephContext*>(ioctx.cct()))
+    ldpp_dout(dpp, -1)
       << __PRETTY_FUNCTION__ << ":" << __LINE__
       << " fifo::op::PUSH_PART failed r=" << r
       << " tid=" << tid << dendl;
     return r;
   }
   if (retval < 0) {
-    lderr(static_cast<CephContext*>(ioctx.cct()))
+    ldpp_dout(dpp, -1)
       << __PRETTY_FUNCTION__ << ":" << __LINE__
       << " error handling response retval=" << retval
       << " tid=" << tid << dendl;
@@ -208,7 +208,7 @@ void trim_part(lr::ObjectWriteOperation* op,
   op->exec(fifo::op::CLASS, fifo::op::TRIM_PART, in);
 }
 
-int list_part(lr::IoCtx& ioctx, const std::string& oid,
+int list_part(const DoutPrefixProvider *dpp, lr::IoCtx& ioctx, const std::string& oid,
 	      std::optional<std::string_view> tag, std::uint64_t ofs,
 	      std::uint64_t max_entries,
 	      std::vector<fifo::part_list_entry>* entries,
@@ -226,7 +226,7 @@ int list_part(lr::IoCtx& ioctx, const std::string& oid,
   encode(lp, in);
   cb::list bl;
   op.exec(fifo::op::CLASS, fifo::op::LIST_PART, in, &bl, nullptr);
-  auto r = rgw_rados_operate(ioctx, oid, &op, nullptr, y);
+  auto r = rgw_rados_operate(dpp, ioctx, oid, &op, nullptr, y);
   if (r >= 0) try {
       fifo::op::list_part_reply reply;
       auto iter = bl.cbegin();
@@ -236,13 +236,13 @@ int list_part(lr::IoCtx& ioctx, const std::string& oid,
       if (full_part) *full_part = reply.full_part;
       if (ptag) *ptag = reply.tag;
     } catch (const cb::error& err) {
-      lderr(static_cast<CephContext*>(ioctx.cct()))
+      ldpp_dout(dpp, -1)
 	<< __PRETTY_FUNCTION__ << ":" << __LINE__
 	<< " decode failed: " << err.what()
 	<< " tid=" << tid << dendl;
       r = from_error_code(err.code());
     } else if (r != -ENOENT) {
-    lderr(static_cast<CephContext*>(ioctx.cct()))
+    ldpp_dout(dpp, -1)
       << __PRETTY_FUNCTION__ << ":" << __LINE__
       << " fifo::op::LIST_PART failed r=" << r << " tid=" << tid
       << dendl;
@@ -314,7 +314,7 @@ lr::ObjectReadOperation list_part(CephContext* cct,
   return op;
 }
 
-int get_part_info(lr::IoCtx& ioctx, const std::string& oid,
+int get_part_info(const DoutPrefixProvider *dpp, lr::IoCtx& ioctx, const std::string& oid,
 		  fifo::part_header* header,
 		  std::uint64_t tid, optional_yield y)
 {
@@ -325,20 +325,20 @@ int get_part_info(lr::IoCtx& ioctx, const std::string& oid,
   cb::list bl;
   encode(gpi, in);
   op.exec(fifo::op::CLASS, fifo::op::GET_PART_INFO, in, &bl, nullptr);
-  auto r = rgw_rados_operate(ioctx, oid, &op, nullptr, y);
+  auto r = rgw_rados_operate(dpp, ioctx, oid, &op, nullptr, y);
   if (r >= 0) try {
       fifo::op::get_part_info_reply reply;
       auto iter = bl.cbegin();
       decode(reply, iter);
       if (header) *header = std::move(reply.header);
     } catch (const cb::error& err) {
-      lderr(static_cast<CephContext*>(ioctx.cct()))
+      ldpp_dout(dpp, -1)
 	<< __PRETTY_FUNCTION__ << ":" << __LINE__
 	<< " decode failed: " << err.what()
 	<< " tid=" << tid << dendl;
       r = from_error_code(err.code());
     } else {
-    lderr(static_cast<CephContext*>(ioctx.cct()))
+    ldpp_dout(dpp, -1)
       << __PRETTY_FUNCTION__ << ":" << __LINE__
       << " fifo::op::GET_PART_INFO failed r=" << r << " tid=" << tid
       << dendl;
@@ -457,16 +457,16 @@ int FIFO::apply_update(fifo::info* info,
   return {};
 }
 
-int FIFO::_update_meta(const fifo::update& update,
+int FIFO::_update_meta(const DoutPrefixProvider *dpp, const fifo::update& update,
 		       fifo::objv version, bool* pcanceled,
 		       std::uint64_t tid, optional_yield y)
 {
-  ldout(cct, 20) << __PRETTY_FUNCTION__ << ":" << __LINE__
+  ldpp_dout(dpp, 20) << __PRETTY_FUNCTION__ << ":" << __LINE__
 		 << " entering: tid=" << tid << dendl;
   lr::ObjectWriteOperation op;
   bool canceled = false;
   update_meta(&op, info.version, update);
-  auto r = rgw_rados_operate(ioctx, oid, &op, y);
+  auto r = rgw_rados_operate(dpp, ioctx, oid, &op, y);
   if (r >= 0 || r == -ECANCELED) {
     canceled = (r == -ECANCELED);
     if (!canceled) {
@@ -474,17 +474,17 @@ int FIFO::_update_meta(const fifo::update& update,
       if (r < 0) canceled = true;
     }
     if (canceled) {
-      r = read_meta(tid, y);
+      r = read_meta(dpp, tid, y);
       canceled = r < 0 ? false : true;
     }
   }
   if (pcanceled) *pcanceled = canceled;
   if (canceled) {
-    ldout(cct, 20) << __PRETTY_FUNCTION__ << ":" << __LINE__
+    ldpp_dout(dpp, 20) << __PRETTY_FUNCTION__ << ":" << __LINE__
 		   << " canceled: tid=" << tid << dendl;
   }
   if (r < 0) {
-    lderr(cct) << __PRETTY_FUNCTION__ << ":" << __LINE__
+    ldpp_dout(dpp, -1) << __PRETTY_FUNCTION__ << ":" << __LINE__
 	       << " returning error: r=" << r << " tid=" << tid << dendl;
   }
   return r;
@@ -579,10 +579,10 @@ void FIFO::_update_meta(const fifo::update& update,
   assert(r >= 0);
 }
 
-int FIFO::create_part(int64_t part_num, std::string_view tag, std::uint64_t tid,
+int FIFO::create_part(const DoutPrefixProvider *dpp, int64_t part_num, std::string_view tag, std::uint64_t tid,
 		      optional_yield y)
 {
-  ldout(cct, 20) << __PRETTY_FUNCTION__ << ":" << __LINE__
+  ldpp_dout(dpp, 20) << __PRETTY_FUNCTION__ << ":" << __LINE__
 		 << " entering: tid=" << tid << dendl;
   lr::ObjectWriteOperation op;
   op.create(false); /* We don't need exclusivity, part_init ensures
@@ -591,37 +591,37 @@ int FIFO::create_part(int64_t part_num, std::string_view tag, std::uint64_t tid,
   part_init(&op, tag, info.params);
   auto oid = info.part_oid(part_num);
   l.unlock();
-  auto r = rgw_rados_operate(ioctx, oid, &op, y);
+  auto r = rgw_rados_operate(dpp, ioctx, oid, &op, y);
   if (r < 0) {
-    lderr(cct) << __PRETTY_FUNCTION__ << ":" << __LINE__
+    ldpp_dout(dpp, -1) << __PRETTY_FUNCTION__ << ":" << __LINE__
 	       << " part_init failed: r=" << r << " tid="
 	       << tid << dendl;
   }
   return r;
 }
 
-int FIFO::remove_part(int64_t part_num, std::string_view tag, std::uint64_t tid,
+int FIFO::remove_part(const DoutPrefixProvider *dpp, int64_t part_num, std::string_view tag, std::uint64_t tid,
 		      optional_yield y)
 {
-  ldout(cct, 20) << __PRETTY_FUNCTION__ << ":" << __LINE__
+  ldpp_dout(dpp, 20) << __PRETTY_FUNCTION__ << ":" << __LINE__
 		 << " entering: tid=" << tid << dendl;
   lr::ObjectWriteOperation op;
   op.remove();
   std::unique_lock l(m);
   auto oid = info.part_oid(part_num);
   l.unlock();
-  auto r = rgw_rados_operate(ioctx, oid, &op, y);
+  auto r = rgw_rados_operate(dpp, ioctx, oid, &op, y);
   if (r < 0) {
-    lderr(cct) << __PRETTY_FUNCTION__ << ":" << __LINE__
+    ldpp_dout(dpp, -1) << __PRETTY_FUNCTION__ << ":" << __LINE__
 	       << " remove failed: r=" << r << " tid="
 	       << tid << dendl;
   }
   return r;
 }
 
-int FIFO::process_journal(std::uint64_t tid, optional_yield y)
+int FIFO::process_journal(const DoutPrefixProvider *dpp, std::uint64_t tid, optional_yield y)
 {
-  ldout(cct, 20) << __PRETTY_FUNCTION__ << ":" << __LINE__
+  ldpp_dout(dpp, 20) << __PRETTY_FUNCTION__ << ":" << __LINE__
 		 << " entering: tid=" << tid << dendl;
   std::vector<fifo::journal_entry> processed;
 
@@ -634,12 +634,12 @@ int FIFO::process_journal(std::uint64_t tid, optional_yield y)
 
   int r = 0;
   for (auto& [n, entry] : tmpjournal) {
-    ldout(cct, 20) << __PRETTY_FUNCTION__ << ":" << __LINE__
+    ldpp_dout(dpp, 20) << __PRETTY_FUNCTION__ << ":" << __LINE__
 		   << " processing entry: entry=" << entry << " tid=" << tid
 		   << dendl;
     switch (entry.op) {
     case fifo::journal_entry::Op::create:
-      r = create_part(entry.part_num, entry.part_tag, tid, y);
+      r = create_part(dpp, entry.part_num, entry.part_tag, tid, y);
       if (entry.part_num > new_max) {
 	new_max = entry.part_num;
       }
@@ -651,21 +651,21 @@ int FIFO::process_journal(std::uint64_t tid, optional_yield y)
       }
       break;
     case fifo::journal_entry::Op::remove:
-      r = remove_part(entry.part_num, entry.part_tag, tid, y);
+      r = remove_part(dpp, entry.part_num, entry.part_tag, tid, y);
       if (r == -ENOENT) r = 0;
       if (entry.part_num >= new_tail) {
 	new_tail = entry.part_num + 1;
       }
       break;
     default:
-      lderr(cct) << __PRETTY_FUNCTION__ << ":" << __LINE__
+      ldpp_dout(dpp, -1) << __PRETTY_FUNCTION__ << ":" << __LINE__
 		 << " unknown journaled op: entry=" << entry << " tid="
 		 << tid << dendl;
       return -EIO;
     }
 
     if (r < 0) {
-      lderr(cct) << __PRETTY_FUNCTION__ << ":" << __LINE__
+      ldpp_dout(dpp, -1) << __PRETTY_FUNCTION__ << ":" << __LINE__
 		 << " processing entry failed: entry=" << entry
 		 << " r=" << r << " tid=" << tid << dendl;
       return -r;
@@ -678,7 +678,7 @@ int FIFO::process_journal(std::uint64_t tid, optional_yield y)
   bool canceled = true;
 
   for (auto i = 0; canceled && i < MAX_RACE_RETRIES; ++i) {
-    ldout(cct, 20) << __PRETTY_FUNCTION__ << ":" << __LINE__
+    ldpp_dout(dpp, 20) << __PRETTY_FUNCTION__ << ":" << __LINE__
 		   << " postprocessing: i=" << i << " tid=" << tid << dendl;
 
     std::optional<int64_t> tail_part_num;
@@ -695,7 +695,7 @@ int FIFO::process_journal(std::uint64_t tid, optional_yield y)
     if (processed.empty() &&
 	!tail_part_num &&
 	!max_part_num) {
-      ldout(cct, 20) << __PRETTY_FUNCTION__ << ":" << __LINE__
+      ldpp_dout(dpp, 20) << __PRETTY_FUNCTION__ << ":" << __LINE__
 		     << " nothing to update any more: i=" << i << " tid="
 		     << tid << dendl;
       canceled = false;
@@ -704,9 +704,9 @@ int FIFO::process_journal(std::uint64_t tid, optional_yield y)
     auto u = fifo::update().tail_part_num(tail_part_num)
       .head_part_num(head_part_num).max_push_part_num(max_part_num)
       .journal_entries_rm(processed);
-    r = _update_meta(u, objv, &canceled, tid, y);
+    r = _update_meta(dpp, u, objv, &canceled, tid, y);
     if (r < 0) {
-      lderr(cct) << __PRETTY_FUNCTION__ << ":" << __LINE__
+      ldpp_dout(dpp, -1) << __PRETTY_FUNCTION__ << ":" << __LINE__
 		 << " _update_meta failed: update=" << u
 		 << " r=" << r << " tid=" << tid << dendl;
       break;
@@ -715,7 +715,7 @@ int FIFO::process_journal(std::uint64_t tid, optional_yield y)
     if (canceled) {
       std::vector<fifo::journal_entry> new_processed;
       std::unique_lock l(m);
-      ldout(cct, 20) << __PRETTY_FUNCTION__ << ":" << __LINE__
+      ldpp_dout(dpp, 20) << __PRETTY_FUNCTION__ << ":" << __LINE__
 		     << " update canceled, retrying: i=" << i << " tid="
 		     << tid << dendl;
       for (auto& e : processed) {
@@ -731,31 +731,31 @@ int FIFO::process_journal(std::uint64_t tid, optional_yield y)
     }
   }
   if (r == 0 && canceled) {
-    lderr(cct) << __PRETTY_FUNCTION__ << ":" << __LINE__
+    ldpp_dout(dpp, -1) << __PRETTY_FUNCTION__ << ":" << __LINE__
 	       << " canceled too many times, giving up: tid=" << tid << dendl;
     r = -ECANCELED;
   }
   if (r < 0) {
-    lderr(cct) << __PRETTY_FUNCTION__ << ":" << __LINE__
+    ldpp_dout(dpp, -1) << __PRETTY_FUNCTION__ << ":" << __LINE__
 	       << " failed, r=: " << r << " tid=" << tid << dendl;
   }
   return r;
 }
 
-int FIFO::_prepare_new_part(bool is_head, std::uint64_t tid, optional_yield y)
+int FIFO::_prepare_new_part(const DoutPrefixProvider *dpp, bool is_head, std::uint64_t tid, optional_yield y)
 {
-  ldout(cct, 20) << __PRETTY_FUNCTION__ << ":" << __LINE__
+  ldpp_dout(dpp, 20) << __PRETTY_FUNCTION__ << ":" << __LINE__
 		 << " entering: tid=" << tid << dendl;
   std::unique_lock l(m);
   std::vector jentries = { info.next_journal_entry(generate_tag()) };
   if (info.journal.find(jentries.front().part_num) != info.journal.end()) {
     l.unlock();
-    ldout(cct, 5) << __PRETTY_FUNCTION__ << ":" << __LINE__
+    ldpp_dout(dpp, 5) << __PRETTY_FUNCTION__ << ":" << __LINE__
 		  << " new part journaled, but not processed: tid="
 		  << tid << dendl;
-    auto r = process_journal(tid, y);
+    auto r = process_journal(dpp, tid, y);
     if (r < 0) {
-      lderr(cct) << __PRETTY_FUNCTION__ << ":" << __LINE__
+      ldpp_dout(dpp, -1) << __PRETTY_FUNCTION__ << ":" << __LINE__
 		 << " process_journal failed: r=" << r << " tid=" << tid << dendl;
     }
     return r;
@@ -764,7 +764,7 @@ int FIFO::_prepare_new_part(bool is_head, std::uint64_t tid, optional_yield y)
   auto version = info.version;
 
   if (is_head) {
-    ldout(cct, 20) << __PRETTY_FUNCTION__ << ":" << __LINE__
+    ldpp_dout(dpp, 20) << __PRETTY_FUNCTION__ << ":" << __LINE__
 		   << " needs new head: tid=" << tid << dendl;
     auto new_head_jentry = jentries.front();
     new_head_jentry.op = fifo::journal_entry::Op::set_head;
@@ -777,23 +777,23 @@ int FIFO::_prepare_new_part(bool is_head, std::uint64_t tid, optional_yield y)
   bool canceled = true;
   for (auto i = 0; canceled && i < MAX_RACE_RETRIES; ++i) {
     canceled = false;
-    ldout(cct, 20) << __PRETTY_FUNCTION__ << ":" << __LINE__
+    ldpp_dout(dpp, 20) << __PRETTY_FUNCTION__ << ":" << __LINE__
 		   << " updating metadata: i=" << i << " tid=" << tid << dendl;
     auto u = fifo::update{}.journal_entries_add(jentries);
-    r = _update_meta(u, version, &canceled, tid, y);
+    r = _update_meta(dpp, u, version, &canceled, tid, y);
     if (r >= 0 && canceled) {
       std::unique_lock l(m);
       auto found = (info.journal.find(jentries.front().part_num) !=
 		    info.journal.end());
       if ((info.max_push_part_num >= jentries.front().part_num &&
 	   info.head_part_num >= new_head_part_num)) {
-	ldout(cct, 20) << __PRETTY_FUNCTION__ << ":" << __LINE__
+	ldpp_dout(dpp, 20) << __PRETTY_FUNCTION__ << ":" << __LINE__
 		       << " raced, but journaled and processed: i=" << i
 		       << " tid=" << tid << dendl;
 	return 0;
       }
       if (found) {
-	ldout(cct, 20) << __PRETTY_FUNCTION__ << ":" << __LINE__
+	ldpp_dout(dpp, 20) << __PRETTY_FUNCTION__ << ":" << __LINE__
 		       << " raced, journaled but not processed: i=" << i
 		       << " tid=" << tid << dendl;
 	canceled = false;
@@ -801,28 +801,28 @@ int FIFO::_prepare_new_part(bool is_head, std::uint64_t tid, optional_yield y)
       l.unlock();
     }
     if (r < 0) {
-      lderr(cct) << __PRETTY_FUNCTION__ << ":" << __LINE__
+      ldpp_dout(dpp, -1) << __PRETTY_FUNCTION__ << ":" << __LINE__
 		 << " _update_meta failed: update=" << u << " r=" << r
 		 << " tid=" << tid << dendl;
       return r;
     }
   }
   if (canceled) {
-    lderr(cct) << __PRETTY_FUNCTION__ << ":" << __LINE__
+    ldpp_dout(dpp, -1) << __PRETTY_FUNCTION__ << ":" << __LINE__
 	       << " canceled too many times, giving up: tid=" << tid << dendl;
     return -ECANCELED;
   }
-  r = process_journal(tid, y);
+  r = process_journal(dpp, tid, y);
   if (r < 0) {
-    lderr(cct) << __PRETTY_FUNCTION__ << ":" << __LINE__
+    ldpp_dout(dpp, -1) << __PRETTY_FUNCTION__ << ":" << __LINE__
 	       << " process_journal failed: r=" << r << " tid=" << tid << dendl;
   }
   return r;
 }
 
-int FIFO::_prepare_new_head(std::uint64_t tid, optional_yield y)
+int FIFO::_prepare_new_head(const DoutPrefixProvider *dpp, std::uint64_t tid, optional_yield y)
 {
-  ldout(cct, 20) << __PRETTY_FUNCTION__ << ":" << __LINE__
+  ldpp_dout(dpp, 20) << __PRETTY_FUNCTION__ << ":" << __LINE__
 		 << " entering: tid=" << tid << dendl;
   std::unique_lock l(m);
   std::int64_t new_head_num = info.head_part_num + 1;
@@ -832,18 +832,18 @@ int FIFO::_prepare_new_head(std::uint64_t tid, optional_yield y)
 
   int r = 0;
   if (max_push_part_num < new_head_num) {
-    ldout(cct, 20) << __PRETTY_FUNCTION__ << ":" << __LINE__
+    ldpp_dout(dpp, 20) << __PRETTY_FUNCTION__ << ":" << __LINE__
 		   << " need new part: tid=" << tid << dendl;
-    r = _prepare_new_part(true, tid, y);
+    r = _prepare_new_part(dpp, true, tid, y);
     if (r < 0) {
-      lderr(cct) << __PRETTY_FUNCTION__ << ":" << __LINE__
+      ldpp_dout(dpp, -1) << __PRETTY_FUNCTION__ << ":" << __LINE__
 		 << " _prepare_new_part failed: r=" << r
 		 << " tid=" << tid << dendl;
       return r;
     }
     std::unique_lock l(m);
     if (info.max_push_part_num < new_head_num) {
-      lderr(cct) << __PRETTY_FUNCTION__ << ":" << __LINE__
+      ldpp_dout(dpp, -1) << __PRETTY_FUNCTION__ << ":" << __LINE__
 		 << " inconsistency, push part less than head part: "
 		 << " tid=" << tid << dendl;
       return -EIO;
@@ -854,12 +854,12 @@ int FIFO::_prepare_new_head(std::uint64_t tid, optional_yield y)
 
   bool canceled = true;
   for (auto i = 0; canceled && i < MAX_RACE_RETRIES; ++i) {
-    ldout(cct, 20) << __PRETTY_FUNCTION__ << ":" << __LINE__
+    ldpp_dout(dpp, 20) << __PRETTY_FUNCTION__ << ":" << __LINE__
 		   << " updating head: i=" << i << " tid=" << tid << dendl;
     auto u = fifo::update{}.head_part_num(new_head_num);
-    r = _update_meta(u, version, &canceled, tid, y);
+    r = _update_meta(dpp, u, version, &canceled, tid, y);
     if (r < 0) {
-      lderr(cct) << __PRETTY_FUNCTION__ << ":" << __LINE__
+      ldpp_dout(dpp, -1) << __PRETTY_FUNCTION__ << ":" << __LINE__
 		 << " _update_meta failed: update=" << u << " r=" << r
 		 << " tid=" << tid << dendl;
       return r;
@@ -869,14 +869,14 @@ int FIFO::_prepare_new_head(std::uint64_t tid, optional_yield y)
     version = info.version;
     l.unlock();
     if (canceled && (head_part_num >= new_head_num)) {
-      ldout(cct, 20) << __PRETTY_FUNCTION__ << ":" << __LINE__
+      ldpp_dout(dpp, 20) << __PRETTY_FUNCTION__ << ":" << __LINE__
 		     << " raced, but completed by the other caller: i=" << i
 		     << " tid=" << tid << dendl;
       canceled = false;
     }
   }
   if (canceled) {
-    lderr(cct) << __PRETTY_FUNCTION__ << ":" << __LINE__
+    ldpp_dout(dpp, -1) << __PRETTY_FUNCTION__ << ":" << __LINE__
 	       << " canceled too many times, giving up: tid=" << tid << dendl;
     return -ECANCELED;
   }
@@ -1086,10 +1086,10 @@ void FIFO::_prepare_new_head(std::uint64_t tid, lr::AioCompletion* c)
   }
 }
 
-int FIFO::push_entries(const std::deque<cb::list>& data_bufs,
+int FIFO::push_entries(const DoutPrefixProvider *dpp, const std::deque<cb::list>& data_bufs,
 		       std::uint64_t tid, optional_yield y)
 {
-  ldout(cct, 20) << __PRETTY_FUNCTION__ << ":" << __LINE__
+  ldpp_dout(dpp, 20) << __PRETTY_FUNCTION__ << ":" << __LINE__
 		 << " entering: tid=" << tid << dendl;
   std::unique_lock l(m);
   auto head_part_num = info.head_part_num;
@@ -1097,9 +1097,9 @@ int FIFO::push_entries(const std::deque<cb::list>& data_bufs,
   const auto part_oid = info.part_oid(head_part_num);
   l.unlock();
 
-  auto r = push_part(ioctx, part_oid, tag, data_bufs, tid, y);
+  auto r = push_part(dpp, ioctx, part_oid, tag, data_bufs, tid, y);
   if (r < 0) {
-    lderr(cct) << __PRETTY_FUNCTION__ << ":" << __LINE__
+    ldpp_dout(dpp, -1) << __PRETTY_FUNCTION__ << ":" << __LINE__
 	       << " push_part failed: r=" << r << " tid=" << tid << dendl;
   }
   return r;
@@ -1117,21 +1117,21 @@ void FIFO::push_entries(const std::deque<cb::list>& data_bufs,
   push_part(ioctx, part_oid, tag, data_bufs, tid, c);
 }
 
-int FIFO::trim_part(int64_t part_num, uint64_t ofs,
+int FIFO::trim_part(const DoutPrefixProvider *dpp, int64_t part_num, uint64_t ofs,
 		    std::optional<std::string_view> tag,
 		    bool exclusive, std::uint64_t tid,
 		    optional_yield y)
 {
-  ldout(cct, 20) << __PRETTY_FUNCTION__ << ":" << __LINE__
+  ldpp_dout(dpp, 20) << __PRETTY_FUNCTION__ << ":" << __LINE__
 		 << " entering: tid=" << tid << dendl;
   lr::ObjectWriteOperation op;
   std::unique_lock l(m);
   const auto part_oid = info.part_oid(part_num);
   l.unlock();
   rgw::cls::fifo::trim_part(&op, tag, ofs, exclusive);
-  auto r = rgw_rados_operate(ioctx, part_oid, &op, y);
+  auto r = rgw_rados_operate(dpp, ioctx, part_oid, &op, y);
   if (r < 0) {
-    lderr(cct) << __PRETTY_FUNCTION__ << ":" << __LINE__
+    ldpp_dout(dpp, -1) << __PRETTY_FUNCTION__ << ":" << __LINE__
 	       << " trim_part failed: r=" << r << " tid=" << tid << dendl;
   }
   return 0;
@@ -1153,22 +1153,21 @@ void FIFO::trim_part(int64_t part_num, uint64_t ofs,
   ceph_assert(r >= 0);
 }
 
-int FIFO::open(lr::IoCtx ioctx, std::string oid, std::unique_ptr<FIFO>* fifo,
+int FIFO::open(const DoutPrefixProvider *dpp, lr::IoCtx ioctx, std::string oid, std::unique_ptr<FIFO>* fifo,
 	       optional_yield y, std::optional<fifo::objv> objv,
 	       bool probe)
 {
-  auto cct = static_cast<CephContext*>(ioctx.cct());
-  ldout(cct, 20)
+  ldpp_dout(dpp, 20)
     << __PRETTY_FUNCTION__ << ":" << __LINE__
     << " entering" << dendl;
   fifo::info info;
   std::uint32_t size;
   std::uint32_t over;
-  int r = get_meta(ioctx, std::move(oid), objv, &info, &size, &over, 0, y,
+  int r = get_meta(dpp, ioctx, std::move(oid), objv, &info, &size, &over, 0, y,
 		   probe);
   if (r < 0) {
     if (!(probe && (r == -ENOENT || r == -ENODATA))) {
-      lderr(cct) << __PRETTY_FUNCTION__ << ":" << __LINE__
+      ldpp_dout(dpp, -1) << __PRETTY_FUNCTION__ << ":" << __LINE__
 		 << " get_meta failed: r=" << r << dendl;
     }
     return r;
@@ -1180,12 +1179,12 @@ int FIFO::open(lr::IoCtx ioctx, std::string oid, std::unique_ptr<FIFO>* fifo,
   // If there are journal entries, process them, in case
   // someone crashed mid-transaction.
   if (!info.journal.empty()) {
-    ldout(cct, 20)
+    ldpp_dout(dpp, 20)
       << __PRETTY_FUNCTION__ << ":" << __LINE__
       << " processing leftover journal" << dendl;
-    r = f->process_journal(0, y);
+    r = f->process_journal(dpp, 0, y);
     if (r < 0) {
-      lderr(cct) << __PRETTY_FUNCTION__ << ":" << __LINE__
+      ldpp_dout(dpp, -1) << __PRETTY_FUNCTION__ << ":" << __LINE__
 		 << " process_journal failed: r=" << r << dendl;
       return r;
     }
@@ -1194,39 +1193,38 @@ int FIFO::open(lr::IoCtx ioctx, std::string oid, std::unique_ptr<FIFO>* fifo,
   return 0;
 }
 
-int FIFO::create(lr::IoCtx ioctx, std::string oid, std::unique_ptr<FIFO>* fifo,
+int FIFO::create(const DoutPrefixProvider *dpp, lr::IoCtx ioctx, std::string oid, std::unique_ptr<FIFO>* fifo,
 		 optional_yield y, std::optional<fifo::objv> objv,
 		 std::optional<std::string_view> oid_prefix,
 		 bool exclusive, std::uint64_t max_part_size,
 		 std::uint64_t max_entry_size)
 {
-  auto cct = static_cast<CephContext*>(ioctx.cct());
-  ldout(cct, 20)
+  ldpp_dout(dpp, 20)
     << __PRETTY_FUNCTION__ << ":" << __LINE__
     << " entering" << dendl;
   lr::ObjectWriteOperation op;
   create_meta(&op, oid, objv, oid_prefix, exclusive, max_part_size,
 	      max_entry_size);
-  auto r = rgw_rados_operate(ioctx, oid, &op, y);
+  auto r = rgw_rados_operate(dpp, ioctx, oid, &op, y);
   if (r < 0) {
-    lderr(cct) << __PRETTY_FUNCTION__ << ":" << __LINE__
+    ldpp_dout(dpp, -1) << __PRETTY_FUNCTION__ << ":" << __LINE__
 	       << " create_meta failed: r=" << r << dendl;
     return r;
   }
-  r = open(std::move(ioctx), std::move(oid), fifo, y, objv);
+  r = open(dpp, std::move(ioctx), std::move(oid), fifo, y, objv);
   return r;
 }
 
-int FIFO::read_meta(std::uint64_t tid, optional_yield y) {
-  ldout(cct, 20) << __PRETTY_FUNCTION__ << ":" << __LINE__
+int FIFO::read_meta(const DoutPrefixProvider *dpp, std::uint64_t tid, optional_yield y) {
+  ldpp_dout(dpp, 20) << __PRETTY_FUNCTION__ << ":" << __LINE__
 		 << " entering: tid=" << tid << dendl;
   fifo::info _info;
   std::uint32_t _phs;
   std::uint32_t _peo;
 
-  auto r = get_meta(ioctx, oid, nullopt, &_info, &_phs, &_peo, tid, y);
+  auto r = get_meta(dpp, ioctx, oid, nullopt, &_info, &_phs, &_peo, tid, y);
   if (r < 0) {
-    lderr(cct) << __PRETTY_FUNCTION__ << ":" << __LINE__
+    ldpp_dout(dpp, -1) << __PRETTY_FUNCTION__ << ":" << __LINE__
 	       << " get_meta failed: r=" << r << " tid=" << tid << dendl;
     return r;
   }
@@ -1240,11 +1238,11 @@ int FIFO::read_meta(std::uint64_t tid, optional_yield y) {
   return 0;
 }
 
-int FIFO::read_meta(optional_yield y) {
+int FIFO::read_meta(const DoutPrefixProvider *dpp, optional_yield y) {
   std::unique_lock l(m);
   auto tid = ++next_tid;
   l.unlock();
-  return read_meta(tid, y);
+  return read_meta(dpp, tid, y);
 }
 
 struct Reader : public Completion<Reader> {
@@ -1305,25 +1303,25 @@ std::pair<std::uint32_t, std::uint32_t> FIFO::get_part_layout_info() const {
   return {part_header_size, part_entry_overhead};
 }
 
-int FIFO::push(const cb::list& bl, optional_yield y) {
-  return push(std::vector{ bl }, y);
+int FIFO::push(const DoutPrefixProvider *dpp, const cb::list& bl, optional_yield y) {
+  return push(dpp, std::vector{ bl }, y);
 }
 
 void FIFO::push(const cb::list& bl, lr::AioCompletion* c) {
   push(std::vector{ bl }, c);
 }
 
-int FIFO::push(const std::vector<cb::list>& data_bufs, optional_yield y)
+int FIFO::push(const DoutPrefixProvider *dpp, const std::vector<cb::list>& data_bufs, optional_yield y)
 {
   std::unique_lock l(m);
   auto tid = ++next_tid;
   auto max_entry_size = info.params.max_entry_size;
   auto need_new_head = info.need_new_head();
   l.unlock();
-  ldout(cct, 20) << __PRETTY_FUNCTION__ << ":" << __LINE__
+  ldpp_dout(dpp, 20) << __PRETTY_FUNCTION__ << ":" << __LINE__
 		 << " entering: tid=" << tid << dendl;
   if (data_bufs.empty()) {
-    ldout(cct, 20) << __PRETTY_FUNCTION__ << ":" << __LINE__
+    ldpp_dout(dpp, 20) << __PRETTY_FUNCTION__ << ":" << __LINE__
 		   << " empty push, returning success tid=" << tid << dendl;
     return 0;
   }
@@ -1331,7 +1329,7 @@ int FIFO::push(const std::vector<cb::list>& data_bufs, optional_yield y)
   // Validate sizes
   for (const auto& bl : data_bufs) {
     if (bl.length() > max_entry_size) {
-      lderr(cct) << __PRETTY_FUNCTION__ << ":" << __LINE__
+      ldpp_dout(dpp, -1) << __PRETTY_FUNCTION__ << ":" << __LINE__
 		 << " entry bigger than max_entry_size tid=" << tid << dendl;
       return -E2BIG;
     }
@@ -1339,11 +1337,11 @@ int FIFO::push(const std::vector<cb::list>& data_bufs, optional_yield y)
 
   int r = 0;
   if (need_new_head) {
-    ldout(cct, 20) << __PRETTY_FUNCTION__ << ":" << __LINE__
+    ldpp_dout(dpp, 20) << __PRETTY_FUNCTION__ << ":" << __LINE__
 		   << " need new head tid=" << tid << dendl;
-    r = _prepare_new_head(tid, y);
+    r = _prepare_new_head(dpp, tid, y);
     if (r < 0) {
-      lderr(cct) << __PRETTY_FUNCTION__ << ":" << __LINE__
+      ldpp_dout(dpp, -1) << __PRETTY_FUNCTION__ << ":" << __LINE__
 		 << " _prepare_new_head failed: r=" << r
 		 << " tid=" << tid << dendl;
       return r;
@@ -1358,7 +1356,7 @@ int FIFO::push(const std::vector<cb::list>& data_bufs, optional_yield y)
   bool canceled = true;
   while ((!remaining.empty() || !batch.empty()) &&
 	 (retries <= MAX_RACE_RETRIES)) {
-    ldout(cct, 20) << __PRETTY_FUNCTION__ << ":" << __LINE__
+    ldpp_dout(dpp, 20) << __PRETTY_FUNCTION__ << ":" << __LINE__
 		   << " preparing push: remaining=" << remaining.size()
 		   << " batch=" << batch.size() << " retries=" << retries
 		   << " tid=" << tid << dendl;
@@ -1377,21 +1375,21 @@ int FIFO::push(const std::vector<cb::list>& data_bufs, optional_yield y)
       batch.push_back(std::move(remaining.front()));
       remaining.pop_front();
     }
-    ldout(cct, 20) << __PRETTY_FUNCTION__ << ":" << __LINE__
+    ldpp_dout(dpp, 20) << __PRETTY_FUNCTION__ << ":" << __LINE__
 		   << " prepared push: remaining=" << remaining.size()
 		   << " batch=" << batch.size() << " retries=" << retries
 		   << " batch_len=" << batch_len
 		   << " tid=" << tid << dendl;
 
-    auto r = push_entries(batch, tid, y);
+    auto r = push_entries(dpp, batch, tid, y);
     if (r == -ERANGE) {
       canceled = true;
       ++retries;
-      ldout(cct, 20) << __PRETTY_FUNCTION__ << ":" << __LINE__
+      ldpp_dout(dpp, 20) << __PRETTY_FUNCTION__ << ":" << __LINE__
 		     << " need new head tid=" << tid << dendl;
-      r = _prepare_new_head(tid, y);
+      r = _prepare_new_head(dpp, tid, y);
       if (r < 0) {
-	lderr(cct) << __PRETTY_FUNCTION__ << ":" << __LINE__
+	ldpp_dout(dpp, -1) << __PRETTY_FUNCTION__ << ":" << __LINE__
 		   << " prepare_new_head failed: r=" << r
 		   << " tid=" << tid << dendl;
 	return r;
@@ -1400,7 +1398,7 @@ int FIFO::push(const std::vector<cb::list>& data_bufs, optional_yield y)
       continue;
     }
     if (r < 0) {
-      lderr(cct) << __PRETTY_FUNCTION__ << ":" << __LINE__
+      ldpp_dout(dpp, -1) << __PRETTY_FUNCTION__ << ":" << __LINE__
 		 << " push_entries failed: r=" << r
 		 << " tid=" << tid << dendl;
       return r;
@@ -1419,7 +1417,7 @@ int FIFO::push(const std::vector<cb::list>& data_bufs, optional_yield y)
     }
   }
   if (canceled) {
-    lderr(cct) << __PRETTY_FUNCTION__ << ":" << __LINE__
+    ldpp_dout(dpp, -1) << __PRETTY_FUNCTION__ << ":" << __LINE__
 	       << " canceled too many times, giving up: tid=" << tid << dendl;
     return -ECANCELED;
   }
@@ -1618,7 +1616,7 @@ int FIFO::list(int max_entries,
   std::vector<fifo::part_list_entry> entries;
   int r = 0;
   while (max_entries > 0) {
-    ldout(cct, 20) << __PRETTY_FUNCTION__ << ":" << __LINE__
+    ldpp_dout(dpp, 20) << __PRETTY_FUNCTION__ << ":" << __LINE__
 		   << " max_entries=" << max_entries << " tid=" << tid << dendl;
     bool part_more = false;
     bool part_full = false;
@@ -1627,22 +1625,22 @@ int FIFO::list(int max_entries,
     auto part_oid = info.part_oid(part_num);
     l.unlock();
 
-    r = list_part(ioctx, part_oid, {}, ofs, max_entries, &entries,
+    r = list_part(dpp, ioctx, part_oid, {}, ofs, max_entries, &entries,
 		  &part_more, &part_full, nullptr, tid, y);
     if (r == -ENOENT) {
-      ldout(cct, 20) << __PRETTY_FUNCTION__ << ":" << __LINE__
+      ldpp_dout(dpp, 20) << __PRETTY_FUNCTION__ << ":" << __LINE__
 		     << " missing part, rereading metadata"
 		     << " tid= "<< tid << dendl;
-      r = read_meta(tid, y);
+      r = read_meta(dpp, tid, y);
       if (r < 0) {
-	lderr(cct) << __PRETTY_FUNCTION__ << ":" << __LINE__
+	ldpp_dout(dpp, -1) << __PRETTY_FUNCTION__ << ":" << __LINE__
 		   << " read_meta failed: r=" << r
 		   << " tid= "<< tid << dendl;
 	return r;
       }
       if (part_num < info.tail_part_num) {
 	/* raced with trim? restart */
-	ldout(cct, 20) << __PRETTY_FUNCTION__ << ":" << __LINE__
+	ldpp_dout(dpp, 20) << __PRETTY_FUNCTION__ << ":" << __LINE__
 		       << " raced with trim, restarting: tid=" << tid << dendl;
 	max_entries += result.size();
 	result.clear();
@@ -1652,7 +1650,7 @@ int FIFO::list(int max_entries,
 	ofs = 0;
 	continue;
       }
-      ldout(cct, 20) << __PRETTY_FUNCTION__ << ":" << __LINE__
+      ldpp_dout(dpp, 20) << __PRETTY_FUNCTION__ << ":" << __LINE__
 		     << " assuming part was not written yet, so end of data: "
 		     << "tid=" << tid << dendl;
       more = false;
@@ -1660,7 +1658,7 @@ int FIFO::list(int max_entries,
       break;
     }
     if (r < 0) {
-      lderr(cct) << __PRETTY_FUNCTION__ << ":" << __LINE__
+      ldpp_dout(dpp, -1) << __PRETTY_FUNCTION__ << ":" << __LINE__
 		 << " list_entries failed: r=" << r
 		 << " tid= "<< tid << dendl;
       return r;
@@ -1682,7 +1680,7 @@ int FIFO::list(int max_entries,
     }
 
     if (!part_full) {
-      ldout(cct, 20) << __PRETTY_FUNCTION__ << ":" << __LINE__
+      ldpp_dout(dpp, 20) << __PRETTY_FUNCTION__ << ":" << __LINE__
 		     << " head part is not full, so we can assume we're done: "
 		     << "tid=" << tid << dendl;
       break;
@@ -1699,7 +1697,7 @@ int FIFO::list(int max_entries,
   return 0;
 }
 
-int FIFO::trim(std::string_view markstr, bool exclusive, optional_yield y)
+int FIFO::trim(const DoutPrefixProvider *dpp, std::string_view markstr, bool exclusive, optional_yield y)
 {
   bool overshoot = false;
   auto marker = to_marker(markstr);
@@ -1731,27 +1729,27 @@ int FIFO::trim(std::string_view markstr, bool exclusive, optional_yield y)
   }
   auto pn = info.tail_part_num;
   l.unlock();
-  ldout(cct, 20) << __PRETTY_FUNCTION__ << ":" << __LINE__
+  ldpp_dout(dpp, 20) << __PRETTY_FUNCTION__ << ":" << __LINE__
 		 << " entering: tid=" << tid << dendl;
 
   int r = 0;
   while (pn < part_num) {
-    ldout(cct, 20) << __PRETTY_FUNCTION__ << ":" << __LINE__
+    ldpp_dout(dpp, 20) << __PRETTY_FUNCTION__ << ":" << __LINE__
 		   << " pn=" << pn << " tid=" << tid << dendl;
     std::unique_lock l(m);
     l.unlock();
-    r = trim_part(pn, max_part_size, std::nullopt, false, tid, y);
+    r = trim_part(dpp, pn, max_part_size, std::nullopt, false, tid, y);
     if (r < 0 && r == -ENOENT) {
-      lderr(cct) << __PRETTY_FUNCTION__ << ":" << __LINE__
+      ldpp_dout(dpp, -1) << __PRETTY_FUNCTION__ << ":" << __LINE__
 		 << " trim_part failed: r=" << r
 		 << " tid= "<< tid << dendl;
       return r;
     }
     ++pn;
   }
-  r = trim_part(part_num, ofs, std::nullopt, exclusive, tid, y);
+  r = trim_part(dpp, part_num, ofs, std::nullopt, exclusive, tid, y);
   if (r < 0 && r != -ENOENT) {
-    lderr(cct) << __PRETTY_FUNCTION__ << ":" << __LINE__
+    ldpp_dout(dpp, -1) << __PRETTY_FUNCTION__ << ":" << __LINE__
 	       << " trim_part failed: r=" << r
 	       << " tid= "<< tid << dendl;
     return r;
@@ -1766,16 +1764,16 @@ int FIFO::trim(std::string_view markstr, bool exclusive, optional_yield y)
   while ((tail_part_num < part_num) &&
 	 canceled &&
 	 (retries <= MAX_RACE_RETRIES)) {
-    r = _update_meta(fifo::update{}.tail_part_num(part_num), objv, &canceled,
+    r = _update_meta(dpp, fifo::update{}.tail_part_num(part_num), objv, &canceled,
 		     tid, y);
     if (r < 0) {
-      lderr(cct) << __PRETTY_FUNCTION__ << ":" << __LINE__
+      ldpp_dout(dpp, -1) << __PRETTY_FUNCTION__ << ":" << __LINE__
 		 << " _update_meta failed: r=" << r
 		 << " tid= "<< tid << dendl;
       return r;
     }
     if (canceled) {
-      ldout(cct, 20) << __PRETTY_FUNCTION__ << ":" << __LINE__
+      ldpp_dout(dpp, 20) << __PRETTY_FUNCTION__ << ":" << __LINE__
 		     << " canceled: retries=" << retries
 		     << " tid=" << tid << dendl;
       l.lock();
@@ -1786,7 +1784,7 @@ int FIFO::trim(std::string_view markstr, bool exclusive, optional_yield y)
     }
   }
   if (canceled) {
-    lderr(cct) << __PRETTY_FUNCTION__ << ":" << __LINE__
+    ldpp_dout(dpp, -1) << __PRETTY_FUNCTION__ << ":" << __LINE__
 	       << " canceled too many times, giving up: tid=" << tid << dendl;
     return -EIO;
   }
@@ -1952,7 +1950,7 @@ void FIFO::trim(std::string_view markstr, bool exclusive,
 	    tid, Trimmer::call(std::move(trimmer)));
 }
 
-int FIFO::get_part_info(int64_t part_num,
+int FIFO::get_part_info(const DoutPrefixProvider *dpp, int64_t part_num,
 			fifo::part_header* header,
 			optional_yield y)
 {
@@ -1960,9 +1958,9 @@ int FIFO::get_part_info(int64_t part_num,
   const auto part_oid = info.part_oid(part_num);
   auto tid = ++next_tid;
   l.unlock();
-  auto r = rgw::cls::fifo::get_part_info(ioctx, part_oid, header, tid, y);
+  auto r = rgw::cls::fifo::get_part_info(dpp, ioctx, part_oid, header, tid, y);
   if (r < 0) {
-    lderr(cct) << __PRETTY_FUNCTION__ << ":" << __LINE__
+    ldpp_dout(dpp, -1) << __PRETTY_FUNCTION__ << ":" << __LINE__
 	       << " get_part_info failed: r="
 	       << r << " tid=" << tid << dendl;
   }

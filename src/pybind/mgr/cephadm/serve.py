@@ -434,15 +434,6 @@ class CephadmServe:
 
         return r
 
-    def _config_fn(self, service_type: str) -> Optional[Callable[[ServiceSpec], None]]:
-        fn = {
-            'mds': self.mgr.mds_service.config,
-            'rgw': self.mgr.rgw_service.config,
-            'nfs': self.mgr.nfs_service.config,
-            'iscsi': self.mgr.iscsi_service.config,
-        }.get(service_type)
-        return cast(Callable[[ServiceSpec], None], fn)
-
     def _apply_service(self, spec: ServiceSpec) -> bool:
         """
         Schedule a service.  Deploy new daemons or remove old ones, depending
@@ -459,8 +450,6 @@ class CephadmServe:
             self.log.debug('Skipping preview_only service %s' % service_name)
             return False
         self.log.debug('Applying service %s spec' % service_name)
-
-        config_func = self._config_fn(service_type)
 
         if service_type == 'osd':
             self.mgr.osd_service.create_from_spec(cast(DriveGroupSpec, spec))
@@ -543,12 +532,8 @@ class CephadmServe:
                                                      prefix=spec.service_id,
                                                      forcename=name)
 
-                if not did_config and config_func:
-                    if daemon_type == 'rgw':
-                        rgw_config_func = cast(Callable[[RGWSpec, str], None], config_func)
-                        rgw_config_func(cast(RGWSpec, spec), daemon_id)
-                    else:
-                        config_func(spec)
+                if not did_config:
+                    self.mgr.cephadm_services[service_type].config(spec, daemon_id)
                     did_config = True
 
                 daemon_spec = self.mgr.cephadm_services[service_type].make_daemon_spec(

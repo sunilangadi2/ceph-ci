@@ -9,6 +9,8 @@ roles:
   - client.0
   - node-exporter.a
   - alertmanager.a
+  - mds.a
+  - mds.b
 - - mon.b
   - mgr.x
   - osd.4
@@ -19,6 +21,9 @@ roles:
   - prometheus.a
   - grafana.a
   - node-exporter.b
+  - mds.c
+  - mds.d
+  - mds.e
 openstack:
 - volumes: # attached to each instance
     count: 4

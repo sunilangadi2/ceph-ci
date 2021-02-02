@@ -14,7 +14,6 @@
 #include <signal.h>
 #include "include/Context.h"
 #include "include/lru.h"
-#include "rgw_threadpool.h"
 #include "rgw_d3n_cacherequest.h"
 
 

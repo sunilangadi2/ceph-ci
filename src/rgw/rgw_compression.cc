@@ -147,7 +147,7 @@ int RGWGetObj_Decompress::handle_data(bufferlist& bl, off_t bl_ofs, off_t bl_len
       q_len -= ch_len;
       r = next->handle_data(out_bl, q_ofs, ch_len);
       if (r < 0) {
-        lderr(cct) << "handle_data failed with exit code " << r << dendl;
+        lsubdout(cct, rgw, 0) << "handle_data failed with exit code " << r << dendl;
         return r;
       }
       out_bl.splice(0, q_ofs + ch_len);
@@ -160,7 +160,7 @@ int RGWGetObj_Decompress::handle_data(bufferlist& bl, off_t bl_ofs, off_t bl_len
   if (ch_len > 0) {
     r = next->handle_data(out_bl, q_ofs, ch_len);
     if (r < 0) {
-      lderr(cct) << "handle_data failed with exit code " << r << dendl;
+      lsubdout(cct, rgw, 0) << "handle_data failed with exit code " << r << dendl;
       return r;
     }
     out_bl.splice(0, q_ofs + ch_len);

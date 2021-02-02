@@ -57,7 +57,9 @@ ReplicatedBackend::_submit_transaction(std::set<pg_shard_t>&& pg_shards,
   const ceph_tid_t tid = next_txn_id++;
   auto req_id = osd_op_p.req->get_reqid();
   auto pending_txn =
-    pending_trans.emplace(tid, pg_shards.size()).first;
+    pending_trans.emplace(std::piecewise_construct,
+			  std::forward_as_tuple(tid),
+			  std::forward_as_tuple(pg_shards.size(), osd_op_p.at_version)).first;
   bufferlist encoded_txn;
   encode(txn, encoded_txn);
 
@@ -142,4 +144,36 @@ seastar::future<> ReplicatedBackend::stop()
   }
   pending_trans.clear();
   return seastar::now();
+}
+
+PGBackend::interruptible_future<bool>
+ReplicatedBackend::already_complete(const osd_reqid_t& reqid,
+				    const eversion_t& at_version)
+{
+  auto iter = pending_trans.begin();
+  if (iter == pending_trans.end()) {
+    return seastar::make_ready_future<bool>(true);
+  }
+  auto& pending_txn = iter->second;
+  if (pending_txn.at_version > at_version) {
+    return seastar::make_ready_future<bool>(true);
+  }
+  for (; iter->second.at_version < at_version; iter++);
+  // As for now, the previous client_request with the same reqid
+  // mustn't have finished, as that would mean later client_requests
+  // has finished before earlier ones.
+  //
+  // The following line of code should be "assert(pending_txn.at_version == at_version)",
+  // as there can be only one transaction at any time in pending_trans due to
+  // PG::client_request_pg_pipeline. But there's a high possibility that we will
+  // improve the parallelism here in the future, so we loosed the restriction.
+  // Correct me if I'm wrong:-)
+  assert(iter != pending_trans.end() && iter->second.at_version == at_version);
+  if (iter->second.pending) {
+    return iter->second.all_committed.get_future().then([] {
+	  return seastar::make_ready_future<bool>(true);
+	});
+  } else {
+    return seastar::make_ready_future<bool>(true);
+  }
 }

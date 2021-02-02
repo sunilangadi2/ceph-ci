@@ -42,13 +42,17 @@ private:
   ceph_tid_t next_txn_id = 0;
   class pending_on_t : public seastar::weakly_referencable<pending_on_t> {
   public:
-    pending_on_t(size_t pending)
-      : pending{static_cast<unsigned>(pending)}
+    pending_on_t(size_t pending, const eversion_t& at_version)
+      : pending{static_cast<unsigned>(pending)}, at_version(at_version)
     {}
     unsigned pending;
+    const eversion_t at_version;
     crimson::osd::acked_peers_t acked_peers;
     seastar::promise<> all_committed;
   };
   using pending_transactions_t = std::map<ceph_tid_t, pending_on_t>;
   pending_transactions_t pending_trans;
+
+  interruptible_future<bool> already_complete(
+    const osd_reqid_t& reqid, const eversion_t& at_version) final;
 };

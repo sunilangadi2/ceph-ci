@@ -1,5 +1,5 @@
-// -*- mode:C++; tab-width:8; c-basic-offset:2; indent-tabs-mode:t -*-
-// vim: ts=8 sw=2 smarttab
+// -*- mode:C++; tab-width:8; c-basic-offset:2; indent-tabs-mode:nil -*-
+// vim: ts=8 sw=2 smarttab expandtab
 
 #include <seastar/core/future.hh>
 
@@ -172,38 +172,54 @@ ClientRequest::process_op(
     }
     return seastar::now();
   }).then_interruptible([this, &pg] {
-    return with_blocking_future(handle.enter(pp(pg).get_obc));
-  }).then_interruptible([this, &pg]() -> PG::interruptible_load_obc_ertr::future<> {
-    logger().debug("{} to do ops", *this);
-    op_info.set_from_op(&*m, *pg.get_osdmap());
-    return pg.with_locked_obc(m, op_info, this, [this, &pg](auto obc) {
-      logger().debug("{}: got obc lock", *this);
-      return with_blocking_future_interruptible<IOInterruptCondition>(
-        handle.enter(pp(pg).process)
-      ).then_interruptible([this, &pg, obc]()
-	-> interruptible_future<Ref<MOSDOpReply>> {
-        if (!pg.is_primary()) {
-           // primary can handle both normal ops and balanced reads
-          if (is_misdirected(pg)) {
-            logger().trace("process_op: dropping misdirected op");
-            return seastar::make_ready_future<Ref<MOSDOpReply>>();
-          } else if (const hobject_t& hoid = m->get_hobj();
-                     !pg.get_peering_state().can_serve_replica_read(hoid)) {
-            auto reply = make_message<MOSDOpReply>(
-              m.get(), -EAGAIN, pg.get_osdmap_epoch(),
-              m->get_flags() & (CEPH_OSD_FLAG_ACK|CEPH_OSD_FLAG_ONDISK),
-              !m->has_flag(CEPH_OSD_FLAG_RETURNVEC));
-            return seastar::make_ready_future<Ref<MOSDOpReply>>(std::move(reply));
-          }
-        }
-        return pg.do_osd_ops(m, obc, op_info);
-      }).then_interruptible([this](Ref<MOSDOpReply> reply) {
-        if (reply) {
-          return conn->send(std::move(reply));
-        } else {
-          return seastar::now();
-        }
-      });
+    return pg.already_complete(m->get_reqid()).then_unpack_interruptible(
+      [this, &pg](bool completed, int ret)
+      -> PG::interruptible_load_obc_ertr::future<> {
+      if (completed) {
+	auto reply = make_message<MOSDOpReply>(m.get(),
+					       ret,
+					       pg.get_osdmap_epoch(),
+					       0,
+					       false);
+	reply->add_flags(CEPH_OSD_FLAG_ACK | CEPH_OSD_FLAG_ONDISK);
+	return conn->send(std::move(reply));
+      } else {
+	return with_blocking_future_interruptible<IOInterruptCondition>(
+          handle.enter(pp(pg).get_obc)).then_interruptible(
+          [this, &pg]() -> PG::interruptible_load_obc_ertr::future<> {
+	  logger().debug("{} to do ops", *this);
+	  op_info.set_from_op(&*m, *pg.get_osdmap());
+	  return pg.with_locked_obc(m, op_info, this, [this, &pg](auto obc) {
+	    logger().debug("{}: got obc lock", *this);
+	    return with_blocking_future_interruptible<IOInterruptCondition>(
+	      handle.enter(pp(pg).process)
+	    ).then_interruptible([this, &pg, obc]()
+	      -> interruptible_future<Ref<MOSDOpReply>> {
+	      if (!pg.is_primary()) {
+		// primary can handle both normal ops and balanced reads
+		if (is_misdirected(pg)) {
+		  logger().trace("process_op: dropping misdirected op");
+		  return seastar::make_ready_future<Ref<MOSDOpReply>>();
+		} else if (const hobject_t& hoid = m->get_hobj();
+			   !pg.get_peering_state().can_serve_replica_read(hoid)) {
+		  auto reply = make_message<MOSDOpReply>(
+		    m.get(), -EAGAIN, pg.get_osdmap_epoch(),
+		    m->get_flags() & (CEPH_OSD_FLAG_ACK|CEPH_OSD_FLAG_ONDISK),
+		    !m->has_flag(CEPH_OSD_FLAG_RETURNVEC));
+		  return seastar::make_ready_future<Ref<MOSDOpReply>>(std::move(reply));
+		}
+	      }
+	      return pg.do_osd_ops(m, obc, op_info);
+	    }).then_interruptible([this](Ref<MOSDOpReply> reply) {
+	      if (reply) {
+		return conn->send(std::move(reply));
+	      } else {
+		return seastar::now();
+	      }
+	    });
+	  });
+	});
+      }
     });
   }).safe_then_interruptible([pgref=std::move(pgref)] {
     return seastar::now();

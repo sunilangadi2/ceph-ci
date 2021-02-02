@@ -33,4 +33,8 @@ private:
 		      std::vector<pg_log_entry_t>&& log_entries) final;
   CollectionRef coll;
   crimson::os::FuturizedStore* store;
+  interruptible_future<bool> already_complete(const osd_reqid_t& reqid,
+					      const eversion_t& version) final {
+    return seastar::make_ready_future<bool>(false);
+  }
 };

@@ -1,5 +1,5 @@
-// -*- mode:C++; tab-width:8; c-basic-offset:2; indent-tabs-mode:t -*-
-// vim: ts=8 sw=2 smarttab
+// -*- mode:C++; tab-width:8; c-basic-offset:2; indent-tabs-mode:nil -*-
+// vim: ts=8 sw=2 smarttab expandtab
 
 #include "pg.h"
 
@@ -1110,6 +1110,24 @@ bool PG::is_degraded_or_backfilling_object(const hobject_t& soid) const {
     }
   }
   return false;
+}
+
+PG::interruptible_future<std::tuple<bool, int>>
+PG::already_complete(const osd_reqid_t& reqid) {
+  eversion_t version;
+  version_t user_version;
+  int ret;
+  std::vector<pg_log_op_return_item_t> op_returns;
+
+  if (!peering_state.get_pg_log().get_log().get_request(
+	reqid, &version, &user_version, &ret, &op_returns)) {
+    return seastar::make_ready_future<std::tuple<bool, int>>(false, 0);
+  } else {
+    return backend->already_complete(reqid, version).then_interruptible(
+      [ret](bool completed) {
+      return seastar::make_ready_future<std::tuple<bool, int>>(completed, ret);
+    });
+  }
 }
 
 }

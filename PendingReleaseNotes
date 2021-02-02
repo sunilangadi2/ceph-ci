@@ -73,6 +73,9 @@
   ``immutable_object_cache_watermark`` is now ``0.9``. If the capacity reaches 
   90% the daemon will delete cold cache.
 
+* Scubs are more aggressive in trying to find more simultaneous possible PGs within osd_max_scrubs limitation.
+  It is possible that increasing osd_scrub_sleep may be necessary to maintain client responsiveness.
+
 >=15.0.0
 --------
 

@@ -25,7 +25,6 @@ class D3nCacheRequest {
     off_t len;
     std::string key;
     off_t read_ofs;
-    CephContext* cct;
     rgw::AioResult* r = nullptr;
     rgw::Aio* aio = nullptr;
     D3nCacheRequest() : sequence(0), pbl(nullptr), ofs(0), len(0), read_ofs(0) {};

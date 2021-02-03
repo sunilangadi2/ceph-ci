@@ -6340,16 +6340,16 @@ string get_obj_data::d3n_get_pending_oid()
   return str;
 }
 
-static int _get_obj_iterate_cb(const rgw_raw_obj& read_obj, off_t obj_ofs,
+static int _get_obj_iterate_cb(const DoutPrefixProvider *dpp, const rgw_raw_obj& read_obj, off_t obj_ofs,
                                off_t read_ofs, off_t len, bool is_head_obj,
                                RGWObjState *astate, void *arg)
 {
   struct get_obj_data* d = static_cast<struct get_obj_data*>(arg);
-  return d->store->get_obj_iterate_cb(read_obj, obj_ofs, read_ofs, len,
+  return d->store->get_obj_iterate_cb(dpp, read_obj, obj_ofs, read_ofs, len,
                                       is_head_obj, astate, arg);
 }
 
-int RGWRados::flush_read_list(struct get_obj_data* d)
+int RGWRados::flush_read_list(const DoutPrefixProvider *dpp, struct get_obj_data* d)
 {
   lsubdout(g_ceph_context, rgw_datacache, 20) << "D3nDataCache: " << __func__ << "()" << dendl;
   d->d3n_datacache_lock.lock();
@@ -6374,8 +6374,7 @@ int RGWRados::flush_read_list(struct get_obj_data* d)
 }
 
 
-
-int RGWRados::get_obj_iterate_cb(const rgw_raw_obj& read_obj, off_t obj_ofs,
+int RGWRados::get_obj_iterate_cb(const DoutPrefixProvider *dpp, const rgw_raw_obj& read_obj, off_t obj_ofs,
                                  off_t read_ofs, off_t len, bool is_head_obj,
                                  RGWObjState *astate, void *arg)
 {
@@ -6413,7 +6412,7 @@ int RGWRados::get_obj_iterate_cb(const rgw_raw_obj& read_obj, off_t obj_ofs,
     return r;
   }
 
-  ldout(cct, 20) << "rados->get_obj_iterate_cb oid=" << read_obj.oid << " obj-ofs=" << obj_ofs << " read_ofs=" << read_ofs << " len=" << len << dendl;
+  ldpp_dout(dpp, 20) << "rados->get_obj_iterate_cb oid=" << read_obj.oid << " obj-ofs=" << obj_ofs << " read_ofs=" << read_ofs << " len=" << len << dendl;
   op.read(read_ofs, len, nullptr, nullptr);
 
   const uint64_t cost = len;
@@ -6447,7 +6446,7 @@ int RGWRados::Object::Read::iterate(const DoutPrefixProvider *dpp, int64_t ofs, 
   r = data.drain();
   if( cct->_conf->rgw_d3n_l1_local_datacache_enabled ) {
     ldpp_dout(dpp, 20) << "D3nDataCache: " << __func__ << "(): flush read list" << dendl;
-    r = store->flush_read_list(&data);
+    r = store->flush_read_list(dpp, &data);
     if (r < 0)
       return r;
     return 0;
@@ -6506,7 +6505,7 @@ int RGWRados::iterate_obj(const DoutPrefixProvider *dpp, RGWObjectCtx& obj_ctx,
 
         // Check if we have a head object or tail object
         reading_from_head = (read_obj == head_obj);
-        r = cb(read_obj, ofs, read_ofs, read_len, reading_from_head, astate, arg);
+        r = cb(dpp, read_obj, ofs, read_ofs, read_len, reading_from_head, astate, arg);
 	if (r < 0) {
 	  return r;
         }
@@ -6519,7 +6518,7 @@ int RGWRados::iterate_obj(const DoutPrefixProvider *dpp, RGWObjectCtx& obj_ctx,
       read_obj = head_obj;
       uint64_t read_len = std::min(len, max_chunk_size);
 
-      r = cb(read_obj, ofs, ofs, read_len, reading_from_head, astate, arg);
+      r = cb(dpp, read_obj, ofs, ofs, read_len, reading_from_head, astate, arg);
       if (r < 0) {
 	return r;
       }

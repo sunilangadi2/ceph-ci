@@ -1099,7 +1099,13 @@ Usage:
                 specs.append(spec)
         else:
             placementspec = PlacementSpec.from_string(placement)
-            assert service_type
+            try:
+                assert service_type
+            except:
+                out = ("Improper use of 'ceph orch apply'. No valid service type provided.\n"
+                       + usage + 'where <service_type> must be: '
+                       + '|'.join(list(map(lambda service: service.value, ServiceType))))
+                raise OrchestratorValidationError(out)
             specs = [ServiceSpec(service_type.value, placement=placementspec,
                                  unmanaged=unmanaged, preview_only=dry_run)]
 

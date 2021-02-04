@@ -508,17 +508,20 @@ int main(int argc, char **argv)
   common_init_finish(cct.get());
   
   if( action == "allocmap" ) {
+#ifndef CEPH_BLUESTORE_TOOL_RESTORE_ALLOCATION
+    cerr << action << " bluestore.allocmap is not supported!!! " << std::endl;
+    exit(EXIT_FAILURE);
+#endif
     cout << action << " bluestore.allocmap" << std::endl;
     validate_path(cct.get(), path, false);
     BlueStore bluestore(cct.get(), path);
-    int r = bluestore.read_allocation_from_drive();
-    cout << action << " bluestore.allocmap ret_code=" << r << std::endl;
+    int r = bluestore.read_allocation_from_drive_for_bluestore_tool();
     if (r < 0) {
       cerr << action << " failed: " << cpp_strerror(r) << std::endl;
       exit(EXIT_FAILURE);
     } else {
       cout << action << " success" << std::endl;
-    }    
+    }
   }
   else if (action == "fsck" ||
       action == "repair" ||

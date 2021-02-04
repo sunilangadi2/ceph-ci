@@ -12,9 +12,10 @@
 #include "bluestore_types.h"
 
 class FreelistManager {
+  bool         null_manager = false;
 public:
   CephContext* cct;
-  FreelistManager(CephContext* cct) : cct(cct) {}
+  FreelistManager(CephContext* cct) : null_manager(false), cct(cct) {}
   virtual ~FreelistManager() {}
 
   static FreelistManager *create(
@@ -50,6 +51,16 @@ public:
 
   virtual void get_meta(uint64_t target_size,
     std::vector<std::pair<string, string>>*) const = 0;
+
+  void set_null_manager() {
+    null_manager = true;
+  }
+  bool is_null_manager() {
+    return null_manager == true;
+  }
+  virtual std::vector<zone_state_t> get_zone_states(KeyValueDB *kvdb) const {
+    return {};
+  }
 };
 
 

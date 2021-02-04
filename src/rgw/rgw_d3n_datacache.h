@@ -300,15 +300,27 @@ int D3nRGWDataCache<T>::get_obj_iterate_cb(const DoutPrefixProvider *dpp, const 
       return r;
     }
 
-    if (read_ofs != 0 || astate->size != astate->accounted_size) {
-      lsubdout(g_ceph_context, rgw, 5) << "D3nDataCache: " << __func__ << "(): bypassing cache: oid=" << read_obj.oid << ", read_ofs!=0 = " << read_ofs << ", size=" << astate->size << " != accounted_size=" << astate->accounted_size << dendl;
+    const bool is_compressed = (astate->attrset.find(RGW_ATTR_COMPRESSION) != astate->attrset.end());
+    const bool is_encrypted = (astate->attrset.find(RGW_ATTR_CRYPT_MODE) != astate->attrset.end());
+    bool is_versioned = false;
+    RGWBucketInfo bucket_info;
+    RGWSysObjectCtx obj_ctx = d->store->svc.sysobj->init_obj_ctx();
+    r = d->store->get_bucket_instance_info(obj_ctx, astate->obj.bucket, bucket_info, NULL, NULL, null_yield, dpp);
+    if (r < 0) {
+      lsubdout(g_ceph_context, rgw, 0) << "D3nDataCache: Warning: " << __func__ << "(): failed to initialize Bucket Info, obj=" << obj << " r=" << r << dendl;
+    } else {
+      is_versioned = bucket_info.versioned();
+    }
+    if (read_ofs != 0 || astate->size != astate->accounted_size || is_compressed || is_encrypted || is_versioned) {
+      lsubdout(g_ceph_context, rgw, 5) << "D3nDataCache: " << __func__ << "(): bypassing read from cache: oid=" << read_obj.oid << ", read_ofs!=0 = " << read_ofs << ", size=" << astate->size << " != accounted_size=" << astate->accounted_size << ", is_compressed=" << is_compressed << ", is_encrypted=" << is_encrypted  << ", is_versioned=" << is_versioned << dendl;
       auto completed = d->aio->get(obj, rgw::Aio::librados_op(std::move(op), d->yield), cost, id);
-      return d->flush(std::move(completed));
+      r = d->flush(std::move(completed));
+      return r;
     }
 
     if (d3n_data_cache.get(oid)) {
       // Read From Cache
-      lsubdout(g_ceph_context, rgw_datacache, 10) << "D3nDataCache: " << __func__ << "(): Read From Cache starting, oid=" << read_obj.oid << ", obj-ofs=" << obj_ofs << ", read_ofs=" << read_ofs << ", len=" << len << dendl;
+      ldpp_dout(dpp, 20) << "D3nDataCache: " << __func__ << "(): Read From Cache starting, oid=" << read_obj.oid << ", obj-ofs=" << obj_ofs << ", read_ofs=" << read_ofs << ", len=" << len << dendl;
       auto completed = d->aio->get(obj, rgw::Aio::cache_op(std::move(op), d->yield, obj_ofs, read_ofs, len, g_conf()->rgw_d3n_l1_datacache_persistent_path), cost, id);
       if (g_conf()->rgw_d3n_l1_libaio_read) {
         r = d->drain();
@@ -321,12 +333,12 @@ int D3nRGWDataCache<T>::get_obj_iterate_cb(const DoutPrefixProvider *dpp, const 
       return r;
     } else {
       // Write To Cache
-      lsubdout(g_ceph_context, rgw_datacache, 10) << "D3nDataCache: " << __func__ << "(): Write To Cache, oid=" << read_obj.oid << ", obj-ofs=" << obj_ofs << ", read_ofs=" << read_ofs << ", len=" << len << dendl;
+      ldpp_dout(dpp, 20) << "D3nDataCache: " << __func__ << "(): Write To Cache, oid=" << read_obj.oid << ", obj-ofs=" << obj_ofs << ", read_ofs=" << read_ofs << ", len=" << len << dendl;
       auto completed = d->aio->get(obj, rgw::Aio::librados_op(std::move(op), d->yield), cost, id);
       return d->flush(std::move(completed));
     }
   }
-  lsubdout(g_ceph_context, rgw, 1) << "D3nDataCache: " << __func__ << "(): Check head object cache handling flow, oid=" << read_obj.oid << dendl;
+  lsubdout(g_ceph_context, rgw, 1) << "D3nDataCache: " << __func__ << "(): Warning: Check head object cache handling flow, oid=" << read_obj.oid << dendl;
 
   return 0;
 }

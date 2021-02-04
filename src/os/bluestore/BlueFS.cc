@@ -842,7 +842,7 @@ int BlueFS::maybe_verify_layout(const bluefs_layout_t& layout) const
 void BlueFS::umount(bool avoid_compact)
 {
   dout(1) << __func__ << dendl;
-
+  //dout(0) << __func__ << "::NCB::call sync_metadata()" << dendl;
   sync_metadata(avoid_compact);
 
   _close_writer(log_writer);
@@ -2486,12 +2486,14 @@ int BlueFS::_flush_and_sync_log(std::unique_lock<ceph::mutex>& l,
 				uint64_t want_seq,
 				uint64_t jump_to)
 {
+  //dout(0) << __func__ << "::NCB::entered" << dendl;
   while (log_flushing) {
     dout(10) << __func__ << " want_seq " << want_seq
 	     << " log is currently flushing, waiting" << dendl;
     ceph_assert(!jump_to);
     log_cond.wait(l);
   }
+  //dout(0) << __func__ << "::NCB::after log_flushing" << dendl;
   if (want_seq && want_seq <= log_seq_stable) {
     dout(10) << __func__ << " want_seq " << want_seq << " <= log_seq_stable "
 	     << log_seq_stable << ", done" << dendl;
@@ -2504,8 +2506,9 @@ int BlueFS::_flush_and_sync_log(std::unique_lock<ceph::mutex>& l,
     ceph_assert(!jump_to);
     return 0;
   }
-
+  //dout(0) << __func__ << "::NCB::to_release()" << dendl;
   vector<interval_set<uint64_t>> to_release(pending_release.size());
+  //dout(0) << __func__ << "::NCB::to_release.swap()" << dendl;
   to_release.swap(pending_release);
 
   uint64_t seq = log_t.seq = ++log_seq;
@@ -2515,16 +2518,17 @@ int BlueFS::_flush_and_sync_log(std::unique_lock<ceph::mutex>& l,
   // log dirty files
   auto lsi = dirty_files.find(seq);
   if (lsi != dirty_files.end()) {
+    //dout(0) << __func__ << "::NCB::"<< lsi->second.size() << " dirty_files" << dendl;
     dout(20) << __func__ << " " << lsi->second.size() << " dirty_files" << dendl;
     for (auto &f : lsi->second) {
       dout(20) << __func__ << "   op_file_update " << f.fnode << dendl;
       log_t.op_file_update(f.fnode);
     }
   }
-
+  //dout(0) << __func__ << "::NCB::runway()" << dendl;
   dout(10) << __func__ << " " << log_t << dendl;
   ceph_assert(!log_t.empty());
-
+  //dout(0) << __func__ << "::NCB::log_t" << log_t << dendl;
   // allocate some more space (before we run out)?
   // BTW: this triggers `flush()` in the `page_aligned_appender` of `log_writer`.
   int64_t runway = log_writer->file->fnode.get_allocated() -
@@ -2547,7 +2551,7 @@ int BlueFS::_flush_and_sync_log(std::unique_lock<ceph::mutex>& l,
     log_t.op_file_update(log_writer->file->fnode);
     just_expanded_log = true;
   }
-
+  //dout(0) << __func__ << "::NCB::realign()" << dendl;
   bufferlist bl;
   bl.reserve(super.block_size);
   encode(log_t, bl);
@@ -2567,7 +2571,7 @@ int BlueFS::_flush_and_sync_log(std::unique_lock<ceph::mutex>& l,
   log_t.clear();
   log_t.seq = 0;  // just so debug output is less confusing
   log_flushing = true;
-
+  //dout(0) << __func__ << "::NCB::_flush()" << dendl;
   int r = _flush(log_writer, true);
   ceph_assert(r == 0);
 
@@ -2584,7 +2588,7 @@ int BlueFS::_flush_and_sync_log(std::unique_lock<ceph::mutex>& l,
 
   log_flushing = false;
   log_cond.notify_all();
-
+  //dout(0) << __func__ << "::NCB::clean dirty files()" << dendl;
   // clean dirty files
   if (seq > log_seq_stable) {
     log_seq_stable = seq;
@@ -2615,7 +2619,7 @@ int BlueFS::_flush_and_sync_log(std::unique_lock<ceph::mutex>& l,
              << " already >= out seq " << seq
              << ", we lost a race against another log flush, done" << dendl;
   }
-
+  //dout(0) << __func__ << "::NCB::to_release.size()=" << to_release.size() << dendl;
   for (unsigned i = 0; i < to_release.size(); ++i) {
     if (!to_release[i].empty()) {
       /* OK, now we have the guarantee alloc[i] won't be null. */
@@ -2635,7 +2639,7 @@ int BlueFS::_flush_and_sync_log(std::unique_lock<ceph::mutex>& l,
       }
     }
   }
-
+  //dout(0) << __func__ << "::NCB::_update_logger_stats()" << dendl;
   _update_logger_stats();
 
   return 0;
@@ -3156,6 +3160,7 @@ int BlueFS::_preallocate(FileRef f, uint64_t off, uint64_t len)
 
 void BlueFS::sync_metadata(bool avoid_compact)
 {
+  //dout(0) << __func__ << "::NCB::entered" << dendl;
   std::unique_lock l(lock);
   if (log_t.empty() && dirty_files.empty()) {
     dout(10) << __func__ << " - no pending log events" << dendl;
@@ -3165,6 +3170,7 @@ void BlueFS::sync_metadata(bool avoid_compact)
     start = ceph_clock_now();
     *_dout <<  dendl;
     flush_bdev(); // FIXME?
+    //dout(0) << __func__ << "::NCB::calling _flush_and_sync_log()" << dendl;
     _flush_and_sync_log(l);
     dout(10) << __func__ << " done in " << (ceph_clock_now() - start) << dendl;
   }

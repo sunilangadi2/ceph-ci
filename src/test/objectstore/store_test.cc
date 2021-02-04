@@ -8206,26 +8206,29 @@ TEST_P(StoreTestSpecificAUSize, BluestoreRepairTest) {
   }
 
   bstore->umount();
-  //////////// leaked pextent fix ////////////
-  cerr << "fix leaked pextents" << std::endl;
-  ASSERT_EQ(bstore->fsck(false), 0);
-  ASSERT_EQ(bstore->repair(false), 0);
-  bstore->mount();
-  bstore->inject_leaked(0x30000);
-  bstore->umount();
-  ASSERT_EQ(bstore->fsck(false), 1);
-  ASSERT_EQ(bstore->repair(false), 0);
-  ASSERT_EQ(bstore->fsck(false), 0);
-
-  //////////// false free fix ////////////
-  cerr << "fix false free pextents" << std::endl;
-  bstore->mount();
-  bstore->inject_false_free(cid, hoid);
-  bstore->umount();
-  ASSERT_EQ(bstore->fsck(false), 2);
-  ASSERT_EQ(bstore->repair(false), 0);
-  ASSERT_EQ(bstore->fsck(false), 0);
-
+  
+  if (bstore->has_null_fm() == false) {
+    //////////// leaked pextent fix ////////////
+    cerr << "fix leaked pextents" << std::endl;
+    ASSERT_EQ(bstore->fsck(false), 0);
+    ASSERT_EQ(bstore->repair(false), 0);
+    bstore->mount();
+    bstore->inject_leaked(0x30000);
+    bstore->umount();
+    ASSERT_EQ(bstore->fsck(false), 1);
+    ASSERT_EQ(bstore->repair(false), 0);
+    ASSERT_EQ(bstore->fsck(false), 0);
+    
+    //////////// false free fix ////////////
+    cerr << "fix false free pextents" << std::endl;
+    bstore->mount();
+    bstore->inject_false_free(cid, hoid);
+    bstore->umount();
+    ASSERT_EQ(bstore->fsck(false), 2);
+    ASSERT_EQ(bstore->repair(false), 0);
+    ASSERT_EQ(bstore->fsck(false), 0);
+  }
+  
   //////////// verify invalid statfs ///////////
   cerr << "fix invalid statfs" << std::endl;
   store_statfs_t statfs0, statfs;

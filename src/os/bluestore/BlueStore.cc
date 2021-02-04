@@ -8292,7 +8292,7 @@ int BlueStore::read_allocation_from_drive()
   }  
   utime_t duration = ceph_clock_now() - start;
   std::cout << "\n" << __func__ << " <<<FINISH>>> in " << duration << " seconds" << std::endl;
-#if 0
+#if 1
   ret = compare_allocators(allocator, shared_alloc.a, stats.extent_count);
   if (ret == 0) {
     std::cout << "SUCCESS!!! compare(allocator, shared_alloc.a)" << std::endl;

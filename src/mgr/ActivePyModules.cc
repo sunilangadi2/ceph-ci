@@ -21,7 +21,7 @@
 
 #include "osd/OSDMap.h"
 #include "mon/MonMap.h"
-
+#include "osd/osd_types.h"
 #include "mgr/MgrContext.h"
 
 // For ::config_prefix
@@ -479,6 +479,25 @@ PyObject *ActivePyModules::get_python(const std::string &what)
       mgr_map.dump(&f);
       return f.get();
     });
+    return f.get();
+  } else if (what == "active_clean"){
+    cluster_state.with_pgmap(
+        [&f, &tstate](const PGMap &pg_map) {
+      PyEval_RestoreThread(tstate);
+      uint64_t num_pg = 0;
+      for (auto &i : pg_map.num_pg_by_pool) {
+      num_pg += i.second;
+      }
+      f.dump_unsigned("num_pg", num_pg);
+      uint64_t num_active_clean_pg = 0; 
+      for (auto [state, num] : pg_map.num_pg_by_state) {
+	if (state & PG_STATE_ACTIVE && state & PG_STATE_CLEAN) {
+	  num_active_clean_pg += num;
+	}
+      }
+      f.dump_unsigned("num_active_clean_pg", num_active_clean_pg);	
+    });
+    return f.get();
   } else {
     derr << "Python module requested unknown data '" << what << "'" << dendl;
     with_gil_t with_gil{no_gil};

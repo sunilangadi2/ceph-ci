@@ -155,6 +155,47 @@ string get_fp_oid(string oid, std::string fp_algo = NULL)
   return string();
 }
 
+bool is_intended_refcount_state(librados::IoCtx& src_ioctx,
+				std::string src_oid,
+				librados::IoCtx& dst_ioctx,
+				std::string dst_oid,
+				uint64_t expected_refcount)
+{
+  int src_refcount = 0, dst_refcount = 0;
+  {
+    bufferlist t;
+    int r = dst_ioctx.getxattr(dst_oid, CHUNK_REFCOUNT_ATTR, t);
+    if (r == -ENOENT) {
+      dst_refcount = 0;
+    } else {
+      chunk_refs_t refs;
+      try {
+	auto iter = t.cbegin();
+	decode(refs, iter);
+      } catch (buffer::error& err) {
+	ceph_assert(0);
+      }
+      dst_refcount = refs.count();
+    }
+  }
+  if (dst_refcount == expected_refcount) {
+    return true;
+  }
+  {
+    bufferlist in, out;
+    encode(dst_oid, in);
+    src_refcount = src_ioctx.exec(src_oid, "cas", "references_chunk", in, out);
+    if (src_refcount == -ENOENT || src_refcount == -ENOLINK) {
+      src_refcount = 0;
+    }
+    ceph_assert(src_refcount >= 0);
+  }
+  if (src_refcount > dst_refcount) {
+    return false;
+  }
+  return true;
+}
+
 class LibRadosTwoPoolsPP : public RadosTestPP
 {
 public:
@@ -3613,15 +3654,7 @@ TEST_F(LibRadosTwoPoolsPP, ManifestSnapRefcount) {
     sha1_gen.Update((const unsigned char *)"hi", size);
     sha1_gen.Final(fingerprint);
     buf_to_hex(fingerprint, CEPH_CRYPTO_SHA1_DIGESTSIZE, p_str);
-    cache_ioctx.getxattr(p_str, CHUNK_REFCOUNT_ATTR, t);
-    chunk_refs_t refs;
-    try {
-      auto iter = t.cbegin();
-      decode(refs, iter);
-    } catch (buffer::error& err) {
-      ASSERT_TRUE(0);
-    }
-    ASSERT_EQ(1u, refs.count());
+    ASSERT_TRUE(is_intended_refcount_state(ioctx, "foo", cache_ioctx, p_str, 1));
   }
 
   // check chunk's refcount
@@ -3666,15 +3699,7 @@ TEST_F(LibRadosTwoPoolsPP, ManifestSnapRefcount) {
     sha1_gen.Update((const unsigned char *)"hi", size);
     sha1_gen.Final(fingerprint);
     buf_to_hex(fingerprint, CEPH_CRYPTO_SHA1_DIGESTSIZE, p_str);
-    cache_ioctx.getxattr(p_str, CHUNK_REFCOUNT_ATTR, t);
-    chunk_refs_t refs;
-    try {
-      auto iter = t.cbegin();
-      decode(refs, iter);
-    } catch (buffer::error& err) {
-      ASSERT_TRUE(0);
-    }
-    ASSERT_EQ(1u, refs.count());
+    ASSERT_TRUE(is_intended_refcount_state(ioctx, "foo", cache_ioctx, p_str, 1));
   }
 
   // remove snap
@@ -3697,15 +3722,7 @@ TEST_F(LibRadosTwoPoolsPP, ManifestSnapRefcount) {
     sha1_gen.Update((const unsigned char *)"bb", size);
     sha1_gen.Final(fingerprint);
     buf_to_hex(fingerprint, CEPH_CRYPTO_SHA1_DIGESTSIZE, p_str);
-    cache_ioctx.getxattr(p_str, CHUNK_REFCOUNT_ATTR, t);
-    chunk_refs_t refs;
-    try {
-      auto iter = t.cbegin();
-      decode(refs, iter);
-    } catch (buffer::error& err) {
-      ASSERT_TRUE(0);
-    }
-    ASSERT_EQ(1u, refs.count());
+    ASSERT_TRUE(is_intended_refcount_state(ioctx, "foo", cache_ioctx, p_str, 1));
   }
 
   // remove snap
@@ -3727,15 +3744,7 @@ TEST_F(LibRadosTwoPoolsPP, ManifestSnapRefcount) {
     sha1_gen.Update((const unsigned char *)"bb", size);
     sha1_gen.Final(fingerprint);
     buf_to_hex(fingerprint, CEPH_CRYPTO_SHA1_DIGESTSIZE, p_str);
-    cache_ioctx.getxattr(p_str, CHUNK_REFCOUNT_ATTR, t);
-    chunk_refs_t refs;
-    try {
-      auto iter = t.cbegin();
-      decode(refs, iter);
-    } catch (buffer::error& err) {
-      ASSERT_TRUE(0);
-    }
-    ASSERT_EQ(1u, refs.count());
+    ASSERT_TRUE(is_intended_refcount_state(ioctx, "foo", cache_ioctx, p_str, 1));
   }
 
   // check chunk's refcount
@@ -3748,15 +3757,7 @@ TEST_F(LibRadosTwoPoolsPP, ManifestSnapRefcount) {
     sha1_gen.Update((const unsigned char *)"hi", size);
     sha1_gen.Final(fingerprint);
     buf_to_hex(fingerprint, CEPH_CRYPTO_SHA1_DIGESTSIZE, p_str);
-    cache_ioctx.getxattr(p_str, CHUNK_REFCOUNT_ATTR, t);
-    chunk_refs_t refs;
-    try {
-      auto iter = t.cbegin();
-      decode(refs, iter);
-    } catch (buffer::error& err) {
-      ASSERT_TRUE(0);
-    }
-    ASSERT_EQ(1u, refs.count());
+    ASSERT_TRUE(is_intended_refcount_state(ioctx, "foo", cache_ioctx, p_str, 1));
   }
 }
 
@@ -3979,8 +3980,7 @@ TEST_F(LibRadosTwoPoolsPP, ManifestSnapRefcount2) {
     sha1_gen.Update((const unsigned char *)"BB", size);
     sha1_gen.Final(fingerprint);
     buf_to_hex(fingerprint, CEPH_CRYPTO_SHA1_DIGESTSIZE, p_str);
-    int r = cache_ioctx.getxattr(p_str, CHUNK_REFCOUNT_ATTR, t);
-    ASSERT_EQ(-ENOENT, r);
+    ASSERT_TRUE(is_intended_refcount_state(ioctx, "foo", cache_ioctx, p_str, 0));
   }
 }
 
@@ -4310,8 +4310,7 @@ TEST_F(LibRadosTwoPoolsPP, ManifestCheckRefcountWhenModification) {
     sha1_gen.Update((const unsigned char *)"ai", size);
     sha1_gen.Final(fingerprint);
     buf_to_hex(fingerprint, CEPH_CRYPTO_SHA1_DIGESTSIZE, p_str);
-    int r = cache_ioctx.getxattr(p_str, CHUNK_REFCOUNT_ATTR, t);
-    ASSERT_EQ(-ENOENT, r);
+    ASSERT_TRUE(is_intended_refcount_state(ioctx, "foo", cache_ioctx, p_str, 0));
   }
 
   // foo snap[0]: [er] [hi] [HI]
@@ -4364,8 +4363,7 @@ TEST_F(LibRadosTwoPoolsPP, ManifestCheckRefcountWhenModification) {
     sha1_gen.Update((const unsigned char *)"Er", size);
     sha1_gen.Final(fingerprint);
     buf_to_hex(fingerprint, CEPH_CRYPTO_SHA1_DIGESTSIZE, p_str);
-    int r = cache_ioctx.getxattr(p_str, CHUNK_REFCOUNT_ATTR, t);
-    ASSERT_EQ(-ENOENT, r);
+    ASSERT_TRUE(is_intended_refcount_state(ioctx, "foo", cache_ioctx, p_str, 0));
   }
 }
 
@@ -4482,8 +4480,7 @@ TEST_F(LibRadosTwoPoolsPP, ManifestSnapIncCount) {
   sleep(10);
 
   // check chunk's refcount
-  check_fp_oid_refcount(cache_ioctx, "chunk4", 1u, "");
-
+  ASSERT_TRUE(is_intended_refcount_state(ioctx, "foo", cache_ioctx, "chunk4", 1));
 }
 
 TEST_F(LibRadosTwoPoolsPP, ManifestEvict) {
@@ -5391,8 +5388,7 @@ TEST_F(LibRadosTwoPoolsPP, ManifestFlushDupCount) {
     sha1_gen.Update((const unsigned char *)chunk2.c_str(), size);
     sha1_gen.Final(fingerprint);
     buf_to_hex(fingerprint, CEPH_CRYPTO_SHA1_DIGESTSIZE, p_str);
-    tgt_oid = string(p_str);
-    ASSERT_EQ(-ENOENT, ioctx.getxattr(p_str, CHUNK_REFCOUNT_ATTR, t));
+    ASSERT_TRUE(is_intended_refcount_state(cache_ioctx, "foo", ioctx, p_str, 0));
   }
 }
 

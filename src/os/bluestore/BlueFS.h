@@ -5,6 +5,7 @@
 
 #include <atomic>
 #include <mutex>
+#include <climits>
 
 #include "bluefs_types.h"
 #include "blk/BlockDevice.h"
@@ -204,15 +205,21 @@ public:
     // to use buffer_appender exclusively here (e.g., it's notion of
     // offset will remain accurate).
     void append(const char *buf, size_t len) {
+      uint64_t l0 = get_buffer_length();
+      ceph_assert(l0 + len <= UINT_MAX);
       buffer_appender.append(buf, len);
     }
 
     // note: used internally only, for ino 1 or 0.
     void append(ceph::buffer::list& bl) {
+      uint64_t l0 = get_buffer_length();
+      ceph_assert(l0 + bl.length() <= UINT_MAX);
       buffer.claim_append(bl);
     }
 
     void append_zero(size_t len) {
+      uint64_t l0 = get_buffer_length();
+      ceph_assert(l0 + len <= UINT_MAX);
       buffer_appender.append_zero(len);
     }
 
@@ -560,9 +567,18 @@ public:
     int r = _flush(h, force, l);
     ceph_assert(r == 0);
   }
-  void try_flush(FileWriter *h) {
-    if (h->get_buffer_length() >= cct->_conf->bluefs_min_flush_size) {
-      flush(h, true);
+
+  void append_try_flush(FileWriter *h, const char* buf, size_t len) {
+    while (len > 0) {
+      unsigned l0 = h->get_buffer_length();
+      ceph_assert(l0 < UINT_MAX);
+      size_t l = std::min(len, size_t(UINT_MAX - l0));
+      h->append(buf, l);
+      buf += l;
+      len -= l;
+      if (h->get_buffer_length() >= cct->_conf->bluefs_min_flush_size) {
+	flush(h, true);
+      }
     }
   }
   void flush_range(FileWriter *h, uint64_t offset, uint64_t length) {

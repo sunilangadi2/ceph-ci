@@ -301,6 +301,13 @@ void PG::prepare_write(pg_info_t &info,
     t, &km, coll_ref->get_cid(), pgmeta_oid,
     peering_state.get_pool().info.require_rollback());
   if (!km.empty()) {
+    epoch_t e;
+    auto it = km.find(string(epoch_key));
+    if (it != km.end()) {
+      auto bp = it->second.cbegin();
+      decode(e, bp);
+      logger().debug("{}: osdmap storing epoch: {}", __func__, e);
+    }
     t.omap_setkeys(coll_ref->get_cid(), pgmeta_oid, km);
   }
   if (!key_to_remove.empty()) {

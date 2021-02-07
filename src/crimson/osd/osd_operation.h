@@ -16,6 +16,7 @@
 #include <seastar/core/lowres_clock.hh>
 
 #include "include/ceph_assert.h"
+#include "osd/osd_types.h"
 #include "crimson/common/interruptible_future.h"
 #include "crimson/osd/io_interrupt_condition.h"
 #include "crimson/osd/scheduler/scheduler.h"
@@ -243,7 +244,199 @@ join_blocking_interruptible_futures(T&& t) {
       }));
 }
 
+template <typename>
+struct OperationComparator;
 
+template <typename T>
+class OperationRepeatSequencer {
+public:
+  using OpRef = boost::intrusive_ptr<T>;
+  using ops_sequence_t = std::map<OpRef, seastar::promise<>>;
+
+  template <typename Func, typename HandleT, typename Result = std::invoke_result_t<Func>>
+  seastar::futurize_t<Result> preserve_sequence(
+      HandleT& handle,
+      epoch_t same_interval_since,
+      OpRef& op,
+      const spg_t& pgid,
+      Func&& func) {
+    auto& ops = pg_ops[pgid];
+    if (!op->pos) {
+      auto [it, inserted] = ops.emplace(op, seastar::promise<>());
+      assert(__builtin_expect(inserted, true));
+      op->pos = it;
+    }
+
+    bool first = (*(op->pos) == ops.begin()) ? true : false;
+
+    this->same_interval_since = same_interval_since;
+
+    typename OperationRepeatSequencer<T>::ops_sequence_t::iterator last_op_it = *(op->pos);
+    if (!first) {
+      --last_op_it;
+    }
+    epoch_t last_op_interval_start =
+      last_op_it->first->interval_start_epoch;
+
+    if (first || last_op_interval_start == same_interval_since) {
+      op->interval_start_epoch = same_interval_since;
+      auto fut = seastar::futurize_invoke(func);
+      auto it = *(op->pos);
+
+      it->second.set_value();
+      it->second = seastar::promise<>();
+      return fut;
+    } else {
+      handle.exit();	// need to wait for previous operations,
+			// release the current pipepline stage
+
+      ::crimson::get_logger(ceph_subsys_osd).debug(
+	  "{}, same_interval_since: {}, previous op: {}, last_interval_start: {}",
+	  *op, same_interval_since, *(last_op_it->first), last_op_interval_start);
+      assert(__builtin_expect(last_op_interval_start < same_interval_since, true));
+      return last_op_it->second.get_future().then(
+	[op, same_interval_since, func=std::forward<Func>(func)]() mutable {
+	op->interval_start_epoch = same_interval_since;
+	auto fut = seastar::futurize_invoke(std::forward<Func>(func));
+	auto it = *(op->pos);
+	it->second.set_value();
+	it->second = seastar::promise<>();
+	return fut;
+      });
+    }
+  }
+
+  void operation_finished(OpRef& op, const spg_t& pgid, bool error = false) {
+    if (op->pos) {
+      if (error) {
+	(*(op->pos))->second.set_value();
+      }
+      pg_ops.at(pgid).erase(*(op->pos));
+    }
+  }
+/*
+  template <typename Func>
+  seastar::future<> repeat(OpRef& op, Func&& func) {
+    return seastar::repeat(
+      [this, func=std::forward<Func>(func), op]() mutable {
+      return retry(op, std::forward<Func>(func));
+    }).handle_exception([op](std::exception_ptr&& ptr) {
+      try {
+	std::rethrow_exception(ptr);
+      } catch(std::exception& e) {
+	::crimson::get_logger(ceph_subsys_osd).debug("{} {}", *op, typeid(e).name());
+      }
+      assert(0);
+    }).finally([this, op] {
+      (*(op->pos))->second.set_value();
+      ops.erase(*(op->pos));
+    });
+  }*/
+private:
+/*  template <typename Func>
+  seastar::future<seastar::stop_iteration> retry(OpRef& op, Func&& func) {
+    op->new_retry();
+    if (!op->pos) {
+      ::crimson::get_logger(ceph_subsys_osd).debug("{} retry={}", *op, op->get_retries());
+      assert(!op->get_retries());
+      auto [it, inserted] = ops.emplace(op, seastar::promise<>());
+      assert(inserted);
+      assert(std::next(it) == ops.end());
+      op->pos = it;
+      if (it == ops.begin()
+	  || (--it)->first->is_retry_started()) {
+	::crimson::get_logger(ceph_subsys_osd).debug("{} executing", *op);
+	op->retry_start();
+	auto fut = seastar::futurize_invoke(std::forward<Func>(func)).then(
+	  [op](auto stop_it) {
+	  if (stop_it == seastar::stop_iteration::yes) {
+	    (*(op->pos))->second.set_value();
+	    (*(op->pos))->second = seastar::promise<>();
+	  }
+	  return stop_it;
+	});
+	(*(op->pos))->second.set_value();
+	(*(op->pos))->second = seastar::promise<>();
+	return fut;
+      } else {
+	auto it2 = *(op->pos);
+	--it2;
+	::crimson::get_logger(ceph_subsys_osd).debug("{} delaying on {}", *op, *(it2->first));
+	return it2->second.get_future().then(
+	  [op, func=std::forward<Func>(func)]() mutable {
+	  ::crimson::get_logger(ceph_subsys_osd).debug("{} delayed executing", *op);
+	  op->retry_start();
+	  auto fut = seastar::futurize_invoke(std::forward<Func>(func)).then(
+	    [op](auto stop_it) {
+	    if (stop_it == seastar::stop_iteration::yes) {
+	      (*(op->pos))->second.set_value();
+	      (*(op->pos))->second = seastar::promise<>();
+	    }
+	    return stop_it;
+	  });
+	  (*(op->pos))->second.set_value();
+	  (*(op->pos))->second = seastar::promise<>();
+	  return fut;
+	});
+      }
+    } else {
+      ::crimson::get_logger(ceph_subsys_osd).debug("{} retry={}", *op, op->get_retries());
+      assert(op->get_retries());
+      auto it = *(op->pos);
+      if (it == ops.begin()
+	  || ((--it)->first->is_retry_started()
+	    && it->first->get_retries()
+		>= op->get_retries())) {
+	::crimson::get_logger(ceph_subsys_osd).debug("{} executing", *op);
+	if (it != ops.begin()) {
+	  // if this is an old retry and prev retry is new and already started,
+	  // catch this retry
+	  op->set_retry(std::prev(*(op->pos))->first->get_retries());
+	}
+	op->retry_start();
+	auto fut = seastar::futurize_invoke(std::forward<Func>(func)).then(
+	  [op](auto stop_it) {
+	  if (stop_it == seastar::stop_iteration::yes) {
+	    (*(op->pos))->second.set_value();
+	    (*(op->pos))->second = seastar::promise<>();
+	  }
+	  return stop_it;
+	});
+	(*(op->pos))->second.set_value();
+	(*(op->pos))->second = seastar::promise<>();
+	return fut;
+      } else {
+	auto it2 = *(op->pos);
+	--it2;
+	::crimson::get_logger(ceph_subsys_osd).debug("{} delaying on {}", *op, *(it2->first));
+	return it2->second.get_future().then(
+	  [op, func=std::forward<Func>(func)]() mutable {
+	  ::crimson::get_logger(ceph_subsys_osd).debug("{} delayed executing", *op);
+	  op->retry_start();
+	  auto fut = seastar::futurize_invoke(std::forward<Func>(func)).then(
+	    [op](auto stop_it) {
+	    if (stop_it == seastar::stop_iteration::yes) {
+	      (*(op->pos))->second.set_value();
+	      (*(op->pos))->second = seastar::promise<>();
+	    }
+	    return stop_it;
+	  });
+	  (*(op->pos))->second.set_value();
+	  (*(op->pos))->second = seastar::promise<>();
+	  return fut;
+	});
+      }
+    }
+  }*/
+  std::map<spg_t, std::map<OpRef, seastar::promise<>, OperationComparator<T>>> pg_ops;
+  epoch_t same_interval_since = 0;
+};
+template <typename T>
+struct OperationComparator {
+  bool operator()(
+    const typename OperationRepeatSequencer<T>::OpRef& left,
+    const typename OperationRepeatSequencer<T>::OpRef& right) const;
+};
 /**
  * Common base for all crimson-osd operations.  Mainly provides
  * an interface for registering ops in flight and dumping
@@ -252,6 +445,10 @@ join_blocking_interruptible_futures(T&& t) {
 class Operation : public boost::intrusive_ref_counter<
   Operation, boost::thread_unsafe_counter> {
  public:
+  struct retry {
+    uint64_t retries = -1;
+    bool started = false;
+  };
   uint64_t get_id() const {
     return id;
   }
@@ -320,10 +517,28 @@ class Operation : public boost::intrusive_ref_counter<
     id = in_id;
   }
 
+  struct retry rty;
+  uint64_t get_retries() const {
+    return rty.retries;
+  }
+  uint64_t new_retry() {
+    rty.started = false;
+    return ++rty.retries;
+  }
+  bool is_retry_started() const {
+    return rty.started;
+  }
+  void retry_start() {
+    rty.started = true;
+  }
+  void set_retry(uint64_t retries) {
+    rty.retries = retries;
+  }
   void add_blocker(Blocker *b) {
     blockers.push_back(b);
   }
 
+  epoch_t interval_start_epoch = 0;
   void clear_blocker(Blocker *b) {
     auto iter = std::find(blockers.begin(), blockers.end(), b);
     if (iter != blockers.end()) {
@@ -332,6 +547,8 @@ class Operation : public boost::intrusive_ref_counter<
   }
 
   friend class OperationRegistry;
+  template <typename>
+  friend class OperationRepeatSequencer;
 };
 using OperationRef = boost::intrusive_ptr<Operation>;
 
@@ -361,8 +578,18 @@ public:
   virtual ~OperationT() = default;
 
 private:
+  std::optional<typename OperationRepeatSequencer<T>::ops_sequence_t::iterator> pos;
   virtual void dump_detail(ceph::Formatter *f) const = 0;
+  template <typename>
+  friend class OperationRepeatSequencer;
 };
+
+template <typename T>
+bool OperationComparator<T>::operator()(
+  const typename OperationRepeatSequencer<T>::OpRef& left,
+  const typename OperationRepeatSequencer<T>::OpRef& right) const {
+  return left->get_id() < right->get_id();
+}
 
 /**
  * Maintains a set of lists of all active ops.

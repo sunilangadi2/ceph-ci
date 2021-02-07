@@ -52,6 +52,7 @@ public:
   static constexpr OperationTypeCode type = OperationTypeCode::client_request;
 
   ClientRequest(OSD &osd, crimson::net::ConnectionRef, Ref<MOSDOp> &&m);
+  ~ClientRequest();
 
   void print(std::ostream &) const final;
   void dump_detail(Formatter *f) const final;
@@ -71,6 +72,7 @@ private:
   ConnectionPipeline &cp();
   PGPipeline &pp(PG &pg);
 
+  OperationRepeatSequencer<ClientRequest>& ors;
 private:
   bool is_misdirected(const PG& pg) const;
 };

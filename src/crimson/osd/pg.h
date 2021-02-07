@@ -535,6 +535,11 @@ public:
   using with_obc_func_t =
     std::function<interruptible_load_obc_ertr::future<> (ObjectContextRef)>;
 
+  using obc_accessing_list_t =boost::intrusive::list<
+    ObjectContext,
+    ObjectContext::obc_accessing_option_t>;
+  obc_accessing_list_t obc_set_accessing;
+
   template<RWState::State State>
   interruptible_load_obc_ertr::future<> with_head_obc(hobject_t oid, with_obc_func_t&& func);
 

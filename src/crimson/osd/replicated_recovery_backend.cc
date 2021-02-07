@@ -436,7 +436,7 @@ ReplicatedRecoveryBackend::read_metadata_for_push_op(
   if (!progress.first) {
     return seastar::make_ready_future<eversion_t>(ver);
   }
-  return seastar::when_all_succeed(
+  return interruptor::make_interruptible(interruptor::when_all_succeed(
       backend->omap_get_header(coll, ghobject_t(oid)).handle_error_interruptible<false>(
 	crimson::os::FuturizedStore::read_errorator::all_same_way(
 	  [oid] (const std::error_code& e) {
@@ -450,7 +450,7 @@ ReplicatedRecoveryBackend::read_metadata_for_push_op(
 	  logger().debug("read_metadata_for_push_op, error {} when getting attrs: {}", e, oid);
 	  return seastar::make_ready_future<crimson::os::FuturizedStore::attrs_t>();
 	}))
-  ).then_unpack([&new_progress, push_op](auto bl, auto attrs) {
+  )).then_unpack_interruptible([&new_progress, push_op](auto bl, auto attrs) {
     if (bl.length() == 0) {
       logger().warn("read_metadata_for_push_op: fail to read omap header");
     } else if (attrs.empty()) {

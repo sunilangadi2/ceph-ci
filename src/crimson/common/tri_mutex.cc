@@ -192,6 +192,21 @@ bool tri_mutex::is_acquired() const
   }
 }
 
+bool tri_mutex::is_read_acquired() const
+{
+  return readers != 0;
+}
+
+bool tri_mutex::is_write_acquired() const
+{
+  return writers != 0;
+}
+
+int tri_mutex::waiters_size() const
+{
+  return waiters.size();
+}
+
 void tri_mutex::wake()
 {
   assert(!readers && !writers && !exclusively_used);

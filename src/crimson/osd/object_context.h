@@ -99,10 +99,14 @@ private:
 
   template <typename Lock, typename Func>
   auto _with_lock(Lock&& lock, Func&& func) {
+    ::crimson::get_logger(ceph_subsys_osd).debug("_with_lock: {}, is_read_acquired: {}, is_write_acquired: {}, is_excl_acquired: {}", get_oid(), this->lock.is_read_acquired(), this->lock.is_write_acquired(), this->lock.is_excl_acquired());
     Ref obc = this;
     return lock.lock().then([&lock, func = std::forward<Func>(func), obc]() mutable {
+      ::crimson::get_logger(ceph_subsys_osd).debug("_with_lock: got lock for {}", obc->get_oid());
       return seastar::futurize_invoke(func).finally([&lock, obc] {
+	::crimson::get_logger(ceph_subsys_osd).debug("_with_lock: lock releasing for {}, waiters: {}", obc->get_oid(), obc->lock.waiters_size());
 	lock.unlock();
+	::crimson::get_logger(ceph_subsys_osd).debug("_with_lock: lock released for {}, is_read_acquired: {}, is_write_acquired: {}, is_excl_acquired: {}", obc->get_oid(), obc->lock.is_read_acquired(), obc->lock.is_write_acquired(), obc->lock.is_excl_acquired());
       });
     });
   }

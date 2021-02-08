@@ -651,7 +651,7 @@ void Inode::break_deleg(bool skip_read)
   recall_deleg(skip_read);
 
   while (!delegations_broken(skip_read))
-    client->wait_on_list(waitfor_deleg);
+    client->wait_on_list(waitfor_deleg, inode_lock);
 }
 
 /**

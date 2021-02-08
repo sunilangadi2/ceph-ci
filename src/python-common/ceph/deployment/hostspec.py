@@ -1,7 +1,4 @@
-try:
-    from typing import Optional, List, Any
-except ImportError:
-    pass  # just for type checking
+from typing import Optional, List, Any, Dict
 
 
 class HostSpec(object):
@@ -13,6 +10,8 @@ class HostSpec(object):
                  addr=None,  # type: Optional[str]
                  labels=None,  # type: Optional[List[str]]
                  status=None,  # type: Optional[str]
+                 maintenance: bool = False,
+                 offline: bool = False
                  ):
         self.service_type = 'host'
 
@@ -25,23 +24,41 @@ class HostSpec(object):
         #: label(s), if any
         self.labels = labels or []  # type: List[str]
 
-        #: human readable status
-        self.status = status or ''  # type: str
+        self.maintenance = maintenance
 
-    def to_json(self) -> dict:
-        return {
+        self.offline = offline
+
+    @property
+    def status(self) -> str:
+        """human readable status"""
+        r = []
+        if self.maintenance:
+            r.append(f'maintenance mode')
+        if self.offline:
+            r.append(f'offline')
+        return ' and '.join(r).capitalize()
+
+    def to_json(self, omit_offline: bool = False, omit_status: bool = False) -> Dict[str, Any]:
+        ret: Dict[str, Any] = {
             'hostname': self.hostname,
             'addr': self.addr,
             'labels': self.labels,
-            'status': self.status,
         }
+        if not omit_status:
+            ret['status'] = self.status,
+        if self.maintenance:
+            ret['maintenance'] = self.maintenance,
+        if not omit_offline and self.offline:
+            ret['offline'] = self.offline,
+        return ret
 
     @classmethod
     def from_json(cls, host_spec: dict) -> 'HostSpec':
         _cls = cls(host_spec['hostname'],
                    host_spec['addr'] if 'addr' in host_spec else None,
                    host_spec['labels'] if 'labels' in host_spec else None,
-                   host_spec['status'] if 'status' in host_spec else None)
+                   maintenance=host_spec.get('maintenance', False),
+                   offline=host_spec.get('offline', False))
         return _cls
 
     def __repr__(self) -> str:
@@ -52,6 +69,10 @@ class HostSpec(object):
             args.append(self.labels)
         if self.status:
             args.append(self.status)
+        if self.maintenance:
+            args.append('maintenance=' + str(self.maintenance))
+        if self.offline:
+            args.append('offline=' + str(self.offline))
 
         return "HostSpec({})".format(', '.join(map(repr, args)))
 
@@ -64,4 +85,6 @@ class HostSpec(object):
         # Let's omit `status` for the moment, as it is still the very same host.
         return self.hostname == other.hostname and \
                self.addr == other.addr and \
-               self.labels == other.labels
+               self.labels == other.labels and \
+               self.maintenance == other.maintenance and \
+               self.offline == other.offline

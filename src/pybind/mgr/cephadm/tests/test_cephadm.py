@@ -90,7 +90,8 @@ class TestCephadm(object):
 
             # Be careful with backward compatibility when changing things here:
             assert json.loads(cephadm_module.get_store('inventory')) == \
-                {"test": {"hostname": "test", "addr": "test", "labels": [], "status": ""}}
+                {"test": {"hostname": "test", "addr": "test",
+                          "labels": []}}
 
             with with_host(cephadm_module, 'second'):
                 assert wait(cephadm_module, cephadm_module.get_hosts()) == [
@@ -809,8 +810,9 @@ class TestCephadm(object):
             assert out == ''
             assert "Host 'test' not found" in err
 
-            out = wait(cephadm_module, cephadm_module.get_hosts())[0].to_json()
-            assert out == HostSpec('test', 'test', status='Offline').to_json()
+            out = wait(cephadm_module, cephadm_module.get_hosts())[0]
+            assert out.to_json() == HostSpec('test', 'test', offline=True).to_json()
+            assert out.status == 'Offline'
 
             _get_connection.side_effect = None
             assert CephadmServe(cephadm_module)._check_host('test') is None
@@ -1008,3 +1010,16 @@ Traceback (most recent call last):
                           ['--', 'inventory', '--format=json'], image='',
                           no_fsid=False),
             ]
+
+    @mock.patch("cephadm.serve.CephadmServe._run_cephadm")
+    def test_maintenance(self, _run_cephadm, cephadm_module: CephadmOrchestrator):
+        _run_cephadm.return_value = '{}', '', 0
+        with with_host(cephadm_module, 'test', refresh_hosts=False):
+            with with_host(cephadm_module, 'test1', refresh_hosts=False):
+                out = wait(cephadm_module, cephadm_module.enter_host_maintenance('test'))
+                assert out == 'Ceph cluster fsid on test moved to maintenance'
+
+                _run_cephadm.return_value = '', '', 0
+                out = wait(cephadm_module, cephadm_module.exit_host_maintenance('test'))
+                assert out == 'Ceph cluster fsid on test has exited maintenance mode'
+

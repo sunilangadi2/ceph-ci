@@ -243,6 +243,65 @@ TEST(BlueFS, very_large_write) {
   g_ceph_context->_conf.set_val("bluefs_buffered_io", stringify((int)old));
 }
 
+TEST(BlueFS, very_large_write2) {
+  // we'll write a ~5G file, so allocate more than that for the whole fs
+  uint64_t size = 1048576 * 1024 * 8ull;
+  TempBdev bdev{ size };
+  BlueFS fs(g_ceph_context);
+
+  bool old = g_ceph_context->_conf.get_val<bool>("bluefs_buffered_io");
+  g_ceph_context->_conf.set_val("bluefs_buffered_io", "false");
+  uint64_t total_written = 0;
+
+  ASSERT_EQ(0, fs.add_block_device(BlueFS::BDEV_DB, bdev.path, false, 1048576));
+  uuid_d fsid;
+  ASSERT_EQ(0, fs.mkfs(fsid, { BlueFS::BDEV_DB, false, false }));
+  ASSERT_EQ(0, fs.mount());
+  ASSERT_EQ(0, fs.maybe_verify_layout({ BlueFS::BDEV_DB, false, false }));
+  char buf[1048571]; // this is biggish, but intentionally not evenly aligned
+  for (unsigned i = 0; i < sizeof(buf); ++i) {
+    buf[i] = i;
+  }
+  {
+    BlueFS::FileWriter* h;
+    ASSERT_EQ(0, fs.mkdir("dir"));
+    ASSERT_EQ(0, fs.open_for_write("dir", "bigfile", &h, false));
+    for (unsigned i = 0; i < 5 * 1024 * 1048576ull / sizeof(buf); ++i) {
+      fs.append_try_flush(h, buf, sizeof(buf));
+      total_written += sizeof(buf);
+    }
+    fs.fsync(h);
+    fs.close_writer(h);
+  }
+  {
+    BlueFS::FileReader* h;
+    ASSERT_EQ(0, fs.open_for_read("dir", "bigfile", &h));
+    bufferlist bl;
+    ASSERT_EQ(h->file->fnode.size, total_written);
+    for (unsigned i = 0; i < 5 * 1024 * 1048576ull / sizeof(buf); ++i) {
+      bl.clear();
+      fs.read(h, i * sizeof(buf), sizeof(buf), &bl, NULL);
+      int r = memcmp(buf, bl.c_str(), sizeof(buf));
+      if (r) {
+        cerr << "read got mismatch at offset " << i * sizeof(buf) << " r " << r
+          << std::endl;
+      }
+      ASSERT_EQ(0, r);
+    }
+    delete h;
+    ASSERT_EQ(0, fs.open_for_read("dir", "bigfile", &h));
+    ASSERT_EQ(h->file->fnode.size, total_written);
+    unique_ptr<char> huge_buf(new char[h->file->fnode.size]);
+    auto l = h->file->fnode.size;
+    int64_t r = fs.read(h, 0, l, NULL, huge_buf.get());
+    ASSERT_EQ(r, l);
+    delete h;
+  }
+  fs.umount();
+
+  g_ceph_context->_conf.set_val("bluefs_buffered_io", stringify((int)old));
+}
+
 #define ALLOC_SIZE 4096
 
 void write_data(BlueFS &fs, uint64_t rationed_bytes)

@@ -6345,7 +6345,7 @@ static int _get_obj_iterate_cb(const DoutPrefixProvider *dpp, const rgw_raw_obj&
                                RGWObjState *astate, void *arg)
 {
   struct get_obj_data* d = static_cast<struct get_obj_data*>(arg);
-  return d->store->get_obj_iterate_cb(dpp, read_obj, obj_ofs, read_ofs, len,
+  return d->rgwrados->get_obj_iterate_cb(dpp, read_obj, obj_ofs, read_ofs, len,
                                       is_head_obj, astate, arg);
 }
 
@@ -6405,7 +6405,7 @@ int RGWRados::get_obj_iterate_cb(const DoutPrefixProvider *dpp, const rgw_raw_ob
     }
   }
 
-  auto obj = d->store->svc.rados->obj(read_obj);
+  auto obj = d->rgwrados->svc.rados->obj(read_obj);
   int r = obj.open();
   if (r < 0) {
     ldout(cct, 4) << "failed to open rados context for " << read_obj << dendl;

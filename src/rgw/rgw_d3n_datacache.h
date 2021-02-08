@@ -94,7 +94,7 @@ public:
   D3nDataCache();
   ~D3nDataCache() {}
 
-  bool get(const string& oid);
+  bool get(const string& oid, const off_t len);
   void put(bufferlist& bl, unsigned int len, string& obj_key);
   int io_write(bufferlist& bl, unsigned int len, std::string oid);
   int create_aio_write_request(bufferlist& bl, unsigned int len, std::string oid);
@@ -266,7 +266,7 @@ int D3nRGWDataCache<T>::get_obj_iterate_cb(const DoutPrefixProvider *dpp, const 
         return 0;
     }
 
-    auto obj = d->store->svc.rados->obj(read_obj);
+    auto obj = d->rgwrados->svc.rados->obj(read_obj);
     r = obj.open();
     if (r < 0) {
       lsubdout(g_ceph_context, rgw, 4) << "failed to open rados context for " << read_obj << dendl;
@@ -293,7 +293,7 @@ int D3nRGWDataCache<T>::get_obj_iterate_cb(const DoutPrefixProvider *dpp, const 
 
     d->d3n_add_pending_oid(oid);
 
-    auto obj = d->store->svc.rados->obj(read_obj);
+    auto obj = d->rgwrados->svc.rados->obj(read_obj);
     r = obj.open();
     if (r < 0) {
       lsubdout(g_ceph_context, rgw, 0) << "D3nDataCache: Error: failed to open rados context for " << read_obj << ", r=" << r << dendl;
@@ -304,8 +304,8 @@ int D3nRGWDataCache<T>::get_obj_iterate_cb(const DoutPrefixProvider *dpp, const 
     const bool is_encrypted = (astate->attrset.find(RGW_ATTR_CRYPT_MODE) != astate->attrset.end());
     bool is_versioned = false;
     RGWBucketInfo bucket_info;
-    RGWSysObjectCtx obj_ctx = d->store->svc.sysobj->init_obj_ctx();
-    r = d->store->get_bucket_instance_info(obj_ctx, astate->obj.bucket, bucket_info, NULL, NULL, null_yield, dpp);
+    RGWSysObjectCtx obj_sys_ctx = d->rgwrados->svc.sysobj->init_obj_ctx();
+    r = d->rgwrados->get_bucket_instance_info(obj_sys_ctx, astate->obj.bucket, bucket_info, NULL, NULL, null_yield, dpp);
     if (r < 0) {
       lsubdout(g_ceph_context, rgw, 0) << "D3nDataCache: Warning: " << __func__ << "(): failed to initialize Bucket Info, obj=" << obj << " r=" << r << dendl;
     } else {
@@ -318,7 +318,7 @@ int D3nRGWDataCache<T>::get_obj_iterate_cb(const DoutPrefixProvider *dpp, const 
       return r;
     }
 
-    if (d3n_data_cache.get(oid)) {
+    if (d3n_data_cache.get(oid, len)) {
       // Read From Cache
       ldpp_dout(dpp, 20) << "D3nDataCache: " << __func__ << "(): Read From Cache starting, oid=" << read_obj.oid << ", obj-ofs=" << obj_ofs << ", read_ofs=" << read_ofs << ", len=" << len << dendl;
       auto completed = d->aio->get(obj, rgw::Aio::cache_op(std::move(op), d->yield, obj_ofs, read_ofs, len, g_conf()->rgw_d3n_l1_datacache_persistent_path), cost, id);

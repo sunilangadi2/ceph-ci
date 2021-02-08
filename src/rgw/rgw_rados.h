@@ -1586,16 +1586,16 @@ public:
 
 
 struct get_obj_data {
-  RGWRados* store;
+  RGWRados* rgwrados;
   RGWGetDataCB* client_cb = nullptr;
   rgw::Aio* aio;
   uint64_t offset; // next offset to write to client
   rgw::AioResultList completed; // completed read results, sorted by offset
   optional_yield yield;
 
-  get_obj_data(RGWRados* store, RGWGetDataCB* cb, rgw::Aio* aio,
+  get_obj_data(RGWRados* rgwrados, RGWGetDataCB* cb, rgw::Aio* aio,
                uint64_t offset, optional_yield yield)
-               : store(store), client_cb(cb), aio(aio), offset(offset), yield(yield) {}
+               : rgwrados(rgwrados), client_cb(cb), aio(aio), offset(offset), yield(yield) {}
 
   std::mutex d3n_datacache_lock;
   std::list<bufferlist> d3n_read_list;

@@ -214,7 +214,7 @@ void D3nDataCache::put(bufferlist& bl, unsigned int len, std::string& oid)
   eviction_lock.unlock();
 }
 
-bool D3nDataCache::get(const string& oid)
+bool D3nDataCache::get(const string& oid, const off_t len)
 {
   bool exist = false;
   string location = cache_location + oid;
@@ -225,7 +225,9 @@ bool D3nDataCache::get(const string& oid)
   if (!(iter == cache_map.end())) {
     // check inside cache whether file exists or not!!!! then make exist true;
     struct D3nChunkDataInfo* chdo = iter->second;
-    if (access(location.c_str(), F_OK ) != -1 ) { // file exists
+    struct stat st;
+    int r = stat(location.c_str(), &st);
+    if ( r != -1 && st.st_size == len) { // file exists and containes required data range length
       exist = true;
       {
         /*LRU*/

@@ -14,7 +14,7 @@ import pytest
 
 from cephadm import CephadmOrchestrator
 from cephadm.services.osd import RemoveUtil, OSD
-from orchestrator import raise_if_exception, Completion, HostSpec
+from orchestrator import raise_if_exception, HostSpec, OrchResult
 from tests import mock
 
 
@@ -87,30 +87,8 @@ def osd_obj():
 
 
 def wait(m, c):
-    # type: (CephadmOrchestrator, Completion) -> Any
-    m.process([c])
-
-    try:
-        import pydevd  # if in debugger
-        in_debug = True
-    except ImportError:
-        in_debug = False
-
-    if in_debug:
-        while True:    # don't timeout
-            if c.is_finished:
-                raise_if_exception(c)
-                return c.result
-            time.sleep(0.1)
-    else:
-        for i in range(30):
-            if i % 10 == 0:
-                m.process([c])
-            if c.is_finished:
-                raise_if_exception(c)
-                return c.result
-            time.sleep(0.1)
-    assert False, "timeout" + str(c._state)
+    # type: (CephadmOrchestrator, OrchResult) -> Any
+    return raise_if_exception(c)
 
 
 @contextmanager

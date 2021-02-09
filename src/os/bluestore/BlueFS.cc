@@ -1272,6 +1272,9 @@ int BlueFS::_replay(bool noop, bool to_stdout)
                 return r;
               }
             }
+	  } else if (noop && fnode.ino == 1) {
+	    FileRef f = _get_file(fnode.ino);
+	    f->fnode = fnode;
 	  }
         }
 	break;
@@ -3125,6 +3128,10 @@ void BlueFS::_close_writer(FileWriter *h)
 	bdev[i]->queue_reap_ioc(h->iocv[i]);
       }
     }
+  }
+  // sanity
+  if (h->file->fnode.size >= (1ull << 30)) {
+    dout(10) << __func__ << " file is unexpectedly large:" << h->file->fnode << dendl;
   }
   delete h;
 }

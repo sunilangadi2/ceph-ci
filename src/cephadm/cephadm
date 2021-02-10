@@ -1971,6 +1971,14 @@ def check_units(ctx, units, enabler=None):
                 enabler.enable_service(u)
     return False
 
+def is_container_running(ctx, name):
+    # type: (CephadmContext, str) -> bool
+    out, err, ret = call_throws(ctx, [
+        ctx.container_path, 'ps',
+        '--format', '{{.Names}}'])
+    if name in out.split('\n'):
+        return True
+    return False
 
 def get_legacy_config_fsid(cluster, legacy_dir=None):
     # type: (str, Optional[str]) -> Optional[str]
@@ -3970,8 +3978,9 @@ def command_deploy(ctx):
 
     redeploy = False
     unit_name = get_unit_name(ctx.fsid, daemon_type, daemon_id)
+    container_name = 'ceph-%s-%s.%s' % (ctx.fsid, daemon_type, daemon_id)
     (_, state, _) = check_unit(ctx, unit_name)
-    if state == 'running':
+    if state == 'running' or is_container_running(ctx, container_name):
         redeploy = True
 
     if ctx.reconfig:

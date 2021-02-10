@@ -2208,12 +2208,15 @@ class CephManager:
         """
         Wait for snap trimming on pool to end
         """
+        self.log("wait_snap_trimming_complete start")
         POLL_PERIOD = 10
         FATAL_TIMEOUT = 600
         start = time.time()
         poolnum = self.get_pool_num(pool)
+        self.log(f"poolnum {poolnum}")
         poolnumstr = "%s." % (poolnum,)
         while (True):
+            self.log("top of loop")
             now = time.time()
             if (now - start) > FATAL_TIMEOUT:
                 assert (now - start) < FATAL_TIMEOUT, \

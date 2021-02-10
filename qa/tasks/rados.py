@@ -262,8 +262,10 @@ def task(ctx, config):
                     wait=False
                     )
                 tests[id_] = proc
+            log.info("rados thread waiting")
             run.wait(tests.values())
 
+            log.info("rados thread cleanup")
             for pool in created_pools:
                 manager.wait_snap_trimming_complete(pool);
                 manager.remove_pool(pool)
@@ -275,3 +277,4 @@ def task(ctx, config):
     finally:
         log.info('joining rados')
         running.get()
+        log.info("joined rados")

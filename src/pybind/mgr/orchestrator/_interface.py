@@ -7,6 +7,7 @@ Please see the ceph-mgr module developer's guide for more information.
 
 import copy
 import datetime
+import enum
 import errno
 import logging
 import pickle
@@ -1277,7 +1278,7 @@ class DaemonDescription(object):
                  container_image_name: Optional[str] = None,
                  container_image_digests: Optional[List[str]] = None,
                  version: Optional[str] = None,
-                 status: Optional[int] = None,
+                 status: Optional['DaemonDescriptionStatus'] = None,
                  status_desc: Optional[str] = None,
                  last_refresh: Optional[datetime.datetime] = None,
                  created: Optional[datetime.datetime] = None,
@@ -1454,6 +1455,12 @@ class DaemonDescription(object):
     @staticmethod
     def yaml_representer(dumper: 'yaml.SafeDumper', data: 'DaemonDescription') -> Any:
         return dumper.represent_dict(data.to_json().items())
+
+
+class DaemonDescriptionStatus(enum.IntEnum):
+    error = -1
+    stopped = 0
+    running = 1
 
 
 yaml.add_representer(DaemonDescription, DaemonDescription.yaml_representer)

@@ -26,6 +26,7 @@ class UpgradeState:
                  error: Optional[str] = None,
                  paused: Optional[bool] = None,
                  fs_original_max_mds: Optional[Dict[str, int]] = None,
+                 daemons_to_redeploy: Optional[List[str]] = None,
                  ):
         self._target_name: str = target_name  # Use CephadmUpgrade.target_image instead.
         self.progress_id: str = progress_id
@@ -35,6 +36,7 @@ class UpgradeState:
         self.error: Optional[str] = error
         self.paused: bool = paused or False
         self.fs_original_max_mds: Optional[Dict[str, int]] = fs_original_max_mds
+        self.daemons_to_redeploy: Optional[List[str]] = daemons_to_redeploy
 
     def to_json(self) -> dict:
         return {
@@ -46,6 +48,7 @@ class UpgradeState:
             'fs_original_max_mds': self.fs_original_max_mds,
             'error': self.error,
             'paused': self.paused,
+            'daemons_to_redeploy': self.daemons_to_redeploy
         }
 
     @classmethod
@@ -349,6 +352,65 @@ class CephadmUpgrade:
 
         return continue_upgrade
 
+    def _fill_out_daemons_to_redeploy(self) -> None:
+        daemons = self.mgr.cache.get_daemons()
+
+        assert self.upgrade_state
+        self.upgrade_state.daemons_to_redeploy = []
+
+        for d in daemons:
+            assert d.daemon_type is not None
+            if d.daemon_type not in CEPH_UPGRADE_ORDER or d.daemon_type == 'mgr':
+                self.upgrade_state.daemons_to_redeploy.append(d.name())
+
+        self._save_upgrade_state()
+
+    def _post_upgrade_redeploys(self) -> bool:
+        # redeploy all daemons who are not redployed during upgrade
+        # and mgrs which could have been deployed by a mgr running old code
+        need_self_redeploy = False
+        assert self.upgrade_state
+        assert self.upgrade_state.daemons_to_redeploy
+        for daemon_name in list(self.upgrade_state.daemons_to_redeploy):
+            daemon = self.mgr.cache.get_daemon(daemon_name)
+            assert daemon.daemon_type is not None
+            assert daemon.daemon_id is not None
+            assert daemon.hostname is not None
+
+            # current active mgr cannot redeploy itself. Schedule it for redeploy
+            # later then continue redeploying other daemons.
+            if self.mgr.daemon_is_self(daemon.daemon_type, daemon.daemon_id):
+                need_self_redeploy = True
+                continue
+
+            if not self._wait_for_ok_to_stop(daemon):
+                return False
+
+            try:
+                self.mgr._daemon_action(
+                    daemon.daemon_type,
+                    daemon.daemon_id,
+                    daemon.hostname,
+                    'redeploy'
+                )
+            except Exception as e:
+                self._fail_upgrade('POST_UPGRADE_REDEPLOY_DAEMON', {
+                    'severity': 'warning',
+                    'summary': f'Redeploying daemon {daemon_name} on host {daemon.hostname} after upgrade failed.',
+                    'count': 1,
+                    'detail': [
+                        f'Redeploy daemon: {daemon_name}: {e}'
+                    ],
+                })
+                return False
+            self.upgrade_state.daemons_to_redeploy.remove(daemon_name)
+            self._save_upgrade_state()
+
+        if need_self_redeploy:
+            self.mgr.mgr_service.fail_over()
+
+        return True
+
     def _do_upgrade(self):
         # type: () -> None
         if not self.upgrade_state:
@@ -609,6 +671,13 @@ class CephadmUpgrade:
                 'name': 'container_image',
                 'who': name_to_config_section(daemon_type),
             })
+
+        assert self.upgrade_state
+        if self.upgrade_state.daemons_to_redeploy is None:
+            self._fill_out_daemons_to_redeploy()
+
+        if not self._post_upgrade_redeploys():
+            return
 
         logger.info('Upgrade: Complete!')
         if self.upgrade_state.progress_id:

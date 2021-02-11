@@ -1346,8 +1346,8 @@ def do_autotrim(zone_bucket):
             assert before_trim < after_trim, "any datalog entries must be newer than trim"
 
 def test_datalog_backing():
-    default_logtype = 'fifo'
-    other_logtype = 'omap'
+    default_logtype = 'omap'
+    other_logtype = 'fifo'
     zonegroup = realm.master_zonegroup()
     zonegroup_conns = ZonegroupConns(zonegroup)
     buckets, zone_bucket = create_bucket_per_zone(zonegroup_conns)

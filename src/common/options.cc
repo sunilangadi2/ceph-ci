@@ -7321,7 +7321,7 @@ std::vector<Option> get_rgw_options() {
     .add_see_also("rgw_dmclock_metadata_wgt"),
 
    Option("rgw_default_data_log_backing", Option::TYPE_STR, Option::LEVEL_ADVANCED)
-    .set_default("fifo")
+    .set_default("omap")
     .set_enum_allowed( { "fifo", "omap" } )
     .set_description("Default backing store for the RGW data sync log")
     .set_long_description(

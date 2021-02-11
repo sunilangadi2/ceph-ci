@@ -938,6 +938,8 @@ def attempt_bind(ctx, s, address, port):
             raise OSError(msg)
         elif e.errno == errno.EADDRNOTAVAIL:
             pass
+        else:
+            raise e
     finally:
         s.close()
 
@@ -946,16 +948,23 @@ def port_in_use(ctx, port_num):
     # type: (CephadmContext, int) -> bool
     """Detect whether a port is in use on the local machine - IPv4 and IPv6"""
     logger.info('Verifying port %d ...' % port_num)
-    try:
-        s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        attempt_bind(ctx, s, '0.0.0.0', port_num)
-
-        s = socket.socket(socket.AF_INET6, socket.SOCK_STREAM)
-        attempt_bind(ctx, s, '::', port_num)
-    except OSError:
-        return True
-    else:
-        return False
+    def _port_in_use(af: socket.AddressFamily, address: str) -> bool:
+        try:
+            s = socket.socket(af, socket.SOCK_STREAM)
+            attempt_bind(ctx, s, address, port_num)
+        except OSError as e:
+            # If IPv4 or IPv6 is not supported, do not automatically return "occupied"
+            if e.errno == errno.EAFNOSUPPORT:
+                return False
+            elif e.errno == errno.EADDRINUSE:
+                return True
+            raise e
+        else:
+            return False
+    return any(_port_in_use(af, address) for af, address in (
+        (socket.AF_INET, '0.0.0.0'),
+        (socket.AF_INET6, '::')
+    ))
 
 
 def check_ip_port(ctx, ip, port):

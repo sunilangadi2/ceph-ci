@@ -12,8 +12,9 @@ overrides:
     - \(PG_AVAILABILITY\)
     - \(PG_DEGRADED\)
     conf:
-      client:
-        debug ms: 1
+      global:
+        debug auth: 20
+        debug ms: 20
       mon:
         mon warn on pool no app: false
 tasks:

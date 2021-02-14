@@ -162,7 +162,7 @@ void is_intended_refcount_state(librados::IoCtx& src_ioctx,
 				std::string src_oid,
 				librados::IoCtx& dst_ioctx,
 				std::string dst_oid,
-				int expected_refcount)
+				vector<int> expected_refcounts)
 {
   int src_refcount = 0, dst_refcount = 0;
   bufferlist t;
@@ -186,7 +186,7 @@ void is_intended_refcount_state(librados::IoCtx& src_ioctx,
     src_refcount = r;
   }
   ASSERT_TRUE(src_refcount >= 0);
-  ASSERT_TRUE(src_refcount == expected_refcount);
+  ASSERT_TRUE(std::count(expected_refcounts.begin(), expected_refcounts.end(), src_refcount));
   ASSERT_TRUE(src_refcount <= dst_refcount);
 }
 
@@ -3648,7 +3648,7 @@ TEST_F(LibRadosTwoPoolsPP, ManifestSnapRefcount) {
     sha1_gen.Update((const unsigned char *)"hi", size);
     sha1_gen.Final(fingerprint);
     buf_to_hex(fingerprint, CEPH_CRYPTO_SHA1_DIGESTSIZE, p_str);
-    is_intended_refcount_state(ioctx, "foo", cache_ioctx, p_str, 1);
+    is_intended_refcount_state(ioctx, "foo", cache_ioctx, p_str, vector<int> {1});
   }
 
   // check chunk's refcount
@@ -3693,7 +3693,7 @@ TEST_F(LibRadosTwoPoolsPP, ManifestSnapRefcount) {
     sha1_gen.Update((const unsigned char *)"hi", size);
     sha1_gen.Final(fingerprint);
     buf_to_hex(fingerprint, CEPH_CRYPTO_SHA1_DIGESTSIZE, p_str);
-    is_intended_refcount_state(ioctx, "foo", cache_ioctx, p_str, 1);
+    is_intended_refcount_state(ioctx, "foo", cache_ioctx, p_str, vector<int> {1});
   }
 
   // remove snap
@@ -3716,7 +3716,7 @@ TEST_F(LibRadosTwoPoolsPP, ManifestSnapRefcount) {
     sha1_gen.Update((const unsigned char *)"bb", size);
     sha1_gen.Final(fingerprint);
     buf_to_hex(fingerprint, CEPH_CRYPTO_SHA1_DIGESTSIZE, p_str);
-    is_intended_refcount_state(ioctx, "foo", cache_ioctx, p_str, 1);
+    is_intended_refcount_state(ioctx, "foo", cache_ioctx, p_str, vector<int> {1});
   }
 
   // remove snap
@@ -3738,7 +3738,7 @@ TEST_F(LibRadosTwoPoolsPP, ManifestSnapRefcount) {
     sha1_gen.Update((const unsigned char *)"bb", size);
     sha1_gen.Final(fingerprint);
     buf_to_hex(fingerprint, CEPH_CRYPTO_SHA1_DIGESTSIZE, p_str);
-    is_intended_refcount_state(ioctx, "foo", cache_ioctx, p_str, 1);
+    is_intended_refcount_state(ioctx, "foo", cache_ioctx, p_str, vector<int> {1});
   }
 
   // check chunk's refcount
@@ -3751,7 +3751,7 @@ TEST_F(LibRadosTwoPoolsPP, ManifestSnapRefcount) {
     sha1_gen.Update((const unsigned char *)"hi", size);
     sha1_gen.Final(fingerprint);
     buf_to_hex(fingerprint, CEPH_CRYPTO_SHA1_DIGESTSIZE, p_str);
-    is_intended_refcount_state(ioctx, "foo", cache_ioctx, p_str, 1);
+    is_intended_refcount_state(ioctx, "foo", cache_ioctx, p_str, vector<int> {1});
   }
 }
 
@@ -3974,7 +3974,7 @@ TEST_F(LibRadosTwoPoolsPP, ManifestSnapRefcount2) {
     sha1_gen.Update((const unsigned char *)"BB", size);
     sha1_gen.Final(fingerprint);
     buf_to_hex(fingerprint, CEPH_CRYPTO_SHA1_DIGESTSIZE, p_str);
-    is_intended_refcount_state(ioctx, "foo", cache_ioctx, p_str, 0);
+    is_intended_refcount_state(ioctx, "foo", cache_ioctx, p_str, vector<int> {0, 2});
   }
 }
 
@@ -4304,7 +4304,7 @@ TEST_F(LibRadosTwoPoolsPP, ManifestCheckRefcountWhenModification) {
     sha1_gen.Update((const unsigned char *)"ai", size);
     sha1_gen.Final(fingerprint);
     buf_to_hex(fingerprint, CEPH_CRYPTO_SHA1_DIGESTSIZE, p_str);
-    is_intended_refcount_state(ioctx, "foo", cache_ioctx, p_str, 0);
+    is_intended_refcount_state(ioctx, "foo", cache_ioctx, p_str,  vector<int> {0});
   }
 
   // foo snap[0]: [er] [hi] [HI]
@@ -4357,7 +4357,7 @@ TEST_F(LibRadosTwoPoolsPP, ManifestCheckRefcountWhenModification) {
     sha1_gen.Update((const unsigned char *)"Er", size);
     sha1_gen.Final(fingerprint);
     buf_to_hex(fingerprint, CEPH_CRYPTO_SHA1_DIGESTSIZE, p_str);
-    is_intended_refcount_state(ioctx, "foo", cache_ioctx, p_str, 0);
+    is_intended_refcount_state(ioctx, "foo", cache_ioctx, p_str, vector<int> {0});
   }
 }
 
@@ -4474,7 +4474,7 @@ TEST_F(LibRadosTwoPoolsPP, ManifestSnapIncCount) {
   sleep(10);
 
   // check chunk's refcount
-  is_intended_refcount_state(ioctx, "foo", cache_ioctx, "chunk4", 1);
+  is_intended_refcount_state(ioctx, "foo", cache_ioctx, "chunk4", vector<int> {1});
 }
 
 TEST_F(LibRadosTwoPoolsPP, ManifestEvict) {
@@ -5382,7 +5382,7 @@ TEST_F(LibRadosTwoPoolsPP, ManifestFlushDupCount) {
     sha1_gen.Update((const unsigned char *)chunk2.c_str(), size);
     sha1_gen.Final(fingerprint);
     buf_to_hex(fingerprint, CEPH_CRYPTO_SHA1_DIGESTSIZE, p_str);
-    is_intended_refcount_state(cache_ioctx, "foo", ioctx, p_str, 0);
+    is_intended_refcount_state(cache_ioctx, "foo", ioctx, p_str, vector<int> {0});
   }
 }
 

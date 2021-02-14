@@ -204,7 +204,7 @@ public:
 
 template<typename T>
 int D3nRGWDataCache<T>::flush_read_list(const DoutPrefixProvider *dpp, struct get_obj_data* d) {
-  lsubdout(g_ceph_context, rgw_datacache, 30) << "D3nDataCache: " << __func__ << "()" << dendl;
+  ldpp_dout(dpp, 20) << "D3nDataCache: D3nRGWDataCache<T>::" << __func__ << "()" << dendl;
   d->d3n_datacache_lock.lock();
   std::list<bufferlist> l;
   l.swap(d->d3n_read_list);

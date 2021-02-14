@@ -541,6 +541,10 @@ public:
     return *this;
   }
 
+  bool get_use_datacache() {
+    return use_datacache;
+  }
+
   RGWLC *get_lc() {
     return lc;
   }

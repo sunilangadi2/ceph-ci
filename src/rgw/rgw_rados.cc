@@ -6351,7 +6351,7 @@ static int _get_obj_iterate_cb(const DoutPrefixProvider *dpp, const rgw_raw_obj&
 
 int RGWRados::flush_read_list(const DoutPrefixProvider *dpp, struct get_obj_data* d)
 {
-  lsubdout(g_ceph_context, rgw_datacache, 20) << "D3nDataCache: " << __func__ << "()" << dendl;
+  ldpp_dout(dpp, 20) << "D3nDataCache: RGWRados::" << __func__ << "()" << dendl;
   d->d3n_datacache_lock.lock();
   list<bufferlist> l;
   l.swap(d->d3n_read_list);
@@ -6444,7 +6444,7 @@ int RGWRados::Object::Read::iterate(const DoutPrefixProvider *dpp, int64_t ofs, 
   }
 
   r = data.drain();
-  if( cct->_conf->rgw_d3n_l1_local_datacache_enabled ) {
+  if( store->get_use_datacache() ) {
     ldpp_dout(dpp, 20) << "D3nDataCache: " << __func__ << "(): flush read list" << dendl;
     r = store->flush_read_list(dpp, &data);
     if (r < 0)

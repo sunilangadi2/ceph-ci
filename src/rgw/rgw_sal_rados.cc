@@ -1279,9 +1279,8 @@ LCSerializer* RadosLifecycle::get_serializer(const std::string& lock_name, const
 rgw::sal::RGWRadosStore *RGWStoreManager::init_storage_provider(const DoutPrefixProvider *dpp, CephContext *cct, bool use_gc_thread, bool use_lc_thread, bool quota_threads, bool run_sync_thread, bool run_reshard_thread, bool use_metacache, bool use_datacache)
 {
   RGWRados *rados{nullptr};
-  use_datacache = cct->_conf->rgw_d3n_l1_local_datacache_enabled;
+  lsubdout(g_ceph_context, rgw_datacache, 5) << "D3nDataCache: " << __func__ << "(): use_datacache=" << use_datacache << dendl;
   if (use_datacache) {
-    lsubdout(g_ceph_context, rgw_datacache, 5) << "D3nDataCache: " << __func__ << "(): rgw_d3n_l1_local_datacache_enabled" << dendl;
     rados = new D3nRGWDataCache<RGWRados>;
   } else {
     rados = new RGWRados;

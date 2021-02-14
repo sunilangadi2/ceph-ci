@@ -336,7 +336,16 @@ int radosgw_Main(int argc, const char **argv)
   lsubdout(cct, rgw_datacache, 5) << "rgw_d3n: rgw_d3n_l1_libaio_read=" << cct->_conf->rgw_d3n_l1_libaio_read << dendl;
   lsubdout(cct, rgw_datacache, 5) << "rgw_d3n: rgw_d3n_l1_fadvise=" << cct->_conf->rgw_d3n_l1_fadvise << dendl;
   lsubdout(cct, rgw_datacache, 5) << "rgw_d3n: rgw_d3n_l1_eviction_policy=" << cct->_conf->rgw_d3n_l1_eviction_policy << dendl;
-  bool rgw_d3n_datacache_enabled = g_conf()->rgw_d3n_l1_local_datacache_enabled;
+  bool rgw_d3n_datacache_enabled = true;
+  for (list<string>::iterator iter = frontends.begin(); iter != frontends.end(); ++iter) {
+    string& f = *iter;
+    if (f.find("beast") == string::npos) {
+      rgw_d3n_datacache_enabled = false;
+    }
+  }
+  if (rgw_d3n_datacache_enabled == false)
+    lsubdout(cct, rgw_datacache, 0) << "rgw_d3n:  WARNING: D3N DataCache disabled, (only the 'Beast' framework is currently supported)" << dendl;
+  g_conf()->rgw_d3n_l1_local_datacache_enabled = rgw_d3n_datacache_enabled && cct->_conf->rgw_d3n_l1_local_datacache_enabled;
   const DoutPrefix dp(cct.get(), dout_subsys, "rgw main: ");
   rgw::sal::RGWRadosStore *store =
     RGWStoreManager::get_storage(&dp, g_ceph_context,
@@ -346,7 +355,7 @@ int radosgw_Main(int argc, const char **argv)
 				 g_conf()->rgw_run_sync_thread,
 				 g_conf().get_val<bool>("rgw_dynamic_resharding"),
 				 g_conf()->rgw_cache_enabled,
-				 rgw_d3n_datacache_enabled);
+				 g_conf()->rgw_d3n_l1_local_datacache_enabled);
   if (!store) {
     mutex.lock();
     init_timer.cancel_all_events();

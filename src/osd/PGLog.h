@@ -818,14 +818,14 @@ public:
   void roll_forward_to(
     eversion_t roll_forward_to,
     LogEntryHandler *h) {
-    if(log->should_rollforward){
+    if (log.should_rollforward) {
     if (log.roll_forward_to(
 	  roll_forward_to,
 	  h))
       dirty_log = true;
     }
-    else {
-      ldpp_dout(dpp, 20) << __func__ << "not rollforwarded, should_rollforward not set" <<  dendl;
+    else { 
+      lgeneric_subdout(cct, osd, 20) << "not rollforwarded, should_rollforward not set" << dendl;
     }
   }
 

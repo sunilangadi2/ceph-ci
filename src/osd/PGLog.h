@@ -154,6 +154,7 @@ public:
     // recovery pointers
     std::list<pg_log_entry_t>::iterator complete_to; // not inclusive of referenced item
     version_t last_requested = 0;               // last object requested by primary
+    bool should_rollforward = false;
 
     //
   private:
@@ -817,10 +818,15 @@ public:
   void roll_forward_to(
     eversion_t roll_forward_to,
     LogEntryHandler *h) {
+    if(log->should_rollforward){
     if (log.roll_forward_to(
 	  roll_forward_to,
 	  h))
       dirty_log = true;
+    }
+    else {
+      ldpp_dout(dpp, 20) << __func__ << "not rollforwarded, should_rollforward not set" <<  dendl;
+    }
   }
 
   eversion_t get_can_rollback_to() const {
@@ -1267,11 +1273,9 @@ public:
     for (auto p = entries.begin(); p != entries.end(); ++p) {
       invalidate_stats = invalidate_stats || !p->is_error();
       if (log) {
+       log->should_rollforward = true;
        log->add(*p);
        ldpp_dout(dpp, 20) << "update missing, appended " << *p << dendl;
-       if (should_rollforward) {
-          *should_rollforward = true;
-       }
       }
       if (p->soid <= last_backfill &&
 	  !p->is_error()) {

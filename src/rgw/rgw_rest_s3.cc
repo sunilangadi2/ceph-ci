@@ -6095,9 +6095,9 @@ int RGWSelectObj_ObjStore_S3::create_message(std::string &out_string, u_int32_t 
   crc32->reset();
   *crc32 = std::for_each( buff, buff + i, *crc32 );//crc for payload + checksum
   message_crc = (*crc32)();
-  int out_encode;
-  encode_int(reinterpret_cast<char*>(&out_encode), message_crc, i);
-  out_string.append(reinterpret_cast<char*>(&out_encode),sizeof(out_encode));
+  char out_encode[4];
+  encode_int(out_encode, message_crc, i);
+  out_string.append(out_encode,sizeof(out_encode));
 
   return i;
 }

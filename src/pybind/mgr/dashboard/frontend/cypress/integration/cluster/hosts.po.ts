@@ -105,13 +105,12 @@ export class HostsPageHelper extends PageHelper {
     this.getTableCell(this.columnIndex.hostname, hostname)
       .parent()
       .find(`datatable-body-cell:nth-child(${this.columnIndex.labels})`)
-      .should(($ele) => {
-        const newLabels = $ele.text().split(', ');
+      .should(() => {
         for (const label of labels) {
           if (add) {
-            expect(newLabels).to.include(label);
+            cy.get('.badge').contains(label);
           } else {
-            expect(newLabels).to.not.include(label);
+            cy.get('.badge').should('not.contain', label);
           }
         }
       });

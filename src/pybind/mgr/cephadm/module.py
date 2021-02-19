@@ -2277,7 +2277,6 @@ class CephadmOrchestrator(orchestrator.Orchestrator, MgrModule,
                                                 replace=replace,
                                                 force=force,
                                                 hostname=daemon.hostname,
-                                                fullname=daemon.name(),
                                                 process_started_at=datetime_now(),
                                                 remove_util=self.to_remove_osds.rm_util))
             except NotFoundError:

@@ -19,12 +19,11 @@ from ceph.deployment.service_spec import ServiceSpec, HostPlacementSpec, \
 from ceph.utils import str_to_datetime, datetime_now
 
 import orchestrator
-from orchestrator import OrchestratorError, set_exception_subject, OrchestratorEvent
+from orchestrator import OrchestratorError, set_exception_subject, OrchestratorEvent, daemon_type_to_service, service_to_daemon_types
 from cephadm.services.cephadmservice import CephadmDaemonSpec
 from cephadm.schedule import HostAssignment
 from cephadm.utils import forall_hosts, cephadmNoImage, is_repo_digest, \
     CephadmNoImage, CEPH_UPGRADE_ORDER, ContainerInspectInfo
-from orchestrator._interface import daemon_type_to_service, service_to_daemon_types
 
 if TYPE_CHECKING:
     from cephadm.module import CephadmOrchestrator

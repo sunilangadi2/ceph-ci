@@ -1467,23 +1467,28 @@ int RGWRadosObject::RadosStatOp::stat_async()
   return parent_op.stat_async();
 }
 
-int RGWRadosObject::RadosStatOp::wait()
+int RGWRadosObject::RadosStatOp::wait(const DoutPrefixProvider *dpp)
 {
+  ldpp_dout(dpp, 20) << "X-Wing 1" << dendl;
   result.obj = source;
   int ret =  parent_op.wait();
+  ldpp_dout(dpp, 20) << "X-Wing 2 ret=" << ret << dendl;
   if (ret < 0)
     return ret;
 
+  ldpp_dout(dpp, 20) << "X-Wing 3" << dendl;
   source->obj_size = parent_op.result.size;
   source->mtime = ceph::real_clock::from_timespec(parent_op.result.mtime);
   source->attrs = parent_op.result.attrs;
   source->key = parent_op.result.obj.key;
   source->in_extra_data = parent_op.result.obj.in_extra_data;
   source->index_hash_source = parent_op.result.obj.index_hash_source;
+  ldpp_dout(dpp, 20) << "X-Wing 4" << dendl;
   if (parent_op.result.manifest)
     result.manifest = &(*parent_op.result.manifest);
   else
     result.manifest = nullptr;
+  ldpp_dout(dpp, 20) << "X-Wing 5" << dendl;
 
   return ret;
 }

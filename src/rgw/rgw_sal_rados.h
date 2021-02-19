@@ -132,7 +132,7 @@ class RGWRadosObject : public RGWObject {
       RadosStatOp(RGWRadosObject* _source, RGWObjectCtx* _rctx);
 
       virtual int stat_async() override;
-      virtual int wait() override;
+      virtual int wait(const DoutPrefixProvider *dpp) override;
     };
 
     RGWRadosObject() = default;

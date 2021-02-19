@@ -180,7 +180,7 @@ class RGWOrphanSearch {
   }
 
   int handle_stat_result(map<int, list<string> >& oids, rgw::sal::RGWObject::StatOp::Result& result);
-  int pop_and_handle_stat_op(map<int, list<string> >& oids, std::deque<std::unique_ptr<rgw::sal::RGWObject::StatOp>>& ops);
+  int pop_and_handle_stat_op(const DoutPrefixProvider *dpp, map<int, list<string> >& oids, std::deque<std::unique_ptr<rgw::sal::RGWObject::StatOp>>& ops);
 
 
   int remove_index(map<int, string>& index);
@@ -264,7 +264,7 @@ class RGWRadosList {
 			 std::string& bucket_name,
 			 rgw_obj_key& obj_key,
 			 std::set<string>& obj_oids);
-  int pop_and_handle_stat_op(RGWObjectCtx& obj_ctx,
+  int pop_and_handle_stat_op(const DoutPrefixProvider *dpp, RGWObjectCtx& obj_ctx,
 			     std::deque<std::unique_ptr<rgw::sal::RGWObject::StatOp>>& ops);
 
 public:

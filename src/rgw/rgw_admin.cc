@@ -6085,17 +6085,23 @@ int main(int argc, const char **argv)
   } /* OPT::BUCKETS_LIST */
 
   if (opt_cmd == OPT::BUCKET_RADOS_LIST) {
+    cout << "Luke 1" << std::endl;
     RGWRadosList lister(store,
 			max_concurrent_ios, orphan_stale_secs, tenant);
+    cout << "Luke 2" << std::endl;
     if (rgw_obj_fs) {
+    cout << "Luke 3" << std::endl;
       lister.set_field_separator(*rgw_obj_fs);
     }
 
     if (bucket_name.empty()) {
+    cout << "Luke 4" << std::endl;
       ret = lister.run(dpp());
     } else {
+      cout << "Luke 5" << std::endl;
       ret = lister.run(dpp(), bucket_name);
     }
+      cout << "Luke 6 ret=" << ret << std::endl;
 
     if (ret < 0) {
       std::cerr <<

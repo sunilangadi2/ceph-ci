@@ -601,7 +601,7 @@ class RGWObject {
       virtual ~StatOp() = default;
 
       virtual int stat_async() = 0;
-      virtual int wait() = 0;
+      virtual int wait(const DoutPrefixProvider *dpp) = 0;
     };
 
     RGWObject()

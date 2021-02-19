@@ -233,7 +233,7 @@ void Mgr::init()
   monc->with_monmap(
     [&](const MonMap &monmap) {
       if (monmap.get_required_features().contains_all(
-	    ceph::features::mon::FEATURE_PACIFIC)) {
+	    ceph::features::mon::FEATURE_QUINCY)) {
 	mon_allows_kv_sub = true;
       }
     });

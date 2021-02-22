@@ -309,6 +309,7 @@ int RGWRadosBucket::get_bucket_info(const DoutPrefixProvider *dpp, optional_yiel
 
   RGWSI_MetaBackend_CtxParams bectx_params = RGWSI_MetaBackend_CtxParams_SObj(&obj_ctx);
   RGWObjVersionTracker ep_ot;
+  ldpp_dout(dpp, 20) << "DFG 1 bucket=" << this << dendl;
   if (info.bucket.bucket_id.empty()) {
     ret = store->ctl()->bucket->read_bucket_info(info.bucket, &info, y, dpp,
 				      RGWBucketCtl::BucketInstance::GetParams()
@@ -316,17 +317,20 @@ int RGWRadosBucket::get_bucket_info(const DoutPrefixProvider *dpp, optional_yiel
 				      .set_attrs(&attrs)
                                       .set_bectx_params(bectx_params),
 				      &ep_ot);
+    ldpp_dout(dpp, 20) << "DFG 2 ret=" << ret << dendl;
   } else {
     ret  = store->ctl()->bucket->read_bucket_instance_info(info.bucket, &info, y, dpp,
 				      RGWBucketCtl::BucketInstance::GetParams()
 				      .set_mtime(&mtime)
 				      .set_attrs(&attrs)
 				      .set_bectx_params(bectx_params));
+    ldpp_dout(dpp, 20) << "DFG 3 ret=" << ret << dendl;
   }
   if (ret == 0) {
     bucket_version = ep_ot.read_version;
     ent.placement_rule = info.placement_rule;
   }
+  ldpp_dout(dpp, 20) << "DFG 4 bucket=" << this << dendl;
   return ret;
 }
 

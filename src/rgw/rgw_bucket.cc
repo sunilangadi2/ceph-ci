@@ -478,12 +478,14 @@ int RGWBucket::init(rgw::sal::RGWStore *_store, RGWBucketAdminOpState& op_state,
     bucket_name = bucket_name.substr(pos + 1);
   }
 
+  ldpp_dout(dpp, 20) << "Wedge 1 bucket_name=" << bucket_name << dendl;
   int r = store->get_bucket(dpp, user.get(), tenant, bucket_name, &bucket, y);
   if (r < 0) {
       set_err_msg(err_msg, "failed to fetch bucket info for bucket=" + bucket_name);
       return r;
   }
 
+  ldpp_dout(dpp, 20) << "Wedge 2" << dendl;
   op_state.set_bucket(bucket->clone());
 
   if (!rgw::sal::RGWUser::empty(user.get())) {
@@ -496,6 +498,7 @@ int RGWBucket::init(rgw::sal::RGWStore *_store, RGWBucketAdminOpState& op_state,
 
   op_state.display_name = user->get_display_name();
 
+  ldpp_dout(dpp, 20) << "Wedge 3 bucket=" << op_state.get_bucket() << dendl;
   clear_failure();
   return 0;
 }
@@ -540,6 +543,7 @@ bool rgw_find_bucket_by_id(CephContext *cct, rgw::sal::RGWStore* store,
 int RGWBucket::link(RGWBucketAdminOpState& op_state, optional_yield y, const DoutPrefixProvider *dpp,
                     std::string *err_msg)
 {
+  ldpp_dout(dpp, 20) << "Lando 1" << dendl;
   if (!op_state.is_user_op()) {
     set_err_msg(err_msg, "empty user id");
     return -EINVAL;
@@ -549,8 +553,10 @@ int RGWBucket::link(RGWBucketAdminOpState& op_state, optional_yield y, const Dou
   std::string display_name = op_state.get_user_display_name();
   std::unique_ptr<rgw::sal::RGWBucket> loc_bucket;
   std::unique_ptr<rgw::sal::RGWBucket> old_bucket;
+  ldpp_dout(dpp, 20) << "Lando 2 display_name=" << display_name << dendl;
 
   loc_bucket = op_state.get_bucket()->clone();
+  ldpp_dout(dpp, 20) << "Lando 3 loc_bucket=" << loc_bucket << dendl;
 
   if (!bucket_id.empty() && bucket_id != loc_bucket->get_bucket_id()) {
     set_err_msg(err_msg,
@@ -559,7 +565,7 @@ int RGWBucket::link(RGWBucketAdminOpState& op_state, optional_yield y, const Dou
   }
 
   old_bucket = loc_bucket->clone();
-
+  ldpp_dout(dpp, 20) << "Lando 4 old_bucket=" << old_bucket << dendl;
   loc_bucket->get_key().tenant = op_state.get_user_id().tenant;
 
   if (!op_state.new_bucket_name.empty()) {
@@ -575,6 +581,7 @@ int RGWBucket::link(RGWBucketAdminOpState& op_state, optional_yield y, const Dou
   RGWObjVersionTracker objv_tracker;
   RGWObjVersionTracker old_version = loc_bucket->get_info().objv_tracker;
 
+  ldpp_dout(dpp, 20) << "Lando 5" << dendl;
   map<string, bufferlist>::iterator aiter = loc_bucket->get_attrs().find(RGW_ATTR_ACL);
   if (aiter == loc_bucket->get_attrs().end()) {
 	// should never happen; only pre-argonaut buckets lacked this.
@@ -584,6 +591,7 @@ int RGWBucket::link(RGWBucketAdminOpState& op_state, optional_yield y, const Dou
 	"  You must sacrifice your ancient bucket " + loc_bucket->get_bucket_id());
     return -EINVAL;
   }
+  ldpp_dout(dpp, 20) << "Lando 6" << dendl;
   bufferlist& aclbl = aiter->second;
   RGWAccessControlPolicy policy;
   ACLOwner owner;
@@ -595,10 +603,12 @@ int RGWBucket::link(RGWBucketAdminOpState& op_state, optional_yield y, const Dou
     set_err_msg(err_msg, "couldn't decode policy");
     return -EIO;
   }
+  ldpp_dout(dpp, 20) << "Lando 7 owner=" << owner.get_id() << dendl;
 
   std::unique_ptr<rgw::sal::RGWUser> owner_user = store->get_user(owner.get_id());
 
   int r = old_bucket->unlink(dpp, owner_user.get(), y, false);
+  ldpp_dout(dpp, 20) << "Lando 8 r=" << r << dendl;
   if (r < 0) {
     set_err_msg(err_msg, "could not unlink policy from user " + owner_user->get_id().to_str());
     return r;
@@ -612,6 +622,7 @@ int RGWBucket::link(RGWBucketAdminOpState& op_state, optional_yield y, const Dou
   RGWAccessControlPolicy policy_instance;
   policy_instance.create_default(user->get_id(), display_name);
   owner = policy_instance.get_owner();
+  ldpp_dout(dpp, 20) << "Lando 9 owner=" << owner.get_id() << dendl;
 
   aclbl.clear();
   policy_instance.encode(aclbl);
@@ -646,19 +657,24 @@ int RGWBucket::link(RGWBucketAdminOpState& op_state, optional_yield y, const Dou
 
   if (*loc_bucket != *old_bucket) {
     // like RGWRados::delete_bucket -- excepting no bucket_index work.
+  ldpp_dout(dpp, 20) << "Lando 15" << dendl;
     r = old_bucket->remove_entrypoint(dpp, &objv, y);
+  ldpp_dout(dpp, 20) << "Lando 16 r=" << r << dendl;
     if (r < 0) {
       set_err_msg(err_msg, "failed to unlink old bucket endpoint " + old_bucket->get_tenant() + "/" + old_bucket->get_name());
       return r;
     }
 
+  ldpp_dout(dpp, 20) << "Lando 17" << dendl;
     r = old_bucket->remove_instance_info(dpp, &old_version, y);
+  ldpp_dout(dpp, 20) << "Lando 18 r=" << r << dendl;
     if (r < 0) {
       set_err_msg(err_msg, "failed to unlink old bucket info");
       return r;
     }
   }
 
+  ldpp_dout(dpp, 20) << "Lando 19" << dendl;
   return 0;
 }
 
@@ -927,26 +943,32 @@ int RGWBucket::check_index(RGWBucketAdminOpState& op_state,
 
 int RGWBucket::sync(RGWBucketAdminOpState& op_state, const DoutPrefixProvider *dpp, std::string *err_msg)
 {
+  ldpp_dout(dpp, 20) << "C3PO 1" << dendl;
   if (!store->is_meta_master()) {
     set_err_msg(err_msg, "ERROR: failed to update bucket sync: only allowed on meta master zone");
     return EINVAL;
   }
+  ldpp_dout(dpp, 20) << "C3PO 2" << dendl;
   bool sync = op_state.will_sync_bucket();
   if (sync) {
     bucket->get_info().flags &= ~BUCKET_DATASYNC_DISABLED;
   } else {
     bucket->get_info().flags |= BUCKET_DATASYNC_DISABLED;
   }
+  ldpp_dout(dpp, 20) << "C3PO 3" << dendl;
 
   int r = bucket->put_instance_info(dpp, false, real_time());
+  ldpp_dout(dpp, 20) << "C3PO 4 r=" << r << dendl;
   if (r < 0) {
     set_err_msg(err_msg, "ERROR: failed writing bucket instance info:" + cpp_strerror(-r));
     return r;
   }
+  ldpp_dout(dpp, 20) << "C3PO 5" << dendl;
 
   int shards_num = bucket->get_info().layout.current_index.layout.normal.num_shards? bucket->get_info().layout.current_index.layout.normal.num_shards : 1;
   int shard_id = bucket->get_info().layout.current_index.layout.normal.num_shards? 0 : -1;
 
+  ldpp_dout(dpp, 20) << "C3PO 7" << dendl;
   if (!sync) {
     r = static_cast<rgw::sal::RGWRadosStore*>(store)->svc()->bilog_rados->log_stop(bucket->get_info(), -1);
     if (r < 0) {
@@ -960,6 +982,7 @@ int RGWBucket::sync(RGWBucketAdminOpState& op_state, const DoutPrefixProvider *d
       return r;
     }
   }
+  ldpp_dout(dpp, 20) << "C3PO 8" << dendl;
 
   for (int i = 0; i < shards_num; ++i, ++shard_id) {
     r = static_cast<rgw::sal::RGWRadosStore*>(store)->svc()->datalog_rados->add_entry(dpp, bucket->get_info(), shard_id);
@@ -968,6 +991,7 @@ int RGWBucket::sync(RGWBucketAdminOpState& op_state, const DoutPrefixProvider *d
       return r;
     }
   }
+  ldpp_dout(dpp, 20) << "C3PO 9" << dendl;
 
   return 0;
 }

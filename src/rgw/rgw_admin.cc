@@ -7467,6 +7467,7 @@ next:
   }
 
   if (opt_cmd == OPT::METADATA_GET) {
+    cerr << "DFG metadata-get key=" << metadata_key << std::endl;
     int ret = static_cast<rgw::sal::RGWRadosStore*>(store)->ctl()->meta.mgr->get(metadata_key, formatter.get(), null_yield, dpp());
     if (ret < 0) {
       cerr << "ERROR: can't get key: " << cpp_strerror(-ret) << std::endl;

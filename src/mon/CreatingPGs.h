@@ -30,12 +30,7 @@ struct creating_pgs_t {
 
     void encode(ceph::buffer::list& bl, uint64_t features) const {
       using ceph::encode;
-      if (!HAVE_FEATURE(features, SERVER_OCTOPUS)) {
-	// was pair<epoch_t,utime_t> prior to octopus
-	encode(create_epoch, bl);
-	encode(create_stamp, bl);
-	return;
-      }
+      assert(HAVE_FEATURE(features, SERVER_OCTOPUS));
       ENCODE_START(1, 1, bl);
       encode(create_epoch, bl);
       encode(create_stamp, bl);
@@ -157,9 +152,7 @@ struct creating_pgs_t {
   }
   void encode(ceph::buffer::list& bl, uint64_t features) const {
     unsigned v = 3;
-    if (!HAVE_FEATURE(features, SERVER_OCTOPUS)) {
-      v = 2;
-    }
+    assert(HAVE_FEATURE(features, SERVER_OCTOPUS));
     ENCODE_START(v, 1, bl);
     encode(last_scan_epoch, bl);
     encode(pgs, bl, features);
@@ -170,22 +163,9 @@ struct creating_pgs_t {
   void decode(ceph::buffer::list::const_iterator& bl) {
     DECODE_START(3, bl);
     decode(last_scan_epoch, bl);
-    if (struct_v >= 3) {
-      decode(pgs, bl);
-    } else {
-      // legacy pg encoding
-      pgs.clear();
-      uint32_t num;
-      decode(num, bl);
-      while (num--) {
-	pg_t pgid;
-	decode(pgid, bl);
-	pgs[pgid].decode_legacy(bl);
-      }
-    }
+    decode(pgs, bl);
     decode(created_pools, bl);
-    if (struct_v >= 2)
-      decode(queue, bl);
+    decode(queue, bl);
     DECODE_FINISH(bl);
   }
   void dump(ceph::Formatter *f) const {

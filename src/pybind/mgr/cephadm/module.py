@@ -34,7 +34,8 @@ from mgr_util import create_self_signed_cert
 import secrets
 import orchestrator
 from orchestrator import OrchestratorError, OrchestratorValidationError, HostSpec, \
-    CLICommandMeta, DaemonDescription, DaemonDescriptionStatus
+    CLICommandMeta, DaemonDescription, DaemonDescriptionStatus, \
+    service_to_daemon_types
 from orchestrator._interface import GenericSpec
 from orchestrator._interface import daemon_type_to_service
 
@@ -1951,18 +1952,15 @@ class CephadmOrchestrator(orchestrator.Orchestrator, MgrModule,
         return create_func_map(args)
 
     @trivial_completion
+    def add_daemon(self, spec: ServiceSpec) -> List[str]:
+        ret: List[str] = []
+        for d_type in service_to_daemon_types(spec.service_type):
+            ret.extend(self._add_daemon(d_type, spec))
+        return ret
+
+    @trivial_completion
     def apply_mon(self, spec: ServiceSpec) -> str:
         return self._apply(spec)
-
-    @trivial_completion
-    def add_mon(self, spec):
-        # type: (ServiceSpec) -> List[str]
-        return self._add_daemon('mon', spec)
-
-    @trivial_completion
-    def add_mgr(self, spec):
-        # type: (ServiceSpec) -> List[str]
-        return self._add_daemon('mgr', spec)
 
     def _apply(self, spec: GenericSpec) -> str:
         if spec.service_type == 'host':
@@ -2062,16 +2060,8 @@ class CephadmOrchestrator(orchestrator.Orchestrator, MgrModule,
         return self._apply(spec)
 
     @trivial_completion
-    def add_mds(self, spec: ServiceSpec) -> List[str]:
-        return self._add_daemon('mds', spec)
-
-    @trivial_completion
     def apply_mds(self, spec: ServiceSpec) -> str:
         return self._apply(spec)
-
-    @trivial_completion
-    def add_rgw(self, spec: ServiceSpec) -> List[str]:
-        return self._add_daemon('rgw', spec)
 
     @trivial_completion
     def apply_rgw(self, spec: ServiceSpec) -> str:
@@ -2082,25 +2072,12 @@ class CephadmOrchestrator(orchestrator.Orchestrator, MgrModule,
         return self._apply(spec)
 
     @trivial_completion
-    def add_iscsi(self, spec):
-        # type: (ServiceSpec) -> List[str]
-        return self._add_daemon('iscsi', spec)
-
-    @trivial_completion
     def apply_iscsi(self, spec: ServiceSpec) -> str:
         return self._apply(spec)
 
     @trivial_completion
-    def add_rbd_mirror(self, spec: ServiceSpec) -> List[str]:
-        return self._add_daemon('rbd-mirror', spec)
-
-    @trivial_completion
     def apply_rbd_mirror(self, spec: ServiceSpec) -> str:
         return self._apply(spec)
-
-    @trivial_completion
-    def add_nfs(self, spec: ServiceSpec) -> List[str]:
-        return self._add_daemon('nfs', spec)
 
     @trivial_completion
     def apply_nfs(self, spec: ServiceSpec) -> str:
@@ -2111,62 +2088,28 @@ class CephadmOrchestrator(orchestrator.Orchestrator, MgrModule,
         return self.get('mgr_map').get('services', {}).get('dashboard', '')
 
     @trivial_completion
-    def add_prometheus(self, spec: ServiceSpec) -> List[str]:
-        return self._add_daemon('prometheus', spec)
-
-    @trivial_completion
     def apply_prometheus(self, spec: ServiceSpec) -> str:
         return self._apply(spec)
-
-    @trivial_completion
-    def add_node_exporter(self, spec):
-        # type: (ServiceSpec) -> List[str]
-        return self._add_daemon('node-exporter', spec)
 
     @trivial_completion
     def apply_node_exporter(self, spec: ServiceSpec) -> str:
         return self._apply(spec)
 
     @trivial_completion
-    def add_crash(self, spec):
-        # type: (ServiceSpec) -> List[str]
-        return self._add_daemon('crash', spec)
-
-    @trivial_completion
     def apply_crash(self, spec: ServiceSpec) -> str:
         return self._apply(spec)
-
-    @trivial_completion
-    def add_grafana(self, spec):
-        # type: (ServiceSpec) -> List[str]
-        return self._add_daemon('grafana', spec)
 
     @trivial_completion
     def apply_grafana(self, spec: ServiceSpec) -> str:
         return self._apply(spec)
 
     @trivial_completion
-    def add_alertmanager(self, spec):
-        # type: (ServiceSpec) -> List[str]
-        return self._add_daemon('alertmanager', spec)
-
-    @trivial_completion
     def apply_alertmanager(self, spec: ServiceSpec) -> str:
         return self._apply(spec)
 
     @trivial_completion
-    def add_container(self, spec: ServiceSpec) -> List[str]:
-        return self._add_daemon('container', spec)
-
-    @trivial_completion
     def apply_container(self, spec: ServiceSpec) -> str:
         return self._apply(spec)
-
-    @trivial_completion
-    def add_cephadm_exporter(self, spec):
-        # type: (ServiceSpec) -> List[str]
-        return self._add_daemon('cephadm-exporter',
-                                spec)
 
     @trivial_completion
     def apply_cephadm_exporter(self, spec: ServiceSpec) -> str:

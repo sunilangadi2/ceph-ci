@@ -11,7 +11,7 @@ from threading import Event
 
 import string
 from typing import List, Dict, Optional, Callable, Tuple, TypeVar, \
-    Any, Set, TYPE_CHECKING, cast, NamedTuple, Sequence
+    Any, Set, TYPE_CHECKING, cast, NamedTuple, Sequence, Type
 
 import datetime
 import os
@@ -413,41 +413,19 @@ class CephadmOrchestrator(orchestrator.Orchestrator, MgrModule,
 
         self.migration = Migrations(self)
 
-        # services:
-        self.osd_service = OSDService(self)
-        self.nfs_service = NFSService(self)
-        self.mon_service = MonService(self)
-        self.mgr_service = MgrService(self)
-        self.mds_service = MdsService(self)
-        self.rgw_service = RgwService(self)
-        self.rbd_mirror_service = RbdMirrorService(self)
-        self.grafana_service = GrafanaService(self)
-        self.alertmanager_service = AlertmanagerService(self)
-        self.prometheus_service = PrometheusService(self)
-        self.node_exporter_service = NodeExporterService(self)
-        self.crash_service = CrashService(self)
-        self.iscsi_service = IscsiService(self)
-        self.ha_rgw_service = HA_RGWService(self)
-        self.container_service = CustomContainerService(self)
-        self.cephadm_exporter_service = CephadmExporter(self)
-        self.cephadm_services = {
-            'mon': self.mon_service,
-            'mgr': self.mgr_service,
-            'osd': self.osd_service,
-            'mds': self.mds_service,
-            'rgw': self.rgw_service,
-            'rbd-mirror': self.rbd_mirror_service,
-            'nfs': self.nfs_service,
-            'grafana': self.grafana_service,
-            'alertmanager': self.alertmanager_service,
-            'prometheus': self.prometheus_service,
-            'node-exporter': self.node_exporter_service,
-            'crash': self.crash_service,
-            'iscsi': self.iscsi_service,
-            'ha-rgw': self.ha_rgw_service,
-            'container': self.container_service,
-            'cephadm-exporter': self.cephadm_exporter_service,
-        }
+        _service_clses: Sequence[Type[CephadmService]] = [
+            OSDService, NFSService, MonService, MgrService, MdsService,
+            RgwService, RbdMirrorService, GrafanaService, AlertmanagerService,
+            PrometheusService, NodeExporterService, CrashService, IscsiService,
+            HA_RGWService, CustomContainerService, CephadmExporter
+        ]
+
+        # https://github.com/python/mypy/issues/8993
+        self.cephadm_services: Dict[str, CephadmService] = {
+            cls.TYPE: cls(self) for cls in _service_clses}  # type: ignore
+
+        self.mgr_service: MgrService = cast(MgrService, self.cephadm_services['mgr'])
+        self.osd_service: OSDService = cast(OSDService, self.cephadm_services['osd'])
 
         self.template = TemplateMgr(self)
 
@@ -1910,8 +1888,7 @@ class CephadmOrchestrator(orchestrator.Orchestrator, MgrModule,
 
     def _add_daemon(self,
                     daemon_type: str,
-                    spec: ServiceSpec,
-                    create_func: Callable[..., CephadmDaemonDeploySpec]) -> List[str]:
+                    spec: ServiceSpec) -> List[str]:
         """
         Add (and place) a daemon. Require explicit host placement.  Do not
         schedule, and do not apply the related scheduling limitations.
@@ -1927,16 +1904,14 @@ class CephadmOrchestrator(orchestrator.Orchestrator, MgrModule,
         count = spec.placement.count or len(spec.placement.hosts)
         daemons = self.cache.get_daemons_by_service(spec.service_name())
         return self._create_daemons(daemon_type, spec, daemons,
-                                    spec.placement.hosts, count,
-                                    create_func)
+                                    spec.placement.hosts, count)
 
     def _create_daemons(self,
                         daemon_type: str,
                         spec: ServiceSpec,
                         daemons: List[DaemonDescription],
                         hosts: List[HostPlacementSpec],
-                        count: int,
-                        create_func: Callable[..., CephadmDaemonDeploySpec]) -> List[str]:
+                        count: int) -> List[str]:
         if count > len(hosts):
             raise OrchestratorError('too few hosts: want %d, have %s' % (
                 count, hosts))
@@ -1970,7 +1945,7 @@ class CephadmOrchestrator(orchestrator.Orchestrator, MgrModule,
 
         @ forall_hosts
         def create_func_map(*args: Any) -> str:
-            daemon_spec = create_func(*args)
+            daemon_spec = self.cephadm_services[daemon_type].prepare_create(*args)
             return CephadmServe(self)._create_daemon(daemon_spec)
 
         return create_func_map(args)
@@ -1982,12 +1957,12 @@ class CephadmOrchestrator(orchestrator.Orchestrator, MgrModule,
     @trivial_completion
     def add_mon(self, spec):
         # type: (ServiceSpec) -> List[str]
-        return self._add_daemon('mon', spec, self.mon_service.prepare_create)
+        return self._add_daemon('mon', spec)
 
     @trivial_completion
     def add_mgr(self, spec):
         # type: (ServiceSpec) -> List[str]
-        return self._add_daemon('mgr', spec, self.mgr_service.prepare_create)
+        return self._add_daemon('mgr', spec)
 
     def _apply(self, spec: GenericSpec) -> str:
         if spec.service_type == 'host':
@@ -2088,7 +2063,7 @@ class CephadmOrchestrator(orchestrator.Orchestrator, MgrModule,
 
     @trivial_completion
     def add_mds(self, spec: ServiceSpec) -> List[str]:
-        return self._add_daemon('mds', spec, self.mds_service.prepare_create)
+        return self._add_daemon('mds', spec)
 
     @trivial_completion
     def apply_mds(self, spec: ServiceSpec) -> str:
@@ -2096,7 +2071,7 @@ class CephadmOrchestrator(orchestrator.Orchestrator, MgrModule,
 
     @trivial_completion
     def add_rgw(self, spec: ServiceSpec) -> List[str]:
-        return self._add_daemon('rgw', spec, self.rgw_service.prepare_create)
+        return self._add_daemon('rgw', spec)
 
     @trivial_completion
     def apply_rgw(self, spec: ServiceSpec) -> str:
@@ -2109,7 +2084,7 @@ class CephadmOrchestrator(orchestrator.Orchestrator, MgrModule,
     @trivial_completion
     def add_iscsi(self, spec):
         # type: (ServiceSpec) -> List[str]
-        return self._add_daemon('iscsi', spec, self.iscsi_service.prepare_create)
+        return self._add_daemon('iscsi', spec)
 
     @trivial_completion
     def apply_iscsi(self, spec: ServiceSpec) -> str:
@@ -2117,7 +2092,7 @@ class CephadmOrchestrator(orchestrator.Orchestrator, MgrModule,
 
     @trivial_completion
     def add_rbd_mirror(self, spec: ServiceSpec) -> List[str]:
-        return self._add_daemon('rbd-mirror', spec, self.rbd_mirror_service.prepare_create)
+        return self._add_daemon('rbd-mirror', spec)
 
     @trivial_completion
     def apply_rbd_mirror(self, spec: ServiceSpec) -> str:
@@ -2125,7 +2100,7 @@ class CephadmOrchestrator(orchestrator.Orchestrator, MgrModule,
 
     @trivial_completion
     def add_nfs(self, spec: ServiceSpec) -> List[str]:
-        return self._add_daemon('nfs', spec, self.nfs_service.prepare_create)
+        return self._add_daemon('nfs', spec)
 
     @trivial_completion
     def apply_nfs(self, spec: ServiceSpec) -> str:
@@ -2137,7 +2112,7 @@ class CephadmOrchestrator(orchestrator.Orchestrator, MgrModule,
 
     @trivial_completion
     def add_prometheus(self, spec: ServiceSpec) -> List[str]:
-        return self._add_daemon('prometheus', spec, self.prometheus_service.prepare_create)
+        return self._add_daemon('prometheus', spec)
 
     @trivial_completion
     def apply_prometheus(self, spec: ServiceSpec) -> str:
@@ -2146,8 +2121,7 @@ class CephadmOrchestrator(orchestrator.Orchestrator, MgrModule,
     @trivial_completion
     def add_node_exporter(self, spec):
         # type: (ServiceSpec) -> List[str]
-        return self._add_daemon('node-exporter', spec,
-                                self.node_exporter_service.prepare_create)
+        return self._add_daemon('node-exporter', spec)
 
     @trivial_completion
     def apply_node_exporter(self, spec: ServiceSpec) -> str:
@@ -2156,8 +2130,7 @@ class CephadmOrchestrator(orchestrator.Orchestrator, MgrModule,
     @trivial_completion
     def add_crash(self, spec):
         # type: (ServiceSpec) -> List[str]
-        return self._add_daemon('crash', spec,
-                                self.crash_service.prepare_create)
+        return self._add_daemon('crash', spec)
 
     @trivial_completion
     def apply_crash(self, spec: ServiceSpec) -> str:
@@ -2166,7 +2139,7 @@ class CephadmOrchestrator(orchestrator.Orchestrator, MgrModule,
     @trivial_completion
     def add_grafana(self, spec):
         # type: (ServiceSpec) -> List[str]
-        return self._add_daemon('grafana', spec, self.grafana_service.prepare_create)
+        return self._add_daemon('grafana', spec)
 
     @trivial_completion
     def apply_grafana(self, spec: ServiceSpec) -> str:
@@ -2175,7 +2148,7 @@ class CephadmOrchestrator(orchestrator.Orchestrator, MgrModule,
     @trivial_completion
     def add_alertmanager(self, spec):
         # type: (ServiceSpec) -> List[str]
-        return self._add_daemon('alertmanager', spec, self.alertmanager_service.prepare_create)
+        return self._add_daemon('alertmanager', spec)
 
     @trivial_completion
     def apply_alertmanager(self, spec: ServiceSpec) -> str:
@@ -2183,8 +2156,7 @@ class CephadmOrchestrator(orchestrator.Orchestrator, MgrModule,
 
     @trivial_completion
     def add_container(self, spec: ServiceSpec) -> List[str]:
-        return self._add_daemon('container', spec,
-                                self.container_service.prepare_create)
+        return self._add_daemon('container', spec)
 
     @trivial_completion
     def apply_container(self, spec: ServiceSpec) -> str:
@@ -2194,8 +2166,7 @@ class CephadmOrchestrator(orchestrator.Orchestrator, MgrModule,
     def add_cephadm_exporter(self, spec):
         # type: (ServiceSpec) -> List[str]
         return self._add_daemon('cephadm-exporter',
-                                spec,
-                                self.cephadm_exporter_service.prepare_create)
+                                spec)
 
     @trivial_completion
     def apply_cephadm_exporter(self, spec: ServiceSpec) -> str:

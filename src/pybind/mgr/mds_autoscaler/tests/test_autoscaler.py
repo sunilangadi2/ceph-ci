@@ -16,10 +16,8 @@ from mds_autoscaler.module import MDSAutoscaler
 @pytest.yield_fixture()
 def mds_autoscaler_module():
 
-    with mock.patch("mds_autoscaler.module.MDSAutoscaler._orchestrator_wait"):
-        m = MDSAutoscaler('cephadm', 0, 0)
-
-        yield m
+    m = MDSAutoscaler('cephadm', 0, 0)
+    yield m
 
 
 class TestCephadm(object):

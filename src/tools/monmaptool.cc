@@ -195,7 +195,7 @@ int main(int argc, const char **argv)
   bool show_features = false;
   bool generate = false;
   bool filter = false;
-  ceph_release_t min_mon_release{0};
+  ceph_release_t min_mon_release = ceph_release_t::octopus;
   map<string,entity_addr_t> add;
   map<string,entity_addrvec_t> addv;
   list<string> rm;

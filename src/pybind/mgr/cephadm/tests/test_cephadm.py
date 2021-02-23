@@ -624,6 +624,7 @@ class TestCephadm(object):
             ServiceSpec('node-exporter'),
             ServiceSpec('alertmanager'),
             ServiceSpec('rbd-mirror'),
+            ServiceSpec('cephfs-mirror'),
             ServiceSpec('mds', service_id='fsname'),
             RGWSpec(rgw_realm='realm', rgw_zone='zone'),
             ServiceSpec('cephadm-exporter'),
@@ -756,6 +757,7 @@ class TestCephadm(object):
             (ServiceSpec('node-exporter'), CephadmOrchestrator.apply_node_exporter),
             (ServiceSpec('alertmanager'), CephadmOrchestrator.apply_alertmanager),
             (ServiceSpec('rbd-mirror'), CephadmOrchestrator.apply_rbd_mirror),
+            (ServiceSpec('cephfs-mirror'), CephadmOrchestrator.apply_rbd_mirror),
             (ServiceSpec('mds', service_id='fsname'), CephadmOrchestrator.apply_mds),
             (ServiceSpec(
                 'mds', service_id='fsname',

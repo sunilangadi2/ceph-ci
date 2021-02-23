@@ -477,9 +477,12 @@ void PGLog::merge_log(pg_info_t &oinfo, pg_log_t&& olog, pg_shard_t fromosd,
       this);
 
     info.last_update = log.head = olog.head;
-    if (should_rollforward) {
+    if (should_rollforward && log.get_can_rollback_to() > original_crt) {
       log.roll_forward_to(log.head, rollbacker);
       dout(10) << "crt updated after new entries merged to " << log.head << dendl;
+    }
+    else {
+      dout(10) << __func__ << "crt not updated no log appended" << dendl;
     }
 
     // We cannot rollback into the new log entries

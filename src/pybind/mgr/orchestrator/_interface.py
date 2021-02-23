@@ -1286,7 +1286,12 @@ class DaemonDescription(object):
                  osdspec_affinity: Optional[str] = None,
                  last_deployed: Optional[datetime.datetime] = None,
                  events: Optional[List['OrchestratorEvent']] = None,
-                 is_active: bool = False) -> None:
+                 is_active: bool = False,
+                 memory_usage: Optional[int] = None,
+                 memory_request: Optional[int] = None,
+                 memory_limit: Optional[int] = None,
+                 service_name: Optional[str] = None,
+                 ) -> None:
 
         # Host is at the same granularity as InventoryHost
         self.hostname: Optional[str] = hostname
@@ -1310,6 +1315,8 @@ class DaemonDescription(object):
         # in the FSMap/ServiceMap.
         self.daemon_id: Optional[str] = daemon_id
 
+        self._service_name: Optional[str] = service_name
+
         # Service version that was deployed
         self.version = version
 
@@ -1332,6 +1339,10 @@ class DaemonDescription(object):
 
         self.events: List[OrchestratorEvent] = events or []
 
+        self.memory_usage: Optional[int] = memory_usage
+        self.memory_request: Optional[int] = memory_request
+        self.memory_limit: Optional[int] = memory_limit
+
         self.is_active = is_active
 
     def name(self) -> str:
@@ -1349,6 +1360,12 @@ class DaemonDescription(object):
         assert self.daemon_type is not None
         if self.daemon_type == 'osd' and self.osdspec_affinity:
             return self.osdspec_affinity
+
+        if self._service_name:
+            if '.' in self._service_name:
+                return self._service_name.split('.', 1)[1]
+            else:
+                return ''
 
         def _match() -> str:
             assert self.daemon_id is not None
@@ -1397,6 +1414,8 @@ class DaemonDescription(object):
         return self.daemon_id
 
     def service_name(self) -> str:
+        if self._service_name:
+            return self._service_name
         assert self.daemon_type is not None
         if daemon_type_to_service(self.daemon_type) in ServiceSpec.REQUIRES_SERVICE_ID:
             return f'{daemon_type_to_service(self.daemon_type)}.{self.service_id()}'
@@ -1415,6 +1434,9 @@ class DaemonDescription(object):
         out['container_image_id'] = self.container_image_id
         out['container_image_name'] = self.container_image_name
         out['container_image_digests'] = self.container_image_digests
+        out['memory_usage'] = self.memory_usage
+        out['memory_request'] = self.memory_request
+        out['memory_limit'] = self.memory_limit
         out['version'] = self.version
         out['status'] = self.status
         out['status_desc'] = self.status_desc

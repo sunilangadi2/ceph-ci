@@ -9045,7 +9045,10 @@ void OSDMonitor::do_osd_create(
   if (existing_id >= 0) {
     ceph_assert(existing_id < osdmap.get_max_osd());
     ceph_assert(allocated_id < 0);
-    pending_inc.new_weight[existing_id] = CEPH_OSD_OUT;
+    // this id didn't exist a moment ago, so we mark the OSD slot IN to avoid
+    // a state between before (id doesn't exist) and after (osd exists and is in)
+    // where pgs are mapped to some other location.
+    pending_inc.new_weight[existing_id] = CEPH_OSD_IN;
     *new_id = existing_id;
   } else if (allocated_id >= 0) {
     ceph_assert(existing_id < 0);
@@ -9425,7 +9428,6 @@ int OSDMonitor::prepare_command_osd_new(
   if (is_recreate_destroyed) {
     ceph_assert(id >= 0);
     ceph_assert(osdmap.is_destroyed(id));
-    pending_inc.new_weight[id] = CEPH_OSD_OUT;
     pending_inc.new_state[id] |= CEPH_OSD_DESTROYED;
     if ((osdmap.get_state(id) & CEPH_OSD_NEW) == 0) {
       pending_inc.new_state[id] |= CEPH_OSD_NEW;

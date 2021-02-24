@@ -84,7 +84,7 @@ Host *
   ConnectTimeout=30
 """
 
-CEPH_TYPES = set(CEPH_UPGRADE_ORDER)
+CEPH_TYPES = set([t for t in CEPH_UPGRADE_ORDER if t not in ['iscsi', 'nfs']])
 
 # Default container images -----------------------------------------------------
 DEFAULT_IMAGE = 'docker.io/ceph/ceph'
@@ -1649,7 +1649,8 @@ class CephadmOrchestrator(orchestrator.Orchestrator, MgrModule,
             if action != 'redeploy':
                 raise OrchestratorError(
                     f'Cannot execute {action} with new image. `action` needs to be `redeploy`')
-            if daemon_type not in CEPH_TYPES:
+            # need iscsi and nfs as well in order to upgrade them
+            if daemon_type not in CEPH_TYPES and daemon_type not in ['nfs', 'iscsi']:
                 raise OrchestratorError(
                     f'Cannot redeploy {daemon_type}.{daemon_id} with a new image: Supported '
                     f'types are: {", ".join(CEPH_TYPES)}')

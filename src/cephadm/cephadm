@@ -3029,6 +3029,7 @@ class CephContainer:
             cmd_args.append('--cap-add=SYS_PTRACE')
         if self.init:
             cmd_args.append('--init')
+            envs += ['-e', 'CEPH_CONTAINER_HAS_INIT=1']
         if self.cname:
             cmd_args.extend(['--name', self.cname])
         if self.envs:

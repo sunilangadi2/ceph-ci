@@ -21,7 +21,7 @@ Messenger *Messenger::create_client_messenger(CephContext *cct, std::string lnam
 uint64_t Messenger::get_pid_nonce()
 {
   uint64_t nonce = getpid();
-  if (nonce == 1) {
+  if (nonce <= 10 || getenv("CEPH_CONTAINER_HAS_INIT")) {
     // we're running in a container; use a random number instead!
     nonce = ceph::util::generate_random_number<uint64_t>();
   }

@@ -59,6 +59,9 @@
 #include <sys/prctl.h>
 #endif
 
+#include <gperftools/malloc_extension.h>
+
+
 #define dout_subsys ceph_subsys_rgw
 
 namespace {
@@ -178,6 +181,15 @@ static RGWRESTMgr *rest_filter(RGWRados *store, int dialect, RGWRESTMgr *orig)
  */
 int radosgw_Main(int argc, const char **argv)
 {
+  size_t val{0};
+  int res{0};
+  res = MallocExtension::instance()->GetNumericProperty("tcmalloc.aggressive_memory_decommit", &val);
+  std::cerr << "#MK# > MallocExtension::instance()->GetNumericProperty(aggressive_memory_decommit): val=" << val << ", res=" << res << std::endl;
+  MallocExtension::instance()->SetNumericProperty("tcmalloc.aggressive_memory_decommit", 1);
+  res = MallocExtension::instance()->GetNumericProperty("tcmalloc.aggressive_memory_decommit", &val);
+  std::cerr << "#MK# < MallocExtension::instance()->GetNumericProperty(aggressive_memory_decommit): val=" << val << ", res=" << res << std::endl;
+
+
   // dout() messages will be sent to stderr, but FCGX wants messages on stdout
   // Redirect stderr to stdout.
   TEMP_FAILURE_RETRY(close(STDERR_FILENO));

@@ -35,7 +35,7 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
-CEPH_TYPES = set(CEPH_UPGRADE_ORDER)
+CEPH_TYPES = set([t for t in CEPH_UPGRADE_ORDER if t not in ['iscsi', 'nfs']])
 
 
 class CephadmServe:

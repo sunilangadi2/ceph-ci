@@ -79,6 +79,11 @@
   ``immutable_object_cache_watermark`` is now ``0.9``. If the capacity reaches 
   90% the daemon will delete cold cache.
 
+* rgw/kms/vault: the transit logic has been revamped to better use
+  the transit engine in vault.  To take advantage of this new
+  functionality configuration changes are required.  See the current
+  documentation (radosgw/vault) for more details.
+
 >=15.0.0
 --------
 

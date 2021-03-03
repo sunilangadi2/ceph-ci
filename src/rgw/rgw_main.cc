@@ -340,7 +340,8 @@ int radosgw_Main(int argc, const char **argv)
   for (list<string>::iterator iter = frontends.begin(); iter != frontends.end(); ++iter) {
     string& f = *iter;
     if (f.find("beast") == string::npos)
-      rgw_d3n_datacache_enabled = false;
+      //rgw_d3n_datacache_enabled = false;
+      rgw_d3n_datacache_enabled = true;
   }
   if (rgw_d3n_datacache_enabled == false)
     lsubdout(cct, rgw_datacache, 0) << "rgw_d3n:  WARNING: D3N DataCache disabled, (only the 'Beast' framework is currently supported)" << dendl;

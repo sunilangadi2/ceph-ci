@@ -52,7 +52,8 @@ class Auth(RESTController):
                 mgr.ACCESS_CTRL_DB.reset_attempt(username)
                 mgr.ACCESS_CTRL_DB.save()
                 token = JwtManager.gen_token(username)
-                token = token.decode('utf-8')
+                # For backward-compatibility with PyJWT versions < 2.0.0
+                token = token.decode('utf-8') if isinstance(token, bytes) else token
                 set_cookies(url_prefix, token)
                 return {
                     'token': token,

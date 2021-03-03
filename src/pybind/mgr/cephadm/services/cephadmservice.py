@@ -222,14 +222,47 @@ class CephadmService(metaclass=ABCMeta):
             except MonCommandFailed as e:
                 logger.warning('Failed to set Dashboard config for %s: %s', service_name, e)
 
-    def ok_to_stop(self, daemon_ids: List[str], force: bool = False) -> HandleCommandResult:
+    def ok_to_stop_osd(
+            self,
+            osds: List[str],
+            known: Optional[List[str]] = None,
+            force: bool = False) -> HandleCommandResult:
+        r = HandleCommandResult(*self.mgr.mon_command({
+            'prefix': "osd ok-to-stop",
+            'ids': osds,
+            'max': 16,
+        }))
+        j = None
+        try:
+            j = json.loads(r.stdout)
+        except json.decoder.JSONDecodeError:
+            self.mgr.log.warning("osd ok-to-stop didn't return structured result")
+            raise
+        if r.retval:
+            return r
+        if known is not None and j and j.get('ok_to_stop'):
+            self.mgr.log.debug(f"got {j}")
+            known.extend([f'osd.{x}' for x in j.get('osds', [])])
+        return HandleCommandResult(
+            0,
+            f'{",".join(["osd.%s" % o for o in osds])} {"is" if len(osds) == 1 else "are"} safe to restart',
+            ''
+        )
+
+    def ok_to_stop(self,
+                   daemon_ids: List[str],
+                   force: bool = False,
+                   known: Optional[List[str]] = None) -> HandleCommandResult:
         names = [f'{self.TYPE}.{d_id}' for d_id in daemon_ids]
-        out = f'It is presumed safe to stop {names}'
-        err = f'It is NOT safe to stop {names}'
+        out = f'It is presumed safe to stop {",".join(names)}'
+        err = f'It is NOT safe to stop {",".join(names)} at this time'
 
         if self.TYPE not in ['mon', 'osd', 'mds']:
             logger.info(out)
             return HandleCommandResult(0, out)
+
+        if self.TYPE == 'osd':
+            return self.ok_to_stop_osd(daemon_ids, known, force)
 
         r = HandleCommandResult(*self.mgr.mon_command({
             'prefix': f'{self.TYPE} ok-to-stop',
@@ -544,7 +577,10 @@ class MgrService(CephService):
         num = len(mgr_map.get('standbys'))
         return bool(num)
 
-    def ok_to_stop(self, daemon_ids: List[str], force: bool = False) -> HandleCommandResult:
+    def ok_to_stop(self,
+                   daemon_ids: List[str],
+                   force: bool = False,
+                   known: Optional[List[str]] = None) -> HandleCommandResult:
         # ok to stop if there is more than 1 mgr and not trying to stop the active mgr
 
         warn, warn_message = self._enough_daemons_to_stop(self.TYPE, daemon_ids, 'Mgr', 1, True)
@@ -830,7 +866,10 @@ class RgwService(CephService):
                 raise OrchestratorError(err)
             self.mgr.log.info('updated period')
 
-    def ok_to_stop(self, daemon_ids: List[str], force: bool = False) -> HandleCommandResult:
+    def ok_to_stop(self,
+                   daemon_ids: List[str],
+                   force: bool = False,
+                   known: Optional[List[str]] = None) -> HandleCommandResult:
         # if load balancer (ha-rgw) is present block if only 1 daemon up otherwise ok
         # if no load balancer, warn if > 1 daemon, block if only 1 daemon
         def ha_rgw_present() -> bool:
@@ -881,7 +920,10 @@ class RbdMirrorService(CephService):
 
         return daemon_spec
 
-    def ok_to_stop(self, daemon_ids: List[str], force: bool = False) -> HandleCommandResult:
+    def ok_to_stop(self,
+                   daemon_ids: List[str],
+                   force: bool = False,
+                   known: Optional[List[str]] = None) -> HandleCommandResult:
         # if only 1 rbd-mirror, alert user (this is not passable with --force)
         warn, warn_message = self._enough_daemons_to_stop(
             self.TYPE, daemon_ids, 'Rbdmirror', 1, True)

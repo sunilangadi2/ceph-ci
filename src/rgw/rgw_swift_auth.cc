@@ -74,6 +74,7 @@ void TempURLEngine::get_owner_info(const DoutPrefixProvider* dpp, const req_stat
    * now. It will be initialized in RGWHandler_REST_SWIFT::postauth_init(). */
   const string& bucket_name = s->init_state.url_bucket;
 
+  ldpp_dout(dpp, 20) << "Luke 1 bucket_name=" << bucket_name << " s->object=" << s->object << dendl;
   /* TempURL requires that bucket and object names are specified. */
   if (bucket_name.empty() || s->object->empty()) {
     throw -EPERM;
@@ -85,19 +86,31 @@ void TempURLEngine::get_owner_info(const DoutPrefixProvider* dpp, const req_stat
    * the access would be limited to accounts with empty tenant. */
   string bucket_tenant;
   if (!s->account_name.empty()) {
+    bool found = false;
     std::unique_ptr<rgw::sal::RGWUser> user;
 
     rgw_user uid(s->account_name);
     if (uid.tenant.empty()) {
-      uid.tenant = uid.id;
+      rgw_user tenanted_uid(uid.id, uid.id);
+      user = store->get_user(tenanted_uid);
+      ldpp_dout(dpp, 20) << "Luke 1.1 user=" << user << dendl;
+      if (user->load_by_id(dpp, s->yield) >= 0) {
+	/* Succeeded */
+	found = true;
+      ldpp_dout(dpp, 20) << "Luke 1.2" << dendl;
+      }
     }
 
-    user = store->get_user(uid);
-    if (user->load_by_id(dpp, s->yield) < 0) {
-      throw -EPERM;
+    if (!found) {
+      user = store->get_user(uid);
+      ldpp_dout(dpp, 20) << "Luke 2 user=" << user << dendl;
+      if (user->load_by_id(dpp, s->yield) < 0) {
+	throw -EPERM;
+      }
     }
 
     bucket_tenant = user->get_tenant();
+  ldpp_dout(dpp, 20) << "Luke 3 bucket_tenant=" << bucket_tenant << dendl;
   }
 
   rgw_bucket b;
@@ -105,6 +118,7 @@ void TempURLEngine::get_owner_info(const DoutPrefixProvider* dpp, const req_stat
   b.name = std::move(bucket_name);
   std::unique_ptr<rgw::sal::RGWBucket> bucket;
   int ret = store->get_bucket(dpp, nullptr, b, &bucket, s->yield);
+  ldpp_dout(dpp, 20) << "Luke 4 ret=" << ret << dendl;
   if (ret < 0) {
     throw ret;
   }
@@ -114,9 +128,14 @@ void TempURLEngine::get_owner_info(const DoutPrefixProvider* dpp, const req_stat
 
   std::unique_ptr<rgw::sal::RGWUser> user;
   user = store->get_user(bucket->get_info().owner);
+  ldpp_dout(dpp, 20) << "Luke 5 user=" << user << dendl;
   if (user->load_by_id(dpp, s->yield) < 0) {
     throw -EPERM;
   }
+  ldpp_dout(dpp, 20) << "Luke 6" << dendl;
+
+  owner_info = user->get_info();
+  ldpp_dout(dpp, 20) << "Luke 7" << dendl;
 }
 
 std::string TempURLEngine::convert_from_iso8601(std::string expires) const

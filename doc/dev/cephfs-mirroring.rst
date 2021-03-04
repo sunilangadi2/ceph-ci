@@ -32,7 +32,7 @@ Creating Users
 Start by creating a user (on the primary/local cluster) for the mirror daemon. This user
 has restrictive capabilities on the MDS and the OSD::
 
-  $ ceph auth get-or-create client.mirror mon 'allow r' mds 'allow r' osd 'allow rw tag cephfs metadata=*, allow r tag cephfs data=*' mgr 'allow r'
+  $ ceph auth get-or-create client.mirror mon 'profile cephfs-mirror' mds 'allow r' osd 'allow rw tag cephfs metadata=*, allow r tag cephfs data=*' mgr 'allow r'
 
 Create a user for each file system peer (on the secondary/remote cluster). This user needs
 to have full capabilities on the MDS (to take snapshots) and the OSDs::
@@ -169,6 +169,25 @@ disallowed to be added for mirorring::
 
 Commands to check directory mapping (to mirror daemons) and directory distribution are
 detailed in `Mirror Daemon Status` section.
+
+Bootstrap Peers
+---------------
+
+Adding a peer (via `peer_add`) requires the peer cluster configuration and user keyring
+to be available in the primary cluster (manager host and hosts running the mirror daemon).
+This can be avoided by bootstrapping and importing peers tokens. Peer bootstrap involves
+creating a bootstrap token on the peer cluster via::
+
+  $ ceph fs snapshot mirror peer_bootstrap create <fs_name> <client_entity> <site-name>
+
+e.g.::
+
+  $ ceph fs snapshot mirror peer_bootstrap create backup_fs client.mirror_remote site-remote
+  {"token": "eyJmc2lkIjogIjBkZjE3MjE3LWRmY2QtNDAzMC05MDc5LTM2Nzk4NTVkNDJlZiIsICJmaWxlc3lzdGVtIjogImJhY2t1cF9mcyIsICJ1c2VyIjogImNsaWVudC5taXJyb3JfcGVlcl9ib290c3RyYXAiLCAic2l0ZV9uYW1lIjogInNpdGUtcmVtb3RlIiwgImtleSI6ICJBUUFhcDBCZ0xtRmpOeEFBVnNyZXozai9YYUV0T2UrbUJEZlJDZz09IiwgIm1vbl9ob3N0IjogIlt2MjoxOTIuMTY4LjAuNTo0MDkxOCx2MToxOTIuMTY4LjAuNTo0MDkxOV0ifQ=="}
+
+Import the bootstrap token in the primary cluster via::
+
+  $ ceph fs snapshot mirror peer_bootstrap import <fs_name> <token>
 
 Mirror Daemon Status
 --------------------

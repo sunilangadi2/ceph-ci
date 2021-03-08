@@ -862,7 +862,7 @@ template<RWState::State State>
 PG::load_obc_iertr::future<>
 PG::with_head_obc(hobject_t oid, with_obc_func_t&& func)
 {
-  logger().debug("{} {}", __func__, oid);
+  logger().debug("{} {}, Lock State: {}", __func__, oid, State);
   boost::intrusive_ptr<PG> pgref{this};
   assert(oid.is_head());
   auto [obc, existed] = shard_services.obc_registry.get_cached_obc(oid);

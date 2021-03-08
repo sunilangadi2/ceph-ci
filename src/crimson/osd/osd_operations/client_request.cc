@@ -172,9 +172,9 @@ ClientRequest::process_op(Ref<PG> &pg)
         return with_blocking_future_interruptible<IOInterruptCondition>(
             handle.enter(pp(*pg).get_obc)).then_interruptible(
           [this, pg]() mutable -> PG::load_obc_iertr::future<> {
-          logger().debug("{}: got obc lock", *this);
           op_info.set_from_op(&*m, *pg->get_osdmap());
           return pg->with_locked_obc(m, op_info, this, [this, pg](auto obc) mutable {
+            logger().debug("{}: got obc lock", *this);
             return with_blocking_future_interruptible<IOInterruptCondition>(
                 handle.enter(pp(*pg).process)).then_interruptible(
               [this, pg, obc]() mutable {
@@ -232,6 +232,7 @@ ClientRequest::do_process(Ref<PG>& pg, crimson::osd::ObjectContextRef obc)
   }
   return pg->do_osd_ops(m, obc, op_info,
     [this, pg] {
+      logger().debug("do_process: submitted {}", *this);
       return with_blocking_future(handle.enter(pp(*pg).wait_repop));
   }).safe_then_interruptible(
     [this, pg](Ref<MOSDOpReply> reply) -> interruptible_future<> {

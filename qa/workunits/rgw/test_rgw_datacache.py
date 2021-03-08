@@ -80,7 +80,7 @@ def exec_cmd(cmd):
         return False
 
 def get_radosgw_endpoint():
-    out = exec_cmd('sudo netstat -nltp | grep radosgw')
+    out = exec_cmd('netstat -nltp | grep rados')  # short for radosgw
     x = out.decode('utf8').split(" ")
     port = [i for i in x if ':' in i][0].split(':')[1]
     log.info('radosgw port: %s' % port)

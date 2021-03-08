@@ -881,6 +881,8 @@ PG::with_head_obc(hobject_t oid, with_obc_func_t&& func)
     }
     return loaded.safe_then_interruptible([func = std::move(func)](auto obc) {
       return func(std::move(obc));
+    }).finally([this, obc] {
+      logger().debug("with_head_obc: to release {}", obc->get_oid());
     });
   }).finally([this, pgref, obc=std::move(obc)] {
     logger().debug("with_head_obc: released {}", obc->get_oid());

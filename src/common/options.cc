@@ -7155,7 +7155,8 @@ std::vector<Option> get_rgw_options() {
     .set_description("Datacache size in bytes"),
 
     Option("rgw_d3n_l1_evict_cache_on_start", Option::TYPE_BOOL, Option::LEVEL_ADVANCED)
-    .set_default(true)
+    // .set_default(true)
+    .set_default(false)
     .set_description("clear the content of the persistent data cache directory on start"),
 
     Option("rgw_d3n_l1_libaio_read", Option::TYPE_BOOL, Option::LEVEL_ADVANCED)

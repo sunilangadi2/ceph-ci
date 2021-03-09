@@ -28,7 +28,7 @@ int D3nCacheAioWriteRequest::create_io(bufferlist& bl, unsigned int len, string 
   memset(cb, 0, sizeof(struct aiocb));
   r = fd = ::open(location.c_str(), O_WRONLY | O_CREAT | O_TRUNC, mode);
   if (fd < 0) {
-    ldout(cct, 0) << "ERROR: create_aio_write_request: open file failed, " << errno << "\tlocation: " << location.c_str() <<dendl;
+    ldout(cct, 0) << "ERROR: D3nCacheAioWriteRequest::create_io: open file failed, errno=" << errno << ", location='" << location.c_str() << "'" << dendl;
     goto done;
   }
   posix_fadvise(fd, 0, 0, g_conf()->rgw_d3n_l1_fadvise);
@@ -36,7 +36,7 @@ int D3nCacheAioWriteRequest::create_io(bufferlist& bl, unsigned int len, string 
 
   data = malloc(len);
   if (!data) {
-    ldout(cct, 0) << "ERROR: create_aio_write_request: memory allocation failed" << dendl;
+    ldout(cct, 0) << "ERROR: D3nCacheAioWriteRequest::create_io: memory allocation failed" << dendl;
     goto close_file;
   }
   cb->aio_buf = data;
@@ -135,7 +135,7 @@ int D3nDataCache::create_aio_write_request(bufferlist& bl, unsigned int len, std
   struct D3nCacheAioWriteRequest* wr = new struct D3nCacheAioWriteRequest(cct);
   int r=0;
   if (wr->create_io(bl, len, oid, cache_location) < 0) {
-    ldout(cct, 0) << "D3nDataCache: Error create_aio_write_request" << dendl;
+    ldout(cct, 0) << "ERROR: D3nDataCache: create_aio_write_request:create_io" << dendl;
     goto done;
   }
   wr->cb->aio_sigevent.sigev_notify = SIGEV_THREAD;
@@ -145,8 +145,8 @@ int D3nDataCache::create_aio_write_request(bufferlist& bl, unsigned int len, std
   wr->oid = oid;
   wr->priv_data = this;
 
-  if ((r= ::aio_write(wr->cb)) != 0) {
-    ldout(cct, 0) << "ERROR: aio_write "<< r << dendl;
+  if ((r = ::aio_write(wr->cb)) != 0) {
+    ldout(cct, 0) << "ERROR: D3nDataCache: create_aio_write_request:aio_write r=" << r << dendl;
     goto error;
   }
   return 0;
@@ -239,7 +239,10 @@ bool D3nDataCache::get(const string& oid, const off_t len)
       }
     } else {
       cache_map.erase(oid);
+      eviction_lock.lock();
       lru_remove(chdo);
+      eviction_lock.unlock();
+      delete chdo;
       exist = false;
     }
   }
@@ -270,7 +273,7 @@ size_t D3nDataCache::random_eviction()
   del_entry =  iter->second;
   ldout(cct, 20) << "D3nDataCache: random_eviction: index:" << random_index << ", free size:0x" << std::hex << del_entry->size << dendl;
   freed_size = del_entry->size;
-  free(del_entry);
+  delete del_entry;
   del_entry = nullptr;
   cache_map.erase(del_oid); // oid
   cache_lock.unlock();
@@ -291,7 +294,8 @@ size_t D3nDataCache::lru_eviction()
   eviction_lock.lock();
   del_entry = tail;
   if (del_entry == nullptr) {
-    ldout(cct, 1) << "D3nDataCache: lru_eviction: error: del_entry=null_ptr" << dendl;
+    ldout(cct, 2) << "D3nDataCache: lru_eviction: del_entry=null_ptr" << dendl;
+    eviction_lock.unlock();
     return 0;
   }
   lru_remove(del_entry);
@@ -300,31 +304,20 @@ size_t D3nDataCache::lru_eviction()
   cache_lock.lock();
   n_entries = cache_map.size();
   if (n_entries <= 0) {
+    ldout(cct, 2) << "D3nDataCache: lru_eviction: cache_map.size<=0" << dendl;
     cache_lock.unlock();
     return -1;
   }
   del_oid = del_entry->oid;
-  ldout(cct, 20) << "D3nDataCache: lru_eviction: oid to remove" << del_oid << dendl;
+  ldout(cct, 20) << "D3nDataCache: lru_eviction: oid to remove: " << del_oid << dendl;
   map<string, D3nChunkDataInfo*>::iterator iter = cache_map.find(del_oid);
   if (iter != cache_map.end()) {
     cache_map.erase(iter); // oid
   }
   cache_lock.unlock();
   freed_size = del_entry->size;
-  free(del_entry);
+  delete del_entry;
   location = cache_location + del_oid;
   remove(location.c_str());
   return freed_size;
-}
-
-
-std::vector<string> d3n_split(const std::string &s, char * delim)
-{
-  stringstream ss(s);
-  std::string item;
-  std::vector<string> tokens;
-  while (getline(ss, item, (*delim))) {
-    tokens.push_back(item);
-  }
-  return tokens;
 }

@@ -287,11 +287,13 @@ def configure_compression(ctx, clients, compression):
 @contextlib.contextmanager
 def configure_datacache(ctx, clients, datacache_path):
     """ create directory for rgw datacache """
-    log.info('Creating directory for rgw datacache at %s', datacache_path)
+    log.info('Preparing directory for rgw datacache at %s', datacache_path)
     for client in clients:
         if(datacache_path != None):
-            ctx.cluster.only(client).run(args=['mkdir', '-p', datacache_path])
-            ctx.cluster.only(client).run(args=['sudo', 'chmod', 'a+rwx', datacache_path])
+            #ctx.cluster.only(client).run(args=['mkdir', '-p', datacache_path])
+            #ctx.cluster.only(client).run(args=['sudo', 'chmod', 'a+rwx', datacache_path])
+            # NOTE: rgw will create the cache directory, and in following tests we will assert that the cache is enabled
+            ctx.cluster.only(client).run(args=['rm', '-rf', datacache_path])
         else:
             log.info('path for datacache was not provided')
     yield
@@ -407,7 +409,7 @@ def task(ctx, config):
     if ctx.rgw.datacache:
         subtasks.extend([
             lambda: configure_datacache(ctx=ctx, clients=clients,
-                                              datacache_path=ctx.rgw.datacache_path),
+                                        datacache_path=ctx.rgw.datacache_path),
         ])
     if ctx.rgw.storage_classes:
         subtasks.extend([

@@ -28,7 +28,7 @@ int D3nCacheAioWriteRequest::create_io(bufferlist& bl, unsigned int len, string 
   memset(cb, 0, sizeof(struct aiocb));
   r = fd = ::open(location.c_str(), O_WRONLY | O_CREAT | O_TRUNC, mode);
   if (fd < 0) {
-    ldout(cct, 0) << "ERROR: create_aio_write_request: open file failed, " << errno << "\tlocation: " << location.c_str() <<dendl;
+    ldout(cct, 0) << "ERROR: D3nCacheAioWriteRequest::create_io: open file failed, errno=" << errno << ", location='" << location.c_str() << "'" << dendl;
     goto done;
   }
   posix_fadvise(fd, 0, 0, g_conf()->rgw_d3n_l1_fadvise);
@@ -36,7 +36,7 @@ int D3nCacheAioWriteRequest::create_io(bufferlist& bl, unsigned int len, string 
 
   data = malloc(len);
   if (!data) {
-    ldout(cct, 0) << "ERROR: create_aio_write_request: memory allocation failed" << dendl;
+    ldout(cct, 0) << "ERROR: D3nCacheAioWriteRequest::create_io: memory allocation failed" << dendl;
     goto close_file;
   }
   cb->aio_buf = data;
@@ -135,7 +135,7 @@ int D3nDataCache::create_aio_write_request(bufferlist& bl, unsigned int len, std
   struct D3nCacheAioWriteRequest* wr = new struct D3nCacheAioWriteRequest(cct);
   int r=0;
   if (wr->create_io(bl, len, oid, cache_location) < 0) {
-    ldout(cct, 0) << "D3nDataCache: Error create_aio_write_request" << dendl;
+    ldout(cct, 0) << "ERROR: D3nDataCache: create_aio_write_request:create_io" << dendl;
     goto done;
   }
   wr->cb->aio_sigevent.sigev_notify = SIGEV_THREAD;
@@ -145,8 +145,8 @@ int D3nDataCache::create_aio_write_request(bufferlist& bl, unsigned int len, std
   wr->oid = oid;
   wr->priv_data = this;
 
-  if ((r= ::aio_write(wr->cb)) != 0) {
-    ldout(cct, 0) << "ERROR: aio_write "<< r << dendl;
+  if ((r = ::aio_write(wr->cb)) != 0) {
+    ldout(cct, 0) << "ERROR: D3nDataCache: create_aio_write_request:aio_write r=" << r << dendl;
     goto error;
   }
   return 0;

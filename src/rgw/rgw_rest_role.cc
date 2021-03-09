@@ -125,7 +125,7 @@ int RGWCreateRole::get_params()
   return 0;
 }
 
-void RGWCreateRole::execute(const DoutPrefixProvider *dpp, optional_yield y)
+void RGWCreateRole::execute(optional_yield y)
 {
   op_ret = get_params();
   if (op_ret < 0) {
@@ -168,7 +168,7 @@ int RGWDeleteRole::get_params()
   return 0;
 }
 
-void RGWDeleteRole::execute(const DoutPrefixProvider *dpp, optional_yield y)
+void RGWDeleteRole::execute(optional_yield y)
 {
   op_ret = get_params();
   if (op_ret < 0) {
@@ -227,7 +227,7 @@ int RGWGetRole::get_params()
   return 0;
 }
 
-void RGWGetRole::execute(const DoutPrefixProvider *dpp, optional_yield y)
+void RGWGetRole::execute(optional_yield y)
 {
   op_ret = get_params();
   if (op_ret < 0) {
@@ -276,7 +276,7 @@ int RGWModifyRole::get_params()
   return 0;
 }
 
-void RGWModifyRole::execute(const DoutPrefixProvider *dpp, optional_yield y)
+void RGWModifyRole::execute(optional_yield y)
 {
   op_ret = get_params();
   if (op_ret < 0) {
@@ -320,7 +320,7 @@ int RGWListRoles::get_params()
   return 0;
 }
 
-void RGWListRoles::execute(const DoutPrefixProvider *dpp, optional_yield y)
+void RGWListRoles::execute(optional_yield y)
 {
   op_ret = get_params();
   if (op_ret < 0) {
@@ -368,7 +368,7 @@ int RGWPutRolePolicy::get_params()
   return 0;
 }
 
-void RGWPutRolePolicy::execute(const DoutPrefixProvider *dpp, optional_yield y)
+void RGWPutRolePolicy::execute(optional_yield y)
 {
   op_ret = get_params();
   if (op_ret < 0) {
@@ -399,7 +399,7 @@ int RGWGetRolePolicy::get_params()
   return 0;
 }
 
-void RGWGetRolePolicy::execute(const DoutPrefixProvider *dpp, optional_yield y)
+void RGWGetRolePolicy::execute(optional_yield y)
 {
   op_ret = get_params();
   if (op_ret < 0) {
@@ -437,7 +437,7 @@ int RGWListRolePolicies::get_params()
   return 0;
 }
 
-void RGWListRolePolicies::execute(const DoutPrefixProvider *dpp, optional_yield y)
+void RGWListRolePolicies::execute(optional_yield y)
 {
   op_ret = get_params();
   if (op_ret < 0) {
@@ -471,7 +471,7 @@ int RGWDeleteRolePolicy::get_params()
   return 0;
 }
 
-void RGWDeleteRolePolicy::execute(const DoutPrefixProvider *dpp, optional_yield y)
+void RGWDeleteRolePolicy::execute(optional_yield y)
 {
   op_ret = get_params();
   if (op_ret < 0) {

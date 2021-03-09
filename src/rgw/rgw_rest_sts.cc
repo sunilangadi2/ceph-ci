@@ -445,7 +445,7 @@ int RGWSTSGetSessionToken::get_params()
   return 0;
 }
 
-void RGWSTSGetSessionToken::execute(const DoutPrefixProvider *dpp, optional_yield y)
+void RGWSTSGetSessionToken::execute(optional_yield y)
 {
   if (op_ret = get_params(); op_ret < 0) {
     return;
@@ -498,7 +498,7 @@ int RGWSTSAssumeRoleWithWebIdentity::get_params()
   return 0;
 }
 
-void RGWSTSAssumeRoleWithWebIdentity::execute(const DoutPrefixProvider *dpp, optional_yield y)
+void RGWSTSAssumeRoleWithWebIdentity::execute(optional_yield y)
 {
   if (op_ret = get_params(); op_ret < 0) {
     return;
@@ -557,7 +557,7 @@ int RGWSTSAssumeRole::get_params()
   return 0;
 }
 
-void RGWSTSAssumeRole::execute(const DoutPrefixProvider *dpp, optional_yield y)
+void RGWSTSAssumeRole::execute(optional_yield y)
 {
   if (op_ret = get_params(); op_ret < 0) {
     return;

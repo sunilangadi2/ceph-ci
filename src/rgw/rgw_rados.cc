@@ -1083,6 +1083,7 @@ void RGWRados::finalize()
 
   delete binfo_cache;
   delete obj_tombstone_cache;
+  delete d3n_datacache;
 
   if (reshard_wait.get()) {
     reshard_wait->stop();

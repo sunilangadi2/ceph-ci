@@ -93,9 +93,7 @@ private:
 public:
   D3nDataCache();
   ~D3nDataCache() {
-    for (const auto& [oid, chunk_info] : cache_map) {
-      delete(chunk_info);
-    }
+    while (lru_eviction() > 0);
   }
 
   bool get(const string& oid, const off_t len);
@@ -243,7 +241,7 @@ int D3nRGWDataCache<T>::get_obj_iterate_cb(const DoutPrefixProvider *dpp, const 
                                  off_t read_ofs, off_t len, bool is_head_obj,
                                  RGWObjState *astate, void *arg) {
 
-  ldpp_dout(dpp, 20) << "D3nRGWDataCache::get_obj_iterate_cb  oid=" << read_obj.oid << ", is_head_obj=" << is_head_obj << ", obj-ofs=" << obj_ofs << ", read_ofs=" << read_ofs << ", len=" << len << dendl;
+  ldpp_dout(dpp, 20) << "D3nDataCache::" << __func__ << "(): oid=" << read_obj.oid << ", is_head_obj=" << is_head_obj << ", obj-ofs=" << obj_ofs << ", read_ofs=" << read_ofs << ", len=" << len << dendl;
   librados::ObjectReadOperation op;
   struct get_obj_data* d = static_cast<struct get_obj_data*>(arg);
   string oid, key;
@@ -324,7 +322,7 @@ int D3nRGWDataCache<T>::get_obj_iterate_cb(const DoutPrefixProvider *dpp, const 
 
     if (d3n_data_cache.get(oid, len)) {
       // Read From Cache
-      ldpp_dout(dpp, 20) << "D3nDataCache: " << __func__ << "(): Read From Cache starting, oid=" << read_obj.oid << ", obj-ofs=" << obj_ofs << ", read_ofs=" << read_ofs << ", len=" << len << dendl;
+      ldpp_dout(dpp, 20) << "D3nDataCache: " << __func__ << "(): READ FROM CACHE, oid=" << read_obj.oid << ", obj-ofs=" << obj_ofs << ", read_ofs=" << read_ofs << ", len=" << len << dendl;
       auto completed = d->aio->get(obj, rgw::Aio::cache_op(std::move(op), d->yield, obj_ofs, read_ofs, len, g_conf()->rgw_d3n_l1_datacache_persistent_path), cost, id);
       if (g_conf()->rgw_d3n_l1_libaio_read) {
         r = d->drain();
@@ -337,7 +335,7 @@ int D3nRGWDataCache<T>::get_obj_iterate_cb(const DoutPrefixProvider *dpp, const 
       return r;
     } else {
       // Write To Cache
-      ldpp_dout(dpp, 20) << "D3nDataCache: " << __func__ << "(): Write To Cache, oid=" << read_obj.oid << ", obj-ofs=" << obj_ofs << ", read_ofs=" << read_ofs << ", len=" << len << dendl;
+      ldpp_dout(dpp, 20) << "D3nDataCache: " << __func__ << "(): WRITE TO CACHE, oid=" << read_obj.oid << ", obj-ofs=" << obj_ofs << ", read_ofs=" << read_ofs << ", len=" << len << dendl;
       auto completed = d->aio->get(obj, rgw::Aio::librados_op(std::move(op), d->yield), cost, id);
       return d->flush(std::move(completed));
     }

@@ -2202,7 +2202,7 @@ class CephadmOrchestrator(orchestrator.Orchestrator, MgrModule,
             try:
                 self.to_remove_osds.rm(OSD(osd_id=int(osd_id),
                                            remove_util=self.to_remove_osds.rm_util))
-            except (NotFoundError, KeyError):
+            except (NotFoundError, KeyError, ValueError):
                 return f'Unable to find OSD in the queue: {osd_id}'
 
         # trigger the serve loop to halt the removal

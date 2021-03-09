@@ -93,9 +93,7 @@ private:
 public:
   D3nDataCache();
   ~D3nDataCache() {
-    for (const auto& [oid, chunk_info] : cache_map) {
-      delete(chunk_info);
-    }
+    while (lru_eviction() > 0);
   }
 
   bool get(const string& oid, const off_t len);

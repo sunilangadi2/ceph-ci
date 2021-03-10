@@ -26,8 +26,7 @@ ClientRequest::ClientRequest(
   : osd(osd),
     conn(conn),
     m(m),
-    sequencer(get_osd_priv(conn.get()).op_sequencer[m->get_spg()]),
-    prev_op_id(sequencer.get_last_issued())
+    sequencer(get_osd_priv(conn.get()).op_sequencer[m->get_spg()])
 {}
 
 ClientRequest::~ClientRequest()
@@ -80,6 +79,9 @@ seastar::future<> ClientRequest::start()
 	return interruptor::with_interruption([this, pgref]() mutable {
           epoch_t same_interval_since = pgref->get_interval_start_epoch();
           logger().debug("{} same_interval_since: {}", *this, same_interval_since);
+          if (__builtin_expect(prev_op_id == 0xFFFFFFFFFFFFFFFF, true)) {
+            prev_op_id = sequencer.get_last_issued();
+          }
           return sequencer.start_op(
             handle, prev_op_id, get_id(),
             interruptor::wrap_function(

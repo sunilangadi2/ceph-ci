@@ -4232,11 +4232,25 @@ def command_run(ctx):
 ##################################
 
 
+def fsid_conf_match(ctx):
+    # type: (CephadmContext) -> bool
+    (config, _) = get_config_and_keyring(ctx)
+    fsid_match = False
+    if config:
+        for c in config.split('\n'):
+            if 'fsid = ' + ctx.fsid == c.strip():
+                fsid_match = True
+    return fsid_match
+
+
 @infer_fsid
 @infer_config
 @infer_image
 def command_shell(ctx):
     # type: (CephadmContext) -> int
+    if not fsid_conf_match(ctx):
+        raise Error('fsid does not match ceph conf')
+
     if ctx.fsid:
         make_log_dir(ctx, ctx.fsid)
     if ctx.name:

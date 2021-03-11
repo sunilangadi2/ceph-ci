@@ -310,6 +310,14 @@ void MgrMonitor::encode_pending(MonitorDBStore::TransactionRef t)
   put_version(t, pending_map.epoch, bl);
   put_last_committed(t, pending_map.epoch);
 
+  dout(10) << "map:\n";
+  JSONFormatter jf(true);
+  jf.open_object_section("mgrmap");
+  pending_map.dump(&jf);
+  jf.close_section();
+  jf.flush(*_dout);
+  *_dout << dendl;
+  
   for (auto& p : pending_metadata) {
     dout(10) << __func__ << " set metadata for " << p.first << dendl;
     t->put(MGR_METADATA_PREFIX, p.first, p.second);
@@ -450,6 +458,16 @@ bool MgrMonitor::prepare_beacon(MonOpRequestRef op)
   auto m = op->get_req<MMgrBeacon>();
   dout(4) << "beacon from " << m->get_gid() << dendl;
 
+  dout(10) << "module info is: ";
+  JSONFormatter jf(true);
+  jf.open_array_section("modules");
+  for (auto& i : m->get_available_modules()) {
+    jf.dump_object("module", i);
+  }
+  jf.close_section();
+  jf.flush(*_dout);
+  *_dout << dendl;
+  
   // See if we are seeing same name, new GID for the active daemon
   if (m->get_name() == pending_map.active_name
       && m->get_gid() != pending_map.active_gid)

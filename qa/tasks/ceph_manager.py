@@ -1545,10 +1545,13 @@ class CephManager:
     def flush_all_pg_stats(self):
         self.flush_pg_stats(range(len(self.get_osd_dump())))
 
-    def do_rados(self, remote, cmd, check_status=True):
+    def do_rados(self, cmd, pool=None, ns=None, remote=None, **kwargs):
         """
         Execute a remote rados command.
         """
+        if remote is None:
+            remote = self.controller
+
         testdir = teuthology.get_testdir(self.ctx)
         pre = [
             'adjust-ulimits',
@@ -1558,11 +1561,15 @@ class CephManager:
             '--cluster',
             self.cluster,
             ]
+        if pool is not None:
+            pre += ['--pool', pool]
+        if ns is not None:
+            pre += ['--namespace', ns]
         pre.extend(cmd)
         proc = remote.run(
             args=pre,
             wait=True,
-            check_status=check_status
+            **kwargs
             )
         return proc
 

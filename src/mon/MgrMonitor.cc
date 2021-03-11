@@ -76,6 +76,7 @@ const static std::string command_descs_prefix = "mgr_command_descs";
 
 const Option *MgrMonitor::find_module_option(const string& name)
 {
+  dout(10) << __func__ << " name " << name << dendl;
   // we have two forms of names: "mgr/$module/$option" and
   // localized "mgr/$module/$instance/$option".  normalize to the
   // former by stripping out $instance.
@@ -96,6 +97,8 @@ const Option *MgrMonitor::find_module_option(const string& name)
   }
   auto p = mgr_module_options.find(real_name);
   if (p != mgr_module_options.end()) {
+    dout(10) << __func__ << " name " << name << " is " << real_name
+	     << " and found it" << dendl;
     return &p->second;
   }
   return nullptr;
@@ -187,6 +190,7 @@ void MgrMonitor::update_from_paxos(bool *need_bootstrap)
   for (auto& i : map.available_modules) {
     for (auto& j : i.module_options) {
       string name = string("mgr/") + i.name + "/" + j.second.name;
+      dout(10) << "  mgr option " << name << dendl;
       auto p = mgr_module_options.emplace(
 	name,
 	Option(name, static_cast<Option::type_t>(j.second.type),

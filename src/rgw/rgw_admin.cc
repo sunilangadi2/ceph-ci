@@ -3998,7 +3998,7 @@ int main(int argc, const char **argv)
     case OPT::PERIOD_LIST:
       {
 	list<string> periods;
-	int ret = static_cast<rgw::sal::RadosStore*>(store)->svc()->zone->list_periods(periods);
+	int ret = static_cast<rgw::sal::RadosStore*>(store)->svc()->zone->list_periods(dpp(), periods);
 	if (ret < 0) {
 	  cerr << "failed to list periods: " << cpp_strerror(-ret) << std::endl;
 	  return -ret;
@@ -4227,7 +4227,7 @@ int main(int argc, const char **argv)
 	  cerr << "could not determine default realm: " << cpp_strerror(-ret) << std::endl;
 	}
 	list<string> realms;
-	ret = static_cast<rgw::sal::RadosStore*>(store)->svc()->zone->list_realms(realms);
+	ret = static_cast<rgw::sal::RadosStore*>(store)->svc()->zone->list_realms(dpp(), realms);
 	if (ret < 0) {
 	  cerr << "failed to list realms: " << cpp_strerror(-ret) << std::endl;
 	  return -ret;
@@ -4584,7 +4584,7 @@ int main(int argc, const char **argv)
 	}
 
 	list<string> zonegroups;
-	ret = static_cast<rgw::sal::RadosStore*>(store)->svc()->zone->list_zonegroups(zonegroups);
+	ret = static_cast<rgw::sal::RadosStore*>(store)->svc()->zone->list_zonegroups(dpp(), zonegroups);
 	if (ret < 0) {
 	  cerr << "failed to list zonegroups: " << cpp_strerror(-ret) << std::endl;
 	  return -ret;
@@ -5008,7 +5008,7 @@ int main(int argc, const char **argv)
 	}
 
         list<string> zonegroups;
-	ret = static_cast<rgw::sal::RadosStore*>(store)->svc()->zone->list_zonegroups(zonegroups);
+	ret = static_cast<rgw::sal::RadosStore*>(store)->svc()->zone->list_zonegroups(dpp(), zonegroups);
 	if (ret < 0) {
 	  cerr << "failed to list zonegroups: " << cpp_strerror(-ret) << std::endl;
 	  return -ret;
@@ -5134,7 +5134,7 @@ int main(int argc, const char **argv)
     case OPT::ZONE_LIST:
       {
 	list<string> zones;
-	int ret = static_cast<rgw::sal::RadosStore*>(store)->svc()->zone->list_zones(zones);
+	int ret = static_cast<rgw::sal::RadosStore*>(store)->svc()->zone->list_zones(dpp(), zones);
 	if (ret < 0) {
 	  cerr << "failed to list zones: " << cpp_strerror(-ret) << std::endl;
 	  return -ret;
@@ -6028,7 +6028,7 @@ int main(int argc, const char **argv)
     } else {
       /* list users in groups of max-keys, then perform user-bucket
        * limit-check on each group */
-     ret = store->meta_list_keys_init(metadata_key, string(), &handle);
+     ret = store->meta_list_keys_init(dpp(), metadata_key, string(), &handle);
       if (ret < 0) {
 	cerr << "ERROR: buckets limit check can't get user metadata_key: "
 	     << cpp_strerror(-ret) << std::endl;
@@ -6151,7 +6151,7 @@ int main(int argc, const char **argv)
   if (opt_cmd == OPT::BUCKET_STATS) {
     if (bucket_name.empty() && !bucket_id.empty()) {
       rgw_bucket bucket;
-      if (!rgw_find_bucket_by_id(store->ctx(), store, marker, bucket_id, &bucket)) {
+      if (!rgw_find_bucket_by_id(dpp(), store->ctx(), store, marker, bucket_id, &bucket)) {
         cerr << "failure: no such bucket id" << std::endl;
         return -ENOENT;
       }
@@ -6210,7 +6210,7 @@ int main(int argc, const char **argv)
     formatter->reset();
     formatter->open_array_section("logs");
     RGWAccessHandle h;
-    int r = static_cast<rgw::sal::RadosStore*>(store)->getRados()->log_list_init(date, &h);
+    int r = static_cast<rgw::sal::RadosStore*>(store)->getRados()->log_list_init(dpp(), date, &h);
     if (r == -ENOENT) {
       // no logs.
     } else {
@@ -6255,7 +6255,7 @@ int main(int argc, const char **argv)
     if (opt_cmd == OPT::LOG_SHOW) {
       RGWAccessHandle h;
 
-      int r = static_cast<rgw::sal::RadosStore*>(store)->getRados()->log_show_init(oid, &h);
+      int r = static_cast<rgw::sal::RadosStore*>(store)->getRados()->log_show_init(dpp(), oid, &h);
       if (r < 0) {
 	cerr << "error opening log " << oid << ": " << cpp_strerror(-r) << std::endl;
 	return -r;
@@ -6326,7 +6326,7 @@ next:
       cout << std::endl;
     }
     if (opt_cmd == OPT::LOG_RM) {
-      int r = static_cast<rgw::sal::RadosStore*>(store)->getRados()->log_remove(oid);
+      int r = static_cast<rgw::sal::RadosStore*>(store)->getRados()->log_remove(dpp(), oid);
       if (r < 0) {
 	cerr << "error removing log " << oid << ": " << cpp_strerror(-r) << std::endl;
 	return -r;
@@ -7013,7 +7013,7 @@ next:
 
     RGWBucketReshard br(static_cast<rgw::sal::RadosStore*>(store), bucket->get_info(), bucket->get_attrs(), nullptr /* no callback */);
     list<cls_rgw_bucket_instance_entry> status;
-    int r = br.get_status(&status);
+    int r = br.get_status(dpp(), &status);
     if (r < 0) {
       cerr << "ERROR: could not get resharding status for bucket " <<
 	bucket_name << std::endl;
@@ -7056,7 +7056,7 @@ next:
       // we did not encounter an error, so let's work with the bucket
       RGWBucketReshard br(static_cast<rgw::sal::RadosStore*>(store), bucket->get_info(), bucket->get_attrs(),
                           nullptr /* no callback */);
-      int ret = br.cancel();
+      int ret = br.cancel(dpp());
       if (ret < 0) {
         if (ret == -EBUSY) {
           cerr << "There is ongoing resharding, please retry after " <<
@@ -7097,7 +7097,7 @@ next:
     rgw_obj_index_key index_key;
     key.get_index_key(&index_key);
     oid_list.push_back(index_key);
-    ret = bucket->remove_objs_from_index(oid_list);
+    ret = bucket->remove_objs_from_index(dpp(), oid_list);
     if (ret < 0) {
       cerr << "ERROR: remove_obj_from_index() returned error: " << cpp_strerror(-ret) << std::endl;
       return 1;
@@ -7341,7 +7341,7 @@ next:
     info.job_name = job_id;
     info.num_shards = num_shards;
 
-    int ret = search.init(job_id, &info, detail);
+    int ret = search.init(dpp(), job_id, &info, detail);
     if (ret < 0) {
       cerr << "could not init search, ret=" << ret << std::endl;
       return -ret;
@@ -7370,7 +7370,7 @@ next:
       cerr << "ERROR: --job-id not specified" << std::endl;
       return EINVAL;
     }
-    int ret = search.init(job_id, NULL);
+    int ret = search.init(dpp(), job_id, NULL);
     if (ret < 0) {
       if (ret == -ENOENT) {
         cerr << "job not found" << std::endl;
@@ -7395,7 +7395,7 @@ next:
     }
 
     RGWOrphanStore orphan_store(store);
-    int ret = orphan_store.init();
+    int ret = orphan_store.init(dpp());
     if (ret < 0){
       cerr << "connection to cluster failed!" << std::endl;
       return -ret;
@@ -7535,7 +7535,7 @@ next:
     }
     void *handle;
     int max = 1000;
-    int ret = store->meta_list_keys_init(metadata_key, marker, &handle);
+    int ret = store->meta_list_keys_init(dpp(), metadata_key, marker, &handle);
     if (ret < 0) {
       cerr << "ERROR: can't get key: " << cpp_strerror(-ret) << std::endl;
       return -ret;
@@ -8130,7 +8130,7 @@ next:
 
     do {
       list<rgw_bi_log_entry> entries;
-      ret = static_cast<rgw::sal::RadosStore*>(store)->svc()->bilog_rados->log_list(bucket->get_info(), shard_id, marker, max_entries - count, entries, &truncated);
+      ret = static_cast<rgw::sal::RadosStore*>(store)->svc()->bilog_rados->log_list(dpp(), bucket->get_info(), shard_id, marker, max_entries - count, entries, &truncated);
       if (ret < 0) {
         cerr << "ERROR: list_bi_log_entries(): " << cpp_strerror(-ret) << std::endl;
         return -ret;
@@ -8612,7 +8612,7 @@ next:
       cerr << "ERROR: could not init bucket: " << cpp_strerror(-ret) << std::endl;
       return -ret;
     }
-    ret = static_cast<rgw::sal::RadosStore*>(store)->svc()->bilog_rados->log_trim(bucket->get_info(), shard_id, start_marker, end_marker);
+    ret = static_cast<rgw::sal::RadosStore*>(store)->svc()->bilog_rados->log_trim(dpp(), bucket->get_info(), shard_id, start_marker, end_marker);
     if (ret < 0) {
       cerr << "ERROR: trim_bi_log_entries(): " << cpp_strerror(-ret) << std::endl;
       return -ret;
@@ -8630,7 +8630,7 @@ next:
       return -ret;
     }
     map<int, string> markers;
-    ret = static_cast<rgw::sal::RadosStore*>(store)->svc()->bilog_rados->get_log_status(bucket->get_info(), shard_id,
+    ret = static_cast<rgw::sal::RadosStore*>(store)->svc()->bilog_rados->get_log_status(dpp(), bucket->get_info(), shard_id,
 						    &markers, null_yield);
     if (ret < 0) {
       cerr << "ERROR: get_bi_log_status(): " << cpp_strerror(-ret) << std::endl;
@@ -8980,7 +8980,7 @@ next:
     }
 
     rados::cls::otp::otp_info_t result;
-    int ret = static_cast<rgw::sal::RadosStore*>(store)->svc()->cls->mfa.get_mfa(user->get_id(), totp_serial, &result, null_yield);
+    int ret = static_cast<rgw::sal::RadosStore*>(store)->svc()->cls->mfa.get_mfa(dpp(), user->get_id(), totp_serial, &result, null_yield);
     if (ret < 0) {
       if (ret == -ENOENT || ret == -ENODATA) {
         cerr << "MFA serial id not found" << std::endl;
@@ -9002,7 +9002,7 @@ next:
     }
 
     list<rados::cls::otp::otp_info_t> result;
-    int ret = static_cast<rgw::sal::RadosStore*>(store)->svc()->cls->mfa.list_mfa(user->get_id(), &result, null_yield);
+    int ret = static_cast<rgw::sal::RadosStore*>(store)->svc()->cls->mfa.list_mfa(dpp(), user->get_id(), &result, null_yield);
     if (ret < 0) {
       cerr << "MFA listing failed, error: " << cpp_strerror(-ret) << std::endl;
       return -ret;
@@ -9030,7 +9030,7 @@ next:
     }
 
     list<rados::cls::otp::otp_info_t> result;
-    int ret = static_cast<rgw::sal::RadosStore*>(store)->svc()->cls->mfa.check_mfa(user->get_id(), totp_serial, totp_pin.front(), null_yield);
+    int ret = static_cast<rgw::sal::RadosStore*>(store)->svc()->cls->mfa.check_mfa(dpp(), user->get_id(), totp_serial, totp_pin.front(), null_yield);
     if (ret < 0) {
       cerr << "MFA check failed, error: " << cpp_strerror(-ret) << std::endl;
       return -ret;
@@ -9055,7 +9055,7 @@ next:
     }
 
     rados::cls::otp::otp_info_t config;
-    int ret = static_cast<rgw::sal::RadosStore*>(store)->svc()->cls->mfa.get_mfa(user->get_id(), totp_serial, &config, null_yield);
+    int ret = static_cast<rgw::sal::RadosStore*>(store)->svc()->cls->mfa.get_mfa(dpp(), user->get_id(), totp_serial, &config, null_yield);
     if (ret < 0) {
       if (ret == -ENOENT || ret == -ENODATA) {
         cerr << "MFA serial id not found" << std::endl;
@@ -9067,7 +9067,7 @@ next:
 
     ceph::real_time now;
 
-    ret = static_cast<rgw::sal::RadosStore*>(store)->svc()->cls->mfa.otp_get_current_time(user->get_id(), &now, null_yield);
+    ret = static_cast<rgw::sal::RadosStore*>(store)->svc()->cls->mfa.otp_get_current_time(dpp(), user->get_id(), &now, null_yield);
     if (ret < 0) {
       cerr << "ERROR: failed to fetch current time from osd: " << cpp_strerror(-ret) << std::endl;
       return -ret;

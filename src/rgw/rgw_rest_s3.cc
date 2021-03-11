@@ -4634,7 +4634,7 @@ static int verify_mfa(rgw::sal::Store* store, RGWUserInfo *user,
     return -EACCES;
   }
 
-  int ret = static_cast<rgw::sal::RadosStore*>(store)->svc()->cls->mfa.check_mfa(user->user_id, serial, pin, y);
+  int ret = static_cast<rgw::sal::RadosStore*>(store)->svc()->cls->mfa.check_mfa(dpp, user->user_id, serial, pin, y);
   if (ret < 0) {
     ldpp_dout(dpp, 20) << "NOTICE: failed to check MFA, serial=" << serial << dendl;
     return -EACCES;

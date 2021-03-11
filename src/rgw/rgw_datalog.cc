@@ -79,7 +79,7 @@ int RGWDataChangesBE::remove(const DoutPrefixProvider *dpp,
 {
   auto num_shards = cct->_conf->rgw_data_log_num_shards;
   librados::IoCtx ioctx;
-  auto r = rgw_init_ioctx(rados, log_pool.name, ioctx,
+  auto r = rgw_init_ioctx(dpp, rados, log_pool.name, ioctx,
 			  false, false);
   if (r < 0) {
     if (r == -ENOENT) {

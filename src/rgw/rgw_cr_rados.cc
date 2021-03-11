@@ -199,9 +199,9 @@ RGWOmapAppend::RGWOmapAppend(RGWAsyncRadosProcessor *_async_rados, rgw::sal::Rad
 int RGWAsyncLockSystemObj::_send_request(const DoutPrefixProvider *dpp)
 {
   rgw_rados_ref ref;
-  int r = store->getRados()->get_raw_obj_ref(obj, &ref);
+  int r = store->getRados()->get_raw_obj_ref(dpp, obj, &ref);
   if (r < 0) {
-    lderr(store->ctx()) << "ERROR: failed to get ref for (" << obj << ") ret=" << r << dendl;
+    ldpp_dout(dpp, -1) << "ERROR: failed to get ref for (" << obj << ") ret=" << r << dendl;
     return r;
   }
 
@@ -227,9 +227,9 @@ RGWAsyncLockSystemObj::RGWAsyncLockSystemObj(RGWCoroutine *caller, RGWAioComplet
 int RGWAsyncUnlockSystemObj::_send_request(const DoutPrefixProvider *dpp)
 {
   rgw_rados_ref ref;
-  int r = store->getRados()->get_raw_obj_ref(obj, &ref);
+  int r = store->getRados()->get_raw_obj_ref(dpp, obj, &ref);
   if (r < 0) {
-    lderr(store->ctx()) << "ERROR: failed to get ref for (" << obj << ") ret=" << r << dendl;
+    ldpp_dout(dpp, -1) << "ERROR: failed to get ref for (" << obj << ") ret=" << r << dendl;
     return r;
   }
 
@@ -268,9 +268,9 @@ RGWRadosSetOmapKeysCR::RGWRadosSetOmapKeysCR(rgw::sal::RadosStore* _store,
 
 int RGWRadosSetOmapKeysCR::send_request(const DoutPrefixProvider *dpp)
 {
-  int r = store->getRados()->get_raw_obj_ref(obj, &ref);
+  int r = store->getRados()->get_raw_obj_ref(dpp, obj, &ref);
   if (r < 0) {
-    lderr(store->ctx()) << "ERROR: failed to get ref for (" << obj << ") ret=" << r << dendl;
+    ldpp_dout(dpp, -1) << "ERROR: failed to get ref for (" << obj << ") ret=" << r << dendl;
     return r;
   }
 
@@ -306,9 +306,9 @@ RGWRadosGetOmapKeysCR::RGWRadosGetOmapKeysCR(rgw::sal::RadosStore* _store,
 }
 
 int RGWRadosGetOmapKeysCR::send_request(const DoutPrefixProvider *dpp) {
-  int r = store->getRados()->get_raw_obj_ref(obj, &result->ref);
+  int r = store->getRados()->get_raw_obj_ref(dpp, obj, &result->ref);
   if (r < 0) {
-    lderr(store->ctx()) << "ERROR: failed to get ref for (" << obj << ") ret=" << r << dendl;
+    ldpp_dout(dpp, -1) << "ERROR: failed to get ref for (" << obj << ") ret=" << r << dendl;
     return r;
   }
 
@@ -344,9 +344,9 @@ RGWRadosGetOmapValsCR::RGWRadosGetOmapValsCR(rgw::sal::RadosStore* _store,
 }
 
 int RGWRadosGetOmapValsCR::send_request(const DoutPrefixProvider *dpp) {
-  int r = store->getRados()->get_raw_obj_ref(obj, &result->ref);
+  int r = store->getRados()->get_raw_obj_ref(dpp, obj, &result->ref);
   if (r < 0) {
-    lderr(store->ctx()) << "ERROR: failed to get ref for (" << obj << ") ret=" << r << dendl;
+    ldpp_dout(dpp, -1) << "ERROR: failed to get ref for (" << obj << ") ret=" << r << dendl;
     return r;
   }
 
@@ -379,9 +379,9 @@ RGWRadosRemoveOmapKeysCR::RGWRadosRemoveOmapKeysCR(rgw::sal::RadosStore* _store,
 }
 
 int RGWRadosRemoveOmapKeysCR::send_request(const DoutPrefixProvider *dpp) {
-  int r = store->getRados()->get_raw_obj_ref(obj, &ref);
+  int r = store->getRados()->get_raw_obj_ref(dpp, obj, &ref);
   if (r < 0) {
-    lderr(store->ctx()) << "ERROR: failed to get ref for (" << obj << ") ret=" << r << dendl;
+    ldpp_dout(dpp, -1) << "ERROR: failed to get ref for (" << obj << ") ret=" << r << dendl;
     return r;
   }
 
@@ -959,9 +959,9 @@ RGWRadosNotifyCR::RGWRadosNotifyCR(rgw::sal::RadosStore* store, const rgw_raw_ob
 
 int RGWRadosNotifyCR::send_request(const DoutPrefixProvider *dpp)
 {
-  int r = store->getRados()->get_raw_obj_ref(obj, &ref);
+  int r = store->getRados()->get_raw_obj_ref(dpp, obj, &ref);
   if (r < 0) {
-    lderr(store->ctx()) << "ERROR: failed to get ref for (" << obj << ") ret=" << r << dendl;
+    ldpp_dout(dpp, -1) << "ERROR: failed to get ref for (" << obj << ") ret=" << r << dendl;
     return r;
   }
 

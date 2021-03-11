@@ -280,6 +280,7 @@ class CephadmServe:
             sd.memory_request = d.get('memory_request')
             sd.memory_limit = d.get('memory_limit')
             sd._service_name = d.get('service_name')
+            sd.deployed_by = d.get('deployed_by')
             sd.version = d.get('version')
             if sd.daemon_type == 'osd':
                 sd.osdspec_affinity = self.mgr.osd_service.get_osdspec_affinity(sd.daemon_id)
@@ -855,6 +856,7 @@ class CephadmServe:
                         '--name', daemon_spec.name(),
                         '--meta-json', json.dumps({
                             'service_name': daemon_spec.service_name,
+                            'deployed_by': self.mgr.get_active_mgr_digests(),
                         }),
                         '--config-json', '-',
                     ] + daemon_spec.extra_args,

@@ -65,6 +65,7 @@ class CephadmUpgrade:
         'UPGRADE_FAILED_PULL',
         'UPGRADE_REDEPLOY_DAEMON',
         'UPGRADE_BAD_TARGET_VERSION',
+        'POST_UPGRADE_REDEPLOY_DAEMON',
     ]
 
     def __init__(self, mgr: "CephadmOrchestrator"):
@@ -356,6 +357,61 @@ class CephadmUpgrade:
                 continue
 
         return continue_upgrade
+
+    def _post_upgrade_redeploys(self, target_digests: List[str]) -> bool:
+        # redeploy all daemons who were not deployed by mgr running
+        # new version
+        daemons = self.mgr.cache.get_daemons()
+        for d in daemons:
+            if any(d in target_digests for d in (d.deployed_by or [])):
+                logger.debug('daemon %s.%s deployed by correct version' % (
+                    d.daemon_type, d.daemon_id))
+                continue
+
+            assert d.daemon_type is not None
+            assert d.daemon_id is not None
+            assert d.hostname is not None
+
+            if self.mgr.daemon_is_self(d.daemon_type, d.daemon_id):
+                logger.info('Upgrade: Need to redeploy myself (mgr.%s)' %
+                            self.mgr.get_mgr_id())
+                try:
+                    self.mgr.mgr_service.fail_over()
+                except OrchestratorError as e:
+                    self._fail_upgrade('UPGRADE_NO_STANDBY_MGR', {
+                        'severity': 'warning',
+                        'summary': f'Upgrade: {e}',
+                        'count': 1,
+                        'detail': [
+                            'The upgrade process needs to redeploy the mgr, '
+                            'but it needs at least one standby to proceed.',
+                        ],
+                    })
+                    return False
+
+            if d.daemon_type in ['mon', 'osd', 'mds']:
+                if not self._wait_for_ok_to_stop(d, []):
+                    return False
+
+            try:
+                self.mgr._daemon_action(
+                    d.daemon_type,
+                    d.daemon_id,
+                    d.hostname,
+                    'redeploy'
+                )
+            except Exception as e:
+                self._fail_upgrade('POST_UPGRADE_REDEPLOY_DAEMON', {
+                    'severity': 'warning',
+                    'summary': f'Redeploying daemon {d.name()} on host {d.hostname} after upgrade failed.',
+                    'count': 1,
+                    'detail': [
+                        f'Redeploy daemon: {d.name()}: {e}'
+                    ],
+                })
+                return False
+
+        return True
 
     def _do_upgrade(self):
         # type: () -> None
@@ -655,6 +711,9 @@ class CephadmUpgrade:
                 'name': 'container_image',
                 'who': name_to_config_section(daemon_type),
             })
+
+        if not self._post_upgrade_redeploys(target_digests):
+            return
 
         logger.info('Upgrade: Complete!')
         if self.upgrade_state.progress_id:

@@ -790,6 +790,7 @@ class DaemonDescription(object):
                  memory_request: Optional[int] = None,
                  memory_limit: Optional[int] = None,
                  service_name: Optional[str] = None,
+                 deployed_by: Optional[List[str]] = None
                  ) -> None:
 
         # Host is at the same granularity as InventoryHost
@@ -841,6 +842,8 @@ class DaemonDescription(object):
         self.memory_usage: Optional[int] = memory_usage
         self.memory_request: Optional[int] = memory_request
         self.memory_limit: Optional[int] = memory_limit
+
+        self.deployed_by = deployed_by
 
         self.is_active = is_active
 
@@ -942,6 +945,7 @@ class DaemonDescription(object):
         if self.daemon_type == 'osd':
             out['osdspec_affinity'] = self.osdspec_affinity
         out['is_active'] = self.is_active
+        out['deployed_by'] = self.deployed_by
 
         for k in ['last_refresh', 'created', 'started', 'last_deployed',
                   'last_configured']:

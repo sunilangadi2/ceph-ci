@@ -2994,11 +2994,10 @@ std::vector<Option> get_global_options() {
     .set_description("Do not store full-object checksums if the backend (bluestore) does its own checksums.  Only usable with all BlueStore OSDs."),
 
     Option("osd_op_queue", Option::TYPE_STR, Option::LEVEL_ADVANCED)
-    .set_default("wpq")
+    .set_default("mclock_scheduler")
     .set_enum_allowed( { "wpq", "mclock_scheduler", "debug_random" } )
     .set_description("which operation priority queue algorithm to use")
-    .set_long_description("which operation priority queue algorithm to use; "
-			  "mclock_scheduler is currently experimental")
+    .set_long_description("which operation priority queue algorithm to use")
     .add_see_also("osd_op_queue_cut_off"),
 
     Option("osd_op_queue_cut_off", Option::TYPE_STR, Option::LEVEL_ADVANCED)

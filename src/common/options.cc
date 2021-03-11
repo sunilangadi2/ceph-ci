@@ -4774,6 +4774,10 @@ std::vector<Option> get_global_options() {
     .set_default(0.0)
     .set_description("inject crc verification errors into bluestore device reads"),
 
+    Option("bluestore_debug_legacy_omap", Option::TYPE_BOOL, Option::LEVEL_DEV)
+      .set_default(false)
+      .set_description("if true mkfs creates OSD in legacy OMAP naming mode (neither per-pool nor per-pg)"),
+
     Option("bluestore_fsck_error_on_no_per_pool_stats", Option::TYPE_BOOL, Option::LEVEL_ADVANCED)
     .set_default(false)
     .set_description("Make fsck error (instead of warn) when bluestore lacks per-pool stats, e.g., after an upgrade"),

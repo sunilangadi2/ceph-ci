@@ -74,7 +74,7 @@ int RGWServices_Def::init(CephContext *cct,
   user_rados = std::make_unique<RGWSI_User_RADOS>(cct);
 
   if (have_cache) {
-    sysobj_cache = std::make_unique<RGWSI_SysObj_Cache>(cct);
+    sysobj_cache = std::make_unique<RGWSI_SysObj_Cache>(dpp, cct);
   }
 
   vector<RGWSI_MetaBackend *> meta_bes{meta_be_sobj.get(), meta_be_otp.get()};

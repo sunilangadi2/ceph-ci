@@ -590,7 +590,7 @@ int RGWSI_SysObj_Cache_ASocketHook::call(
   return -ENOSYS;
 }
 
-RGWSI_SysObj_Cache::ASocketHandler::ASocketHandler(RGWSI_SysObj_Cache *_svc) : svc(_svc)
+RGWSI_SysObj_Cache::ASocketHandler::ASocketHandler(const DoutPrefixProvider *_dpp, RGWSI_SysObj_Cache *_svc) : dpp(_dpp), svc(_svc)
 {
   hook.reset(new RGWSI_SysObj_Cache_ASocketHook(_svc));
 }

@@ -100,7 +100,7 @@ protected:
   void set_enabled(bool status);
 
 public:
-  RGWSI_SysObj_Cache(CephContext *cct) : RGWSI_SysObj_Core(cct), asocket(this) {
+  RGWSI_SysObj_Cache(const DoutPrefixProvider *dpp, CephContext *cct) : RGWSI_SysObj_Core(cct), asocket(dpp, this) {
     cache.set_ctx(cct);
   }
 
@@ -117,7 +117,7 @@ public:
     std::unique_ptr<RGWSI_SysObj_Cache_ASocketHook> hook;
 
   public:
-    ASocketHandler(RGWSI_SysObj_Cache *_svc);
+    ASocketHandler(const DoutPrefixProvider *dpp, RGWSI_SysObj_Cache *_svc);
     ~ASocketHandler();
 
     int start();

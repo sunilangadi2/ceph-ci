@@ -156,11 +156,17 @@ class CephadmService(metaclass=ABCMeta):
             'prefix': 'auth get-or-create',
             'entity': entity,
         })
-        ret, out, err = self.mgr.check_mon_command({
+        # NOTE: ignore error here, since 15.2.0 didn't allow 'auth caps' as
+        # part of 'profile mgr'.
+        ret, out, err = self.mgr.mon_command({
             'prefix': 'auth caps',
             'entity': entity,
             'caps': caps,
         })
+        if err:
+            self.mgr.log.warning(
+                f"unable to update caps for {entity} to {caps}: are mons running <15.2.1?"
+            )
         return keyring
 
     def _inventory_get_addr(self, hostname: str) -> str:

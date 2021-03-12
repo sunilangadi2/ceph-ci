@@ -16,6 +16,9 @@
 #define CEPH_LOCKDEP_H
 
 #include "include/common_fwd.h"
+
+#ifdef CEPH_DEBUG_MUTEX
+
 extern bool g_lockdep;
 
 extern void lockdep_register_ceph_context(CephContext *cct);
@@ -30,4 +33,17 @@ extern int lockdep_will_lock(const char *n, int id, bool force_backtrace=false,
 extern int lockdep_locked(const char *n, int id, bool force_backtrace=false);
 extern int lockdep_will_unlock(const char *n, int id);
 extern int lockdep_dump_locks();
+
+#else
+
+#define g_lockdep false
+#define lockdep_will_lock(n_, i_) i_
+#define lockdep_will_unlock(n_, i_) i_
+#define lockdep_locked(n_, i_) i_
+#define lockdep_register(n_) 0
+#define lockdep_unregister(i_)
+
+#endif	// CEPH_DEBUG_MUTEX
+
+
 #endif

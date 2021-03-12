@@ -382,20 +382,35 @@ void PaxosService::maybe_trim()
     return;
 
   version_t to_remove = trim_to - get_first_committed();
-  if (g_conf()->paxos_service_trim_min > 0 &&
-      to_remove < (version_t)g_conf()->paxos_service_trim_min) {
+  version_t paxos_service_trim_min = (version_t)g_conf()->paxos_service_trim_min;
+  version_t paxos_service_trim_max = (version_t)g_conf()->paxos_service_trim_max;
+
+  if (paxos_service_trim_min > 0 &&
+      to_remove < paxos_service_trim_min) {
     dout(10) << __func__ << " trim_to " << trim_to << " would only trim " << to_remove
-	     << " < paxos_service_trim_min " << g_conf()->paxos_service_trim_min << dendl;
+	     << " < paxos_service_trim_min " << paxos_service_trim_min << dendl;
     return;
   }
 
-  if (g_conf()->paxos_service_trim_max > 0 &&
-      to_remove > (version_t)g_conf()->paxos_service_trim_max) {
-    dout(10) << __func__ << " trim_to " << trim_to << " would only trim " << to_remove
-	     << " > paxos_service_trim_max, limiting to " << g_conf()->paxos_service_trim_max
+  if (paxos_service_trim_max > 0 &&
+      to_remove > paxos_service_trim_max) {
+    
+    dout(10) << __func__ << "Ratio of to_remove to max trim: " << to_remove/paxos_service_trim_max << dendl;
+    if (floor(to_remove/paxos_service_trim_max) > 1) {
+      /*
+      Changing trim_max limit when to_remove is much bigger
+      */
+      dout(10) << __func__ << " changing paxos service trim max" << dendl;
+      paxos_service_trim_max = paxos_service_trim_max * floor(to_remove/paxos_service_trim_max);
+      dout(10) << __func__ << "new paxos_service_trim_max" <<
+      paxos_service_trim_max << dendl;
+    } else {
+      dout(10) << __func__ << " trim_to " << trim_to << " would only trim " << to_remove
+	     << " > paxos_service_trim_max, limiting to " << paxos_service_trim_max
 	     << dendl;
-    trim_to = get_first_committed() + g_conf()->paxos_service_trim_max;
-    to_remove = g_conf()->paxos_service_trim_max;
+    }   
+    trim_to = get_first_committed() + paxos_service_trim_max;
+    to_remove = paxos_service_trim_max;
   }
 
   dout(10) << __func__ << " trimming to " << trim_to << ", " << to_remove << " states" << dendl;

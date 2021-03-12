@@ -26,6 +26,15 @@
 
 #include <atomic>
 
+#ifndef CEPH_DEBUG_MUTEX
+#define g_lockdep false
+#define lockdep_will_lock(n_, i_)
+#define lockdep_will_unlock(n_, i_)
+#define lockdep_locked(n_, i_)
+#define lockdep_register(n_)
+#define lockdep_unregister(i_)
+#endif
+
 class RWLock final
 {
   mutable pthread_rwlock_t L;

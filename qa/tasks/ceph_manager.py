@@ -1551,11 +1551,10 @@ class CephManager:
         """
         Execute a remote rados command.
         """
-        testdir = teuthology.get_testdir(self.ctx)
         pre = [
             'adjust-ulimits',
             'ceph-coverage',
-            '{tdir}/archive/coverage'.format(tdir=testdir),
+            f'{self.testdir}/archive/coverage'
             'rados',
             '--cluster',
             self.cluster,
@@ -1679,12 +1678,11 @@ class CephManager:
                 check_status=check_status,
             )
 
-        testdir = teuthology.get_testdir(self.ctx)
         args = [
             'sudo',
             'adjust-ulimits',
             'ceph-coverage',
-            '{tdir}/archive/coverage'.format(tdir=testdir),
+            f'{self.testdir}/archive/coverage'
             'timeout',
             str(timeout),
             'ceph',

@@ -40,6 +40,9 @@ int CephxServiceHandler::do_start_session(
   bufferlist *result_bl,
   AuthCapsInfo *caps)
 {
+  global_id_status = is_new_global_id ? global_id_status_t::NEW_PENDING :
+					global_id_status_t::RECLAIM_PENDING;
+
   uint64_t min = 1; // always non-zero
   uint64_t max = std::numeric_limits<uint64_t>::max();
   server_challenge = ceph::util::generate_random_number<uint64_t>(min, max);
@@ -56,7 +59,6 @@ int CephxServiceHandler::handle_request(
   bufferlist::const_iterator& indata,
   size_t connection_secret_required_len,
   bufferlist *result_bl,
-  uint64_t *global_id,
   AuthCapsInfo *caps,
   CryptoKey *psession_key,
   std::string *pconnection_secret)
@@ -130,20 +132,76 @@ int CephxServiceHandler::handle_request(
       }
       CephXServiceTicketInfo old_ticket_info;
 
-      if (cephx_decode_ticket(cct, key_server, CEPH_ENTITY_TYPE_AUTH,
-			      req.old_ticket, old_ticket_info)) {
-        *global_id = old_ticket_info.ticket.global_id;
-        ldout(cct, 10) << "decoded old_ticket with global_id=" << *global_id
-		       << dendl;
-        should_enc_ticket = true;
+      ldout(cct, 20) << " checking old_ticket: secret_id="
+		     << req.old_ticket.secret_id << " len="
+		     << req.old_ticket.blob.length() << dendl;
+      if (global_id_status == global_id_status_t::RECLAIM_PENDING) {
+	if (req.old_ticket.blob.length()) {
+	  if (!cephx_decode_ticket(cct, key_server, CEPH_ENTITY_TYPE_AUTH,
+				   req.old_ticket, old_ticket_info)) {
+	    ldout(cct, 0) << " attempt to reclaim global_id " << global_id
+			  << " using bad ticket" << dendl;
+	    ret = -EACCES;
+	    break;
+	  }
+	  ldout(cct, 20) << " decoded old_ticket: global_id="
+			 << old_ticket_info.ticket.global_id << dendl;
+	  if (global_id != old_ticket_info.ticket.global_id) {
+	    ldout(cct, 0) << " attempt to reclaim global_id " << global_id
+			  << " using mismatching ticket" << dendl;
+	    ret = -EACCES;
+	    break;
+	  }
+	  ldout(cct, 10) << " allowing reclaim of global_id " << global_id
+			 << " (old ticket presented, will encrypt new ticket)"
+			 << dendl;
+	  global_id_status = global_id_status_t::RECLAIM_OK;
+	  should_enc_ticket = true;
+	} else {
+	  // old ticket is needed but not presented
+	  if (!req.old_ticket_may_be_omitted) {
+	    // new client -- deny regardless of which mode we're in
+	    ldout(cct, 0) << " attempt to reclaim global_id " << global_id
+			  << " without presenting ticket (new client!)" << dendl;
+	    ret = -EACCES;
+	    break;
+	  }
+	  if (!cct->_conf->auth_allow_unverified_global_ids) {
+	    // legacy client and we're in enforcing mode
+	    ldout(cct, 0) << " attempt to reclaim global_id " << global_id
+			  << " without presenting ticket (legacy client, auth_allow_unverified_global_ids=false)" << dendl;
+	    ret = -EACCES;
+	    break;
+	  }
+	  // legacy client and we're in permissive mode
+	  ldout(cct, 10) << " allowing reclaim of global_id " << global_id
+			 << " with no old ticket presented (legacy client, auth_allow_unverified_global_ids=true)"
+			 << dendl;
+	  global_id_status = global_id_status_t::RECLAIM_UNVERIFIED;
+	}
+      } else if (global_id_status == global_id_status_t::NEW_PENDING) {
+	// old ticket is not needed
+	if (req.old_ticket.blob.length()) {
+	  ldout(cct, 0) << " superfluous ticket presented" << dendl;
+	  ret = -EACCES;
+	  break;
+	}
+	if (!req.old_ticket_may_be_omitted) {
+	  ldout(cct, 10) << " new global_id " << global_id << dendl;
+	  global_id_status = global_id_status_t::NEW_OK;
+	} else {
+	  ldout(cct, 10) << " new global_id " << global_id
+			 << " (unexposed legacy client)" << dendl;
+	  global_id_status = global_id_status_t::NEW_NOT_EXPOSED;
+	}
+      } else {
+	ceph_abort();
       }
 
-      ldout(cct,10) << __func__ << " auth ticket global_id " << *global_id
-		    << dendl;
       info.ticket.init_timestamps(ceph_clock_now(),
 				  cct->_conf->auth_mon_ticket_ttl);
       info.ticket.name = entity_name;
-      info.ticket.global_id = *global_id;
+      info.ticket.global_id = global_id;
       info.validity += cct->_conf->auth_mon_ticket_ttl;
 
       key_server->generate_secret(session_key);

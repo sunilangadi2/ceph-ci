@@ -254,7 +254,7 @@ void mClockScheduler::set_high_client_ops_profile_allocations()
   uint64_t rec_res = static_cast<uint64_t>(
     std::round(0.25 * max_osd_capacity));
   uint64_t rec_lim = static_cast<uint64_t>(
-    std::round(max_osd_capacity));
+    std::round(1.25 * max_osd_capacity));
   uint64_t rec_wgt = default_min;
 
   // Background Best Effort

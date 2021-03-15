@@ -21,7 +21,7 @@ protected:
   virtual PG::do_osd_ops_params_t get_do_osd_ops_params() const = 0;
   virtual seastar::future<std::vector<OSDOp>> fabricate_osd_ops() = 0;
 
-  PG& get_pg() {
+  const PG& get_pg() const {
     return *pg;
   }
 

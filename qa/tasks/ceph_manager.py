@@ -2398,7 +2398,8 @@ class CephManager:
         for pg in pgs:
             if (pg['state'].count('active') and
                     pg['state'].count('clean') and
-                    not pg['state'].count('stale')):
+                    not pg['state'].count('stale') and
+                    not pg['state'].count('remapped')):
                 num += 1
         return num
 

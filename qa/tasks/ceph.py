@@ -1215,7 +1215,7 @@ def osd_scrub_pgs(ctx, config):
     indicate the last scrub completed.  Time out if no progress is made
     here after two minutes.
     """
-    retries = 40
+    retries = 60
     delays = 20
     cluster_name = config['cluster']
     manager = ctx.managers[cluster_name]

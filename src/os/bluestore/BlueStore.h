@@ -2413,8 +2413,8 @@ public:
   }
 
   static int _write_bdev_label(CephContext* cct,
-			       std::string path, bluestore_bdev_label_t label);
-  static int _read_bdev_label(CephContext* cct, std::string path,
+			       const std::string &path, bluestore_bdev_label_t label);
+  static int _read_bdev_label(CephContext* cct, const std::string &path,
 			      bluestore_bdev_label_t *label);
 private:
   int _check_or_set_bdev_label(std::string path, uint64_t size, std::string desc,
@@ -3450,6 +3450,7 @@ public:
     const BlueStore::FSCK_ObjectCtx& ctx);
 
   int  read_allocation_from_drive_for_bluestore_tool();
+  
 private:
 #define MAX_BLOBS_IN_ONODE 128
   struct  read_alloc_stats_t {
@@ -3476,39 +3477,41 @@ private:
 
   friend std::ostream& operator<<(std::ostream& out, const read_alloc_stats_t& stats) {
     out << "==========================================================" << std::endl;
-    out << "onode_count             = " ;out.width(10);out << stats.onode_count << std::endl
-	<< "shard_count             = " ;out.width(10);out << stats.shard_count << std::endl
-	<< "collection search       = " ;out.width(10);out << stats.collection_search << std::endl
-	<< "skipped_repeated_extent = " ;out.width(10);out << stats.skipped_repeated_extent << std::endl
-	<< "skipped_illegal_extent  = " ;out.width(10);out << stats.skipped_illegal_extent << std::endl
-	<< "extent_count            = " ;out.width(10);out << stats.extent_count << std::endl
-	<< "insert_count            = " ;out.width(10);out << stats.insert_count << std::endl
-      	<< "limit_count             = " ;out.width(10);out << stats.limit_count << std::endl
-	<< "merge_insert_count      = " ;out.width(10);out << stats.merge_insert_count  << std::endl
-	<< "merge_inplace_count     = " ;out.width(10);out << stats.merge_inplace_count << std::endl
-	<< "saved_inplace_count     = " ;out.width(10);out << stats.saved_inplace_count << std::endl;
+    out << "NCB::onode_count             = " ;out.width(10);out << stats.onode_count << std::endl
+	<< "NCB::shard_count             = " ;out.width(10);out << stats.shard_count << std::endl
+	<< "NCB::collection search       = " ;out.width(10);out << stats.collection_search << std::endl
+	<< "NCB::skipped_repeated_extent = " ;out.width(10);out << stats.skipped_repeated_extent << std::endl
+	<< "NCB::skipped_illegal_extent  = " ;out.width(10);out << stats.skipped_illegal_extent << std::endl
+	<< "NCB::extent_count            = " ;out.width(10);out << stats.extent_count << std::endl
+	<< "NCB::insert_count            = " ;out.width(10);out << stats.insert_count << std::endl
+      	<< "NCB::limit_count             = " ;out.width(10);out << stats.limit_count << std::endl
+	<< "NCB::merge_insert_count      = " ;out.width(10);out << stats.merge_insert_count  << std::endl
+	<< "NCB::merge_inplace_count     = " ;out.width(10);out << stats.merge_inplace_count << std::endl
+	<< "NCB::saved_inplace_count     = " ;out.width(10);out << stats.saved_inplace_count << std::endl;
     if (stats.saved_inplace_count) {
-      out << "saved inplace per call  = " ;out.width(10);out << stats.saved_inplace_count/stats.merge_inplace_count << std::endl;
+      out << "NCB::saved inplace per call  = " ;out.width(10);out << stats.saved_inplace_count/stats.merge_inplace_count << std::endl;
     }
     out << "==========================================================" << std::endl;
 
     for (unsigned i = 0; i < MAX_BLOBS_IN_ONODE; i++ ) {
       if (stats.blobs_in_onode[i]) {
-	out << "We had " ;out.width(9); out << stats.blobs_in_onode[i]
+	out << "NCB::We had " ;out.width(9); out << stats.blobs_in_onode[i]
 	    << " ONodes with "; out.width(3); out << i << " blobs" << std::endl;
       }
     }
     
     if (stats.blobs_in_onode[MAX_BLOBS_IN_ONODE]) {
-      out << "We had " ;out.width(9);out << stats.blobs_in_onode[MAX_BLOBS_IN_ONODE]
+      out << "NCB::We had " ;out.width(9);out << stats.blobs_in_onode[MAX_BLOBS_IN_ONODE]
 	  << " ONodes with more than " << MAX_BLOBS_IN_ONODE << " blobs" << std::endl;
     }
     return out;
   }
 
   int  compare_allocators(Allocator* alloc1, Allocator* alloc2, uint64_t req_extent_count, uint64_t memory_target);
-  Allocator* create_allocator(uint64_t bdev_size);
+  Allocator* create_allocator(uint64_t bdev_size, string type);
   int  add_existing_bluefs_allocation(Allocator* allocator, read_alloc_stats_t& stats);
+  int  preallocate_space_for_allocator(BlueFS::FileWriter *p_handle, uint64_t p_num_entries);
+  int  copy_allocator(Allocator* src_alloc, Allocator *dest_alloc, uint64_t* p_num_entries);
   int  store_allocator(Allocator* allocator);
   int  invalidate_allocation_file_on_bluestore();
   int  restore_allocator(Allocator* allocator);
@@ -3963,7 +3966,7 @@ class sorted_extents_t {
   uint32_t          m_merge_inplace_count = 0;
   CephContext      *cct;
   std::string       path;
-  sorted_extents_t(uint64_t memory_target, Allocator *allocator, CephContext* cct, std::string path);
+  sorted_extents_t(uint64_t memory_target, Allocator *allocator, CephContext* cct, const std::string &path);
   ~sorted_extents_t();
   
   inline void add_entry(uint64_t offset, uint32_t length) {

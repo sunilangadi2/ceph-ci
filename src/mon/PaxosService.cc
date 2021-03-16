@@ -382,14 +382,12 @@ void PaxosService::maybe_trim()
     return;
 
   version_t to_remove = trim_to - get_first_committed();
-  version_t paxos_service_trim_min = 15;//(version_t)g_conf()->paxos_service_trim_min;
-  version_t paxos_service_trim_max = 5;//(version_t)g_conf()->paxos_service_trim_max;
+  version_t paxos_service_trim_min = (version_t)g_conf()->paxos_service_trim_min;
+  version_t paxos_service_trim_max = (version_t)g_conf()->paxos_service_trim_max;
   int paxos_service_trim_max_multiplier = g_conf()->paxos_service_trim_max_multiplier;
 
   if (paxos_service_trim_max_multiplier) {
-    dout(10) << __func__ << "AMAT: Trim Multiplier : " << paxos_service_trim_max_multiplier << dendl;
     paxos_service_trim_max = paxos_service_trim_max * paxos_service_trim_max_multiplier;
-    dout(10) << __func__ << "AMAT: Increasing trim max : " << paxos_service_trim_max << dendl;
   }
 
   if (paxos_service_trim_min > 0 &&

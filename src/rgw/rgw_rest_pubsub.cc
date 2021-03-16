@@ -31,7 +31,7 @@ public:
   int get_params() override {
     topic_name = s->info.args.get("Name");
     if (topic_name.empty()) {
-      ldout(s->cct, 1) << "CreateTopic Action 'Name' argument is missing" << dendl;
+      ldpp_dout(this, 1) << "CreateTopic Action 'Name' argument is missing" << dendl;
       return -EINVAL;
     }
 
@@ -57,7 +57,7 @@ public:
     if (!dest.push_endpoint.empty() && dest.persistent) {
       const auto ret = rgw::notify::add_persistent_topic(topic_name, s->yield);
       if (ret < 0) {
-        ldout(s->cct, 1) << "CreateTopic Action failed to create queue for persistent topics. error:" << ret << dendl;
+        ldpp_dout(this, 1) << "CreateTopic Action failed to create queue for persistent topics. error:" << ret << dendl;
         return ret;
       }
     }
@@ -137,7 +137,7 @@ public:
     const auto topic_arn = rgw::ARN::parse((s->info.args.get("TopicArn")));
 
     if (!topic_arn || topic_arn->resource.empty()) {
-        ldout(s->cct, 1) << "GetTopic Action 'TopicArn' argument is missing or invalid" << dendl;
+        ldpp_dout(this, 1) << "GetTopic Action 'TopicArn' argument is missing or invalid" << dendl;
         return -EINVAL;
     }
 
@@ -178,7 +178,7 @@ public:
     const auto topic_arn = rgw::ARN::parse((s->info.args.get("TopicArn")));
 
     if (!topic_arn || topic_arn->resource.empty()) {
-        ldout(s->cct, 1) << "GetTopicAttribute Action 'TopicArn' argument is missing or invalid" << dendl;
+        ldpp_dout(this, 1) << "GetTopicAttribute Action 'TopicArn' argument is missing or invalid" << dendl;
         return -EINVAL;
     }
 
@@ -219,7 +219,7 @@ public:
     const auto topic_arn = rgw::ARN::parse((s->info.args.get("TopicArn")));
 
     if (!topic_arn || topic_arn->resource.empty()) {
-      ldout(s->cct, 1) << "DeleteTopic Action 'TopicArn' argument is missing or invalid" << dendl;
+      ldpp_dout(this, 1) << "DeleteTopic Action 'TopicArn' argument is missing or invalid" << dendl;
       return -EINVAL;
     }
 
@@ -233,7 +233,7 @@ public:
       return 0;
     }
     if (ret < 0) {
-      ldout(s->cct, 1) << "DeleteTopic Action failed to remove queue for persistent topics. error:" << ret << dendl;
+      ldpp_dout(this, 1) << "DeleteTopic Action failed to remove queue for persistent topics. error:" << ret << dendl;
       return ret;
     }
 
@@ -343,7 +343,7 @@ void update_attribute_map(const std::string& input, AttributeMap& map) {
 
 void RGWHandler_REST_PSTopic_AWS::rgw_topic_parse_input() {
   if (post_body.size() > 0) {
-    ldout(s->cct, 10) << "Content of POST: " << post_body << dendl;
+    ldpp_dout(s, 10) << "Content of POST: " << post_body << dendl;
 
     if (post_body.find("Action") != string::npos) {
       const boost::char_separator<char> sep("&");
@@ -434,29 +434,29 @@ class RGWPSCreateNotif_ObjStore_S3 : public RGWPSCreateNotifOp {
     std::tie(r, data) = read_all_input(s, max_size, false);
 
     if (r < 0) {
-      ldout(s->cct, 1) << "failed to read XML payload" << dendl;
+      ldpp_dout(this, 1) << "failed to read XML payload" << dendl;
       return r;
     }
     if (data.length() == 0) {
-      ldout(s->cct, 1) << "XML payload missing" << dendl;
+      ldpp_dout(this, 1) << "XML payload missing" << dendl;
       return -EINVAL;
     }
 
     RGWXMLDecoder::XMLParser parser;
 
     if (!parser.init()){
-      ldout(s->cct, 1) << "failed to initialize XML parser" << dendl;
+      ldpp_dout(this, 1) << "failed to initialize XML parser" << dendl;
       return -EINVAL;
     }
     if (!parser.parse(data.c_str(), data.length(), 1)) {
-      ldout(s->cct, 1) << "failed to parse XML payload" << dendl;
+      ldpp_dout(this, 1) << "failed to parse XML payload" << dendl;
       return -ERR_MALFORMED_XML;
     }
     try {
       // NotificationConfigurations is mandatory
       RGWXMLDecoder::decode_xml("NotificationConfiguration", configurations, &parser, true);
     } catch (RGWXMLDecoder::err& err) {
-      ldout(s->cct, 1) << "failed to parse XML payload. error: " << err << dendl;
+      ldpp_dout(this, 1) << "failed to parse XML payload. error: " << err << dendl;
       return -ERR_MALFORMED_XML;
     }
     return 0;
@@ -466,15 +466,15 @@ class RGWPSCreateNotif_ObjStore_S3 : public RGWPSCreateNotifOp {
     bool exists;
     const auto no_value = s->info.args.get("notification", &exists);
     if (!exists) {
-      ldout(s->cct, 1) << "missing required param 'notification'" << dendl;
+      ldpp_dout(this, 1) << "missing required param 'notification'" << dendl;
       return -EINVAL;
     } 
     if (no_value.length() > 0) {
-      ldout(s->cct, 1) << "param 'notification' should not have any value" << dendl;
+      ldpp_dout(this, 1) << "param 'notification' should not have any value" << dendl;
       return -EINVAL;
     }
     if (s->bucket_name.empty()) {
-      ldout(s->cct, 1) << "request must be on a bucket" << dendl;
+      ldpp_dout(this, 1) << "request must be on a bucket" << dendl;
       return -EINVAL;
     }
     bucket_name = s->bucket_name;
@@ -704,11 +704,11 @@ private:
     bool exists;
     notif_name = s->info.args.get("notification", &exists);
     if (!exists) {
-      ldout(s->cct, 1) << "missing required param 'notification'" << dendl;
+      ldpp_dout(this, 1) << "missing required param 'notification'" << dendl;
       return -EINVAL;
     } 
     if (s->bucket_name.empty()) {
-      ldout(s->cct, 1) << "request must be on a bucket" << dendl;
+      ldpp_dout(this, 1) << "request must be on a bucket" << dendl;
       return -EINVAL;
     }
     bucket_name = s->bucket_name;

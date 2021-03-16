@@ -188,7 +188,7 @@ int RGWOp_Metadata_Put::get_data(bufferlist& bl) {
     }
     read_len = recv_body(s, data, cl);
     if (cl != (size_t)read_len) {
-      dout(10) << "recv_body incomplete" << dendl;
+      ldpp_dout(this, 10) << "recv_body incomplete" << dendl;
     }
     if (read_len < 0) {
       free(data);

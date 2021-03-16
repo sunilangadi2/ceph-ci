@@ -1528,7 +1528,7 @@ void get_stale_instances(rgw::sal::Store* store, const std::string& bucket_name,
     int r = store->get_bucket(dpp, nullptr, rbucket, &bucket, null_yield);
     if (r < 0){
       // this can only happen if someone deletes us right when we're processing
-      lderr(store->ctx()) << "Bucket instance is invalid: " << bucket_instance
+      ldpp_dout(dpp, -1) << "Bucket instance is invalid: " << bucket_instance
                           << cpp_strerror(-r) << dendl;
       continue;
     }
@@ -1834,7 +1834,7 @@ static int fix_bucket_obj_expiry(const DoutPrefixProvider *dpp,
   do {
     int ret = bucket->list(dpp, params, listing_max_entries, results, null_yield);
     if (ret < 0) {
-      lderr(store->ctx()) << "ERROR failed to list objects in the bucket" << dendl;
+      ldpp_dout(dpp, -1) << "ERROR failed to list objects in the bucket" << dendl;
       return ret;
     }
     for (const auto& obj : results.objs) {
@@ -1867,7 +1867,7 @@ int RGWBucketAdminOp::fix_obj_expiry(rgw::sal::Store* store,
   RGWBucket admin_bucket;
   int ret = admin_bucket.init(store, op_state, null_yield, dpp);
   if (ret < 0) {
-    lderr(store->ctx()) << "failed to initialize bucket" << dendl;
+    ldpp_dout(dpp, -1) << "failed to initialize bucket" << dendl;
     return ret;
   }
   std::unique_ptr<rgw::sal::Bucket> bucket;
@@ -1969,12 +1969,12 @@ public:
      */
     ret = ctl.bucket->unlink_bucket(be.owner, be.bucket, y, dpp, false);
     if (ret < 0) {
-      lderr(svc.bucket->ctx()) << "could not unlink bucket=" << entry << " owner=" << be.owner << dendl;
+      ldpp_dout(dpp, -1) << "could not unlink bucket=" << entry << " owner=" << be.owner << dendl;
     }
 
     ret = svc.bucket->remove_bucket_entrypoint_info(ctx, entry, &objv_tracker, y, dpp);
     if (ret < 0) {
-      lderr(svc.bucket->ctx()) << "could not delete bucket=" << entry << dendl;
+      ldpp_dout(dpp, -1) << "could not delete bucket=" << entry << dendl;
     }
     /* idempotent */
     return 0;
@@ -2255,7 +2255,7 @@ public:
 
     ret = ctl.bucket->remove_bucket_instance_info(be.bucket, old_bi, y, dpp);
     if (ret < 0) {
-        lderr(cct) << "could not delete bucket=" << entry << dendl;
+      ldpp_dout(dpp, -1) << "could not delete bucket=" << entry << dendl;
     }
 
 

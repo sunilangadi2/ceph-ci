@@ -688,10 +688,10 @@ public:
         std::unique_ptr<es_index_config_base> index_conf;
 
         if (conf->es_info.version >= ES_V5) {
-          ldout(sc->cct, 0) << "elasticsearch: index mapping: version >= 5" << dendl;
+          ldpp_dout(dpp, 0) << "elasticsearch: index mapping: version >= 5" << dendl;
           index_conf.reset(new es_index_config<es_type_v5>(settings, conf->es_info.version));
         } else {
-          ldout(sc->cct, 0) << "elasticsearch: index mapping: version < 5" << dendl;
+          ldpp_dout(dpp, 0) << "elasticsearch: index mapping: version < 5" << dendl;
           index_conf.reset(new es_index_config<es_type_v2>(settings, conf->es_info.version));
         }
         call(new RGWPutRESTResourceCR<es_index_config_base, int, _err_response> (sc->cct,
@@ -705,11 +705,11 @@ public:
 
         if (err_response.error.type != "index_already_exists_exception" &&
 	          err_response.error.type != "resource_already_exists_exception") {
-          ldout(sync_env->cct, 0) << "elasticsearch: failed to initialize index: response.type=" << err_response.error.type << " response.reason=" << err_response.error.reason << dendl;
+          ldpp_dout(dpp, 0) << "elasticsearch: failed to initialize index: response.type=" << err_response.error.type << " response.reason=" << err_response.error.reason << dendl;
           return set_cr_error(retcode);
         }
 
-        ldpp_dout(sync_env->dpp, 0) << "elasticsearch: index already exists, assuming external initialization" << dendl;
+        ldpp_dout(dpp, 0) << "elasticsearch: index already exists, assuming external initialization" << dendl;
       }
       return set_cr_done();
     }

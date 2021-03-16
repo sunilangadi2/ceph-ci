@@ -28,7 +28,7 @@ int RGWRestOIDCProvider::verify_permission(optional_yield y)
 
   provider_arn = s->info.args.get("OpenIDConnectProviderArn");
   if (provider_arn.empty()) {
-    ldout(s->cct, 20) << "ERROR: Provider ARN is empty"<< dendl;
+    ldpp_dout(this, 20) << "ERROR: Provider ARN is empty"<< dendl;
     return -EINVAL;
   }
 
@@ -107,7 +107,7 @@ int RGWCreateOIDCProvider::get_params()
   }
 
   if (provider_url.empty() || thumbprints.empty()) {
-    ldout(s->cct, 20) << "ERROR: one of url or thumbprints is empty" << dendl;
+    ldpp_dout(this, 20) << "ERROR: one of url or thumbprints is empty" << dendl;
     return -EINVAL;
   }
 

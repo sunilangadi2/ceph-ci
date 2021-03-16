@@ -36,7 +36,7 @@ void RGWOp_Period_Base::send_response()
 
   if (op_ret < 0) {
     if (!s->err.message.empty()) {
-      ldout(s->cct, 4) << "Request failed with " << op_ret
+      ldpp_dout(this, 4) << "Request failed with " << op_ret
           << ": " << s->err.message << dendl;
     }
     end_header(s);

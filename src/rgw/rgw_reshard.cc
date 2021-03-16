@@ -422,7 +422,7 @@ public:
       int ret =
 	RGWBucketReshard::clear_index_shard_reshard_status(dpp, store, bucket_info);
       if (ret < 0) {
-	lderr(store->ctx()) << "Error: " << __func__ <<
+	ldpp_dout(dpp, -1) << "Error: " << __func__ <<
 	  " clear_index_shard_status returned " << ret << dendl;
       }
       bucket_info.new_bucket_instance_id.clear();
@@ -633,7 +633,7 @@ int RGWBucketReshard::do_reshard(int num_shards,
 	}
 	int ret = store->getRados()->get_target_shard_id(new_bucket_info.layout.current_index.layout.normal, obj.get_hash_object(), &target_shard_id);
 	if (ret < 0) {
-	  lderr(store->ctx()) << "ERROR: get_target_shard_id() returned ret=" << ret << dendl;
+	  ldpp_dout(dpp, -1) << "ERROR: get_target_shard_id() returned ret=" << ret << dendl;
 	  return ret;
 	}
 
@@ -657,7 +657,7 @@ int RGWBucketReshard::do_reshard(int num_shards,
 	  }
 	  ret = reshard_lock.renew(now);
 	  if (ret < 0) {
-	    lderr(store->ctx()) << "Error renewing bucket lock: " << ret << dendl;
+	    ldpp_dout(dpp, -1) << "Error renewing bucket lock: " << ret << dendl;
 	    return ret;
 	  }
 	}
@@ -680,7 +680,7 @@ int RGWBucketReshard::do_reshard(int num_shards,
 
   ret = target_shards_mgr.finish();
   if (ret < 0) {
-    lderr(store->ctx()) << "ERROR: failed to reshard" << dendl;
+    ldpp_dout(dpp, -1) << "ERROR: failed to reshard" << dendl;
     return -EIO;
   }
 

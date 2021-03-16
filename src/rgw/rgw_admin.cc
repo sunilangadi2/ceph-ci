@@ -1360,7 +1360,7 @@ int check_min_obj_stripe_size(rgw::sal::Store* store, rgw::sal::Object* obj, uin
   RGWObjectCtx obj_ctx(store);
   int ret = obj->get_obj_attrs(&obj_ctx, null_yield, dpp());
   if (ret < 0) {
-    lderr(store->ctx()) << "ERROR: failed to stat object, returned error: " << cpp_strerror(-ret) << dendl;
+    ldpp_dout(dpp(), -1) << "ERROR: failed to stat object, returned error: " << cpp_strerror(-ret) << dendl;
     return ret;
   }
 
@@ -2261,14 +2261,14 @@ static int bucket_source_sync_status(const DoutPrefixProvider *dpp, rgw::sal::Ra
   }
 
   if (!pipe.source.bucket) {
-    lderr(store->ctx()) << __func__ << "(): missing source bucket" << dendl;
+    ldpp_dout(dpp, -1) << __func__ << "(): missing source bucket" << dendl;
     return -EINVAL;
   }
 
   std::unique_ptr<rgw::sal::Bucket> source_bucket;
   int r = init_bucket(nullptr, *pipe.source.bucket, &source_bucket);
   if (r < 0) {
-    lderr(store->ctx()) << "failed to read source bucket info: " << cpp_strerror(r) << dendl;
+    ldpp_dout(dpp, -1) << "failed to read source bucket info: " << cpp_strerror(r) << dendl;
     return r;
   }
 
@@ -2278,7 +2278,7 @@ static int bucket_source_sync_status(const DoutPrefixProvider *dpp, rgw::sal::Ra
   std::vector<rgw_bucket_shard_sync_info> status;
   r = rgw_bucket_sync_status(dpp, store, pipe, bucket_info, &source_bucket->get_info(), &status);
   if (r < 0) {
-    lderr(store->ctx()) << "failed to read bucket sync status: " << cpp_strerror(r) << dendl;
+    ldpp_dout(dpp, -1) << "failed to read bucket sync status: " << cpp_strerror(r) << dendl;
     return r;
   }
 
@@ -2309,7 +2309,7 @@ static int bucket_source_sync_status(const DoutPrefixProvider *dpp, rgw::sal::Ra
   BucketIndexShardsManager remote_markers;
   r = rgw_read_remote_bilog_info(dpp, conn, source_bucket->get_key(), remote_markers, null_yield);
   if (r < 0) {
-    lderr(store->ctx()) << "failed to read remote log: " << cpp_strerror(r) << dendl;
+    ldpp_dout(dpp, -1) << "failed to read remote log: " << cpp_strerror(r) << dendl;
     return r;
   }
 
@@ -2527,7 +2527,7 @@ static int bucket_sync_info(rgw::sal::RadosStore* store, const RGWBucketInfo& in
 
   int r = store->get_sync_policy_handler(dpp(), std::nullopt, info.bucket, &handler, null_yield);
   if (r < 0) {
-    lderr(store->ctx()) << "ERROR: failed to get policy handler for bucket (" << info.bucket << "): r=" << r << ": " << cpp_strerror(-r) << dendl;
+    ldpp_dout(dpp(), -1) << "ERROR: failed to get policy handler for bucket (" << info.bucket << "): r=" << r << ": " << cpp_strerror(-r) << dendl;
     return r;
   }
 
@@ -2568,7 +2568,7 @@ static int bucket_sync_status(rgw::sal::RadosStore* store, const RGWBucketInfo& 
 
   int r = store->get_sync_policy_handler(dpp(), std::nullopt, info.bucket, &handler, null_yield);
   if (r < 0) {
-    lderr(store->ctx()) << "ERROR: failed to get policy handler for bucket (" << info.bucket << "): r=" << r << ": " << cpp_strerror(-r) << dendl;
+    ldpp_dout(dpp(), -1) << "ERROR: failed to get policy handler for bucket (" << info.bucket << "): r=" << r << ": " << cpp_strerror(-r) << dendl;
     return r;
   }
 
@@ -2580,13 +2580,13 @@ static int bucket_sync_status(rgw::sal::RadosStore* store, const RGWBucketInfo& 
   if (!source_zone_id.empty()) {
     auto z = zonegroup.zones.find(source_zone_id);
     if (z == zonegroup.zones.end()) {
-      lderr(store->ctx()) << "Source zone not found in zonegroup "
+      ldpp_dout(dpp(), -1) << "Source zone not found in zonegroup "
           << zonegroup.get_name() << dendl;
       return -EINVAL;
     }
     auto c = zone_conn_map.find(source_zone_id);
     if (c == zone_conn_map.end()) {
-      lderr(store->ctx()) << "No connection to zone " << z->second.name << dendl;
+      ldpp_dout(dpp(), -1) << "No connection to zone " << z->second.name << dendl;
       return -EINVAL;
     }
     zone_ids.insert(source_zone_id);
@@ -7915,7 +7915,7 @@ next:
     int ret = static_cast<rgw::sal::RadosStore*>(store)->svc()->sync_modules->get_manager()->create_instance(g_ceph_context, static_cast<rgw::sal::RadosStore*>(store)->svc()->zone->get_zone().tier_type,
         store->get_zone()->get_params().tier_config, &sync_module);
     if (ret < 0) {
-      lderr(cct) << "ERROR: failed to init sync module instance, ret=" << ret << dendl;
+      ldpp_dout(dpp(), -1) << "ERROR: failed to init sync module instance, ret=" << ret << dendl;
       return ret;
     }
 
@@ -8004,7 +8004,7 @@ next:
                                      opt_source_zone, opt_source_bucket,
                                      opt_retry_delay_ms, timeout_at);
     if (ret < 0) {
-      lderr(store->ctx()) << "bucket sync checkpoint failed: " << cpp_strerror(ret) << dendl;
+      ldpp_dout(dpp(), -1) << "bucket sync checkpoint failed: " << cpp_strerror(ret) << dendl;
       return -ret;
     }
   }

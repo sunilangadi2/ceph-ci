@@ -151,7 +151,7 @@ void RGWOp_User_Create::execute(optional_yield y)
   RESTArgs::get_string(s, "placement-tags", placement_tags_str, &placement_tags_str);
 
   if (!s->user->get_info().system && system) {
-    ldout(s->cct, 0) << "cannot set system flag by non-system user" << dendl;
+    ldpp_dout(this, 0) << "cannot set system flag by non-system user" << dendl;
     op_ret = -EINVAL;
     return;
   }
@@ -172,7 +172,7 @@ void RGWOp_User_Create::execute(optional_yield y)
     uint32_t op_mask;
     int ret = rgw_parse_op_type_list(op_mask_str, &op_mask);
     if (ret < 0) {
-      ldout(s->cct, 0) << "failed to parse op_mask: " << ret << dendl;
+      ldpp_dout(this, 0) << "failed to parse op_mask: " << ret << dendl;
       op_ret = -EINVAL;
       return;
     }
@@ -211,7 +211,7 @@ void RGWOp_User_Create::execute(optional_yield y)
     rgw_placement_rule target_rule;
     target_rule.from_str(default_placement_str);
     if (!store->get_zone()->get_params().valid_placement(target_rule)) {
-      ldout(s->cct, 0) << "NOTICE: invalid dest placement: " << target_rule.to_str() << dendl;
+      ldpp_dout(this, 0) << "NOTICE: invalid dest placement: " << target_rule.to_str() << dendl;
       op_ret = -EINVAL;
       return;
     }
@@ -288,7 +288,7 @@ void RGWOp_User_Modify::execute(optional_yield y)
   RESTArgs::get_string(s, "placement-tags", placement_tags_str, &placement_tags_str);
 
   if (!s->user->get_info().system && system) {
-    ldout(s->cct, 0) << "cannot set system flag by non-system user" << dendl;
+    ldpp_dout(this, 0) << "cannot set system flag by non-system user" << dendl;
     op_ret = -EINVAL;
     return;
   }
@@ -325,7 +325,7 @@ void RGWOp_User_Modify::execute(optional_yield y)
   if (!op_mask_str.empty()) {
     uint32_t op_mask;
     if (rgw_parse_op_type_list(op_mask_str, &op_mask) < 0) {
-        ldout(s->cct, 0) << "failed to parse op_mask" << dendl;
+        ldpp_dout(this, 0) << "failed to parse op_mask" << dendl;
         op_ret = -EINVAL;
         return;
     }   
@@ -342,7 +342,7 @@ void RGWOp_User_Modify::execute(optional_yield y)
     uint32_t op_mask;
     int ret = rgw_parse_op_type_list(op_mask_str, &op_mask);
     if (ret < 0) {
-      ldout(s->cct, 0) << "failed to parse op_mask: " << ret << dendl;
+      ldpp_dout(this, 0) << "failed to parse op_mask: " << ret << dendl;
       op_ret = -EINVAL;
       return;
     }
@@ -353,7 +353,7 @@ void RGWOp_User_Modify::execute(optional_yield y)
     rgw_placement_rule target_rule;
     target_rule.from_str(default_placement_str);
     if (!store->get_zone()->get_params().valid_placement(target_rule)) {
-      ldout(s->cct, 0) << "NOTICE: invalid dest placement: " << target_rule.to_str() << dendl;
+      ldpp_dout(this, 0) << "NOTICE: invalid dest placement: " << target_rule.to_str() << dendl;
       op_ret = -EINVAL;
       return;
     }

@@ -683,7 +683,7 @@ int rgw_build_bucket_policies(const DoutPrefixProvider *dpp, rgw::sal::Store* st
         else ret = -EACCES;
       }
     } catch (const std::exception& e) {
-      lderr(s->cct) << "Error reading IAM User Policy: " << e.what() << dendl;
+      ldpp_dout(dpp, -1) << "Error reading IAM User Policy: " << e.what() << dendl;
       ret = -EACCES;
     }
   }
@@ -2038,7 +2038,7 @@ static inline void rgw_cond_decode_objtags(
       bufferlist::const_iterator iter{&tags->second};
       s->tagset.decode(iter);
     } catch (buffer::error& err) {
-      ldout(s->cct, 0)
+      ldpp_dout(s, 0)
 	<< "ERROR: caught buffer::error, couldn't decode TagSet" << dendl;
     }
   }
@@ -2486,7 +2486,7 @@ void RGWStatAccount::execute(optional_yield y)
 
     }
     if (!lastmarker) {
-	lderr(s->cct) << "ERROR: rgw_read_user_buckets, stasis at marker="
+	ldpp_dout(this, -1) << "ERROR: rgw_read_user_buckets, stasis at marker="
 	      << marker << " uid=" << s->user->get_id() << dendl;
 	break;
     }
@@ -7757,7 +7757,7 @@ void RGWPutBucketObjectLock::execute(optional_yield y)
   try {
     RGWXMLDecoder::decode_xml("ObjectLockConfiguration", obj_lock, &parser, true);
   } catch (RGWXMLDecoder::err& err) {
-    ldout(s->cct, 5) << "unexpected xml:" << err << dendl;
+    ldpp_dout(this, 5) << "unexpected xml:" << err << dendl;
     op_ret = -ERR_MALFORMED_XML;
     return;
   }
@@ -7770,7 +7770,7 @@ void RGWPutBucketObjectLock::execute(optional_yield y)
 
   op_ret = store->forward_request_to_master(this, s->user.get(), nullptr, data, nullptr, s->info, y);
   if (op_ret < 0) {
-    ldout(s->cct, 20) << __func__ << "forward_request_to_master returned ret=" << op_ret << dendl;
+    ldpp_dout(this, 20) << __func__ << "forward_request_to_master returned ret=" << op_ret << dendl;
     return;
   }
 
@@ -7927,7 +7927,7 @@ void RGWGetObjRetention::execute(optional_yield y)
   try {
     obj_retention.decode(iter);
   } catch (const buffer::error& e) {
-    ldout(s->cct, 0) << __func__ <<  "decode object retention config failed" << dendl;
+    ldpp_dout(this, 0) << __func__ <<  "decode object retention config failed" << dendl;
     op_ret = -EIO;
     return;
   }
@@ -7974,7 +7974,7 @@ void RGWPutObjLegalHold::execute(optional_yield y) {
   try {
     RGWXMLDecoder::decode_xml("LegalHold", obj_legal_hold, &parser, true);
   } catch (RGWXMLDecoder::err &err) {
-    ldout(s->cct, 5) << "unexpected xml:" << err << dendl;
+    ldpp_dout(this, 5) << "unexpected xml:" << err << dendl;
     op_ret = -ERR_MALFORMED_XML;
     return;
   }
@@ -8023,7 +8023,7 @@ void RGWGetObjLegalHold::execute(optional_yield y)
   try {
     obj_legal_hold.decode(iter);
   } catch (const buffer::error& e) {
-    ldout(s->cct, 0) << __func__ <<  "decode object legal hold config failed" << dendl;
+    ldpp_dout(this, 0) << __func__ <<  "decode object legal hold config failed" << dendl;
     op_ret = -EIO;
     return;
   }

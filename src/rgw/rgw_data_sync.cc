@@ -409,7 +409,7 @@ public:
 
     int ret = http_op->aio_read(dpp);
     if (ret < 0) {
-      ldpp_dout(sync_env->dpp, 0) << "ERROR: failed to read from " << p << dendl;
+      ldpp_dout(dpp, 0) << "ERROR: failed to read from " << p << dendl;
       log_error() << "failed to send http operation: " << http_op->to_str() << " ret=" << ret << std::endl;
       http_op->put();
       return ret;
@@ -422,7 +422,7 @@ public:
     int ret = http_op->wait(result, null_yield);
     http_op->put();
     if (ret < 0 && ret != -ENOENT) {
-      ldout(sync_env->cct, 0) << "ERROR: failed to list remote datalog shard, ret=" << ret << dendl;
+      ldpp_dout(sync_env->dpp, 0) << "ERROR: failed to list remote datalog shard, ret=" << ret << dendl;
       return ret;
     }
     return 0;
@@ -839,12 +839,12 @@ public:
                                                              entrypoint, pairs, &result));
         }
         if (retcode < 0) {
-          ldout(sync_env->cct, 0) << "ERROR: failed to fetch metadata for section bucket.instance" << dendl;
+          ldpp_dout(dpp, 0) << "ERROR: failed to fetch metadata for section bucket.instance" << dendl;
           return set_cr_error(retcode);
         }
 
         for (iter = result.keys.begin(); iter != result.keys.end(); ++iter) {
-          ldout(sync_env->cct, 20) << "list metadata: section=bucket.instance key=" << *iter << dendl;
+          ldpp_dout(dpp, 20) << "list metadata: section=bucket.instance key=" << *iter << dendl;
           key = *iter;
 
           yield {
@@ -3090,7 +3090,7 @@ int RGWReadPendingBucketShardsCoroutine::operate(const DoutPrefixProvider *dpp)
       }
 
       if (retcode < 0) {
-        ldout(sync_env->cct,0) << "failed to read remote data log info with " 
+        ldpp_dout(sync_env->dpp, 0) << "failed to read remote data log info with " 
           << cpp_strerror(retcode) << dendl;
         return set_cr_error(retcode);
       }
@@ -3954,7 +3954,7 @@ int RGWBucketShardIncrementalSyncCR::operate(const DoutPrefixProvider *dpp)
       for (; entries_iter != entries_end; ++entries_iter) {
         auto e = *entries_iter;
         if (e.op == RGWModifyOp::CLS_RGW_OP_SYNCSTOP) {
-          ldout(sync_env->cct, 20) << "syncstop on " << e.timestamp << dendl;
+          ldpp_dout(sync_env->dpp, 20) << "syncstop on " << e.timestamp << dendl;
           syncstopped = true;
           entries_end = std::next(entries_iter); // stop after this entry
           break;
@@ -3999,7 +3999,7 @@ int RGWBucketShardIncrementalSyncCR::operate(const DoutPrefixProvider *dpp)
         sync_info.inc_marker.position = cur_id;
 
         if (entry->op == RGWModifyOp::CLS_RGW_OP_SYNCSTOP || entry->op == RGWModifyOp::CLS_RGW_OP_RESYNC) {
-          ldout(sync_env->cct, 20) << "detected syncstop or resync on " << entries_iter->timestamp << ", skipping entry" << dendl;
+          ldpp_dout(sync_env->dpp, 20) << "detected syncstop or resync on " << entries_iter->timestamp << ", skipping entry" << dendl;
           marker_tracker.try_update_high_marker(cur_id, 0, entry->timestamp);
           continue;
         }

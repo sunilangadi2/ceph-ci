@@ -116,7 +116,7 @@ int seed::complete(optional_yield y)
   ret = save_torrent_file(y);
   if (0 != ret)
   {
-    ldout(s->cct, 0) << "ERROR: failed to save_torrent_file() ret= "<< ret << dendl;
+    ldpp_dout(s, 0) << "ERROR: failed to save_torrent_file() ret= "<< ret << dendl;
     return ret;
   }
 
@@ -204,7 +204,7 @@ void seed::set_announce()
 
   if (announce_list.empty())
   {
-    ldout(s->cct, 5) << "NOTICE: announce_list is empty " << dendl;    
+    ldpp_dout(s, 5) << "NOTICE: announce_list is empty " << dendl;    
     return;
   }
 

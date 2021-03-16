@@ -610,7 +610,7 @@ int RGWOrphanSearch::build_linked_oids_for_bucket(const DoutPrefixProvider *dpp,
     ret = pop_and_handle_stat_op(dpp, oids, stat_ops);
     if (ret < 0) {
       if (ret != -ENOENT) {
-        lderr(store->ctx()) << "ERROR: stat_async() returned error: " << cpp_strerror(-ret) << dendl;
+        ldpp_dout(dpp, -1) << "ERROR: stat_async() returned error: " << cpp_strerror(-ret) << dendl;
       }
     }
   }
@@ -1433,7 +1433,7 @@ int RGWRadosList::run(const DoutPrefixProvider *dpp, const std::string& start_bu
 
   ret = do_incomplete_multipart(dpp, bucket.get());
   if (ret < 0) {
-    lderr(store->ctx()) << "RGWRadosList::" << __func__ <<
+    ldpp_dout(dpp, -1) << "RGWRadosList::" << __func__ <<
       ": ERROR: do_incomplete_multipart returned ret=" << ret << dendl;
     return ret;
   }

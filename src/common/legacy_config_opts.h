@@ -315,6 +315,7 @@ OPTION(paxos_trim_min, OPT_INT)  // number of extra proposals tolerated before t
 OPTION(paxos_trim_max, OPT_INT) // max number of extra proposals to trim at a time
 OPTION(paxos_service_trim_min, OPT_INT) // minimum amount of versions to trigger a trim (0 disables it)
 OPTION(paxos_service_trim_max, OPT_INT) // maximum amount of versions to trim during a single proposal (0 disables it)
+OPTION(paxos_service_trim_max_multiplier, OPT_INT) // factor by which paxos_service_trim_max can be multiplied, stops max from dynamically changing (0 disables it)
 OPTION(paxos_kill_at, OPT_INT)
 OPTION(auth_cluster_required, OPT_STR)   // required of mon, mds, osd daemons
 OPTION(auth_service_required, OPT_STR)   // required by daemons of clients

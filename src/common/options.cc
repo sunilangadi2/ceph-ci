@@ -2198,6 +2198,12 @@ std::vector<Option> get_global_options() {
     .add_service("mon")
     .set_description(""),
 
+    Option("paxos_service_trim_max_multiplier", Option::TYPE_INT, Option::LEVEL_ADVANCED)
+    .set_default(0)
+    .add_service("mon")
+    .set_description(""),
+
+
     Option("paxos_kill_at", Option::TYPE_INT, Option::LEVEL_DEV)
     .set_default(0)
     .add_service("mon")

@@ -2524,11 +2524,14 @@ class CephManager:
         return self._get_num_active_clean(pgs)
 
     def _get_num_active_clean(self, pgs):
+        """
+        Return the number of pgs in "active+clean" state.
+        """
         num = 0
         for pg in pgs:
-            if (pg['state'].count('active') and
-                    pg['state'].count('clean') and
-                    not pg['state'].count('stale')):
+            if (len(pg['state'].split('+')) == 2 and
+                    pg['state'].count('active') and
+                    pg['state'].count('clean')):
                 num += 1
         return num
 

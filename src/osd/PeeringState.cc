@@ -2960,6 +2960,7 @@ void PeeringState::merge_log(
   ObjectStore::Transaction& t, pg_info_t &oinfo, pg_log_t&& olog,
   pg_shard_t from)
 {
+  psdout(10) << "peering state " << __func__ << " olog is " << olog << dendl;
   PGLog::LogEntryHandlerRef rollbacker{pl->get_log_handler(t)};
   pg_log.merge_log(
     oinfo, std::move(olog), from, info, rollbacker.get(),
@@ -6373,7 +6374,8 @@ boost::statechart::result PeeringState::ReplicaActive::react(const MInfoRec& inf
 boost::statechart::result PeeringState::ReplicaActive::react(const MLogRec& logevt)
 {
   DECLARE_LOCALS;
-  psdout(10) << "received log from " << logevt.from << dendl;
+  psdout(10) << "received log from " << logevt.from << " log is " <<
+    logevt.msg->log << dendl;
   ObjectStore::Transaction &t = context<PeeringMachine>().get_cur_transaction();
   ps->merge_log(t, logevt.msg->info, std::move(logevt.msg->log), logevt.from);
   ceph_assert(ps->pg_log.get_head() == ps->info.last_update);

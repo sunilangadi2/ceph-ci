@@ -423,11 +423,17 @@ void PGLog::merge_log(pg_info_t &oinfo, pg_log_t&& olog, pg_shard_t fromosd,
 
   // extend on head?
   if (olog.head > log.head) {
+
     dout(10) << "merge_log extending head to " << olog.head << dendl;
+
+    //verify olog's log is empty
+    dout(20) <<  olog.log << dendl;
+    ceph_assert(olog.log.size() > 0);
 
     // find start point in olog
     auto to = olog.log.end();
     auto from = olog.log.end();
+
     eversion_t lower_bound = std::max(olog.tail, orig_tail);
     while (1) {
       if (from == olog.log.begin())

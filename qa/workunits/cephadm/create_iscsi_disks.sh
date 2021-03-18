@@ -1,18 +1,18 @@
 #!/bin/bash -ex
 # Create some file-backed iSCSI targets and attach them locally.
 
-# Exit if it's not CentOS
-if ! grep -q rhel /etc/*-release; then
-    echo "The script only supports CentOS."
-    exit 1
-fi
-
 [ -z "$SUDO" ] && SUDO=sudo
 
 # 15 GB
 DISK_FILE_SIZE="16106127360"
 
-$SUDO yum install -y targetcli iscsi-initiator-utils
+# install
+if grep -q rhel /etc/*-release; then
+    $SUDO yum install -y targetcli iscsi-initiator-utils
+fi
+if grep -q ubuntu /etc/*-release; then
+    $SUDO apt install -y targetcli-fb open-iscsi
+fi
 
 TARGET_NAME="iqn.2003-01.org.linux-iscsi.$(hostname).x8664:sn.foobar"
 $SUDO targetcli /iscsi create ${TARGET_NAME}

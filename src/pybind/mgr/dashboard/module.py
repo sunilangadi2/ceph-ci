@@ -94,8 +94,10 @@ class CherryPyConfig(object):
 
         :returns our URI
         """
+        self.log.info(f'get_default_addr is {get_default_addr()}')
         server_addr = self.get_localized_module_option(  # type: ignore
             'server_addr', get_default_addr())
+        self.log.info(f'server_addr is {server_addr}')
         use_ssl = self.get_localized_module_option('ssl', True)  # type: ignore
         if not use_ssl:
             server_port = self.get_localized_module_option('server_port', 8080)  # type: ignore

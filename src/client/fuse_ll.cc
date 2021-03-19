@@ -1324,6 +1324,21 @@ int CephFuse::Handle::init(int argc, const char *argv[])
 
 int CephFuse::Handle::start()
 {
+  struct ceph_client_callback_args cb_args = {
+    handle: this,
+    ino_cb: client->cct->_conf.get_val<bool>("fuse_use_invalidate_cb") ?
+      ino_invalidate_cb : NULL,
+    dentry_cb: dentry_invalidate_cb,
+    switch_intr_cb: switch_interrupt_cb,
+#if defined(__linux__)
+    remount_cb: remount_cb,
+#endif
+#if !defined(__APPLE__)
+    umask_cb: umask_cb,
+#endif
+  };
+  client->ll_register_callbacks(&cb_args);
+
 #if FUSE_VERSION >= FUSE_MAKE_VERSION(3, 0)
   se = fuse_session_new(&args, &fuse_ll_oper, sizeof(fuse_ll_oper), this);
   if (!se) {
@@ -1359,22 +1374,6 @@ int CephFuse::Handle::start()
 #else
   fuse_session_add_chan(se, ch);
 #endif
-
-
-  struct ceph_client_callback_args args = {
-    handle: this,
-    ino_cb: client->cct->_conf.get_val<bool>("fuse_use_invalidate_cb") ?
-      ino_invalidate_cb : NULL,
-    dentry_cb: dentry_invalidate_cb,
-    switch_intr_cb: switch_interrupt_cb,
-#if defined(__linux__)
-    remount_cb: remount_cb,
-#endif
-#if !defined(__APPLE__)
-    umask_cb: umask_cb,
-#endif
-  };
-  client->ll_register_callbacks(&args);
 
   return 0;
 }

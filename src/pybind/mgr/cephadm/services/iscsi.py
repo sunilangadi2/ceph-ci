@@ -6,6 +6,7 @@ from ipaddress import ip_address, IPv6Address
 
 from mgr_module import HandleCommandResult
 from ceph.deployment.service_spec import IscsiServiceSpec
+from cephadm.schedule import HostAssignment
 
 from orchestrator import DaemonDescription, DaemonDescriptionStatus
 from .cephadmservice import CephadmDaemonDeploySpec, CephService
@@ -142,3 +143,53 @@ class IscsiService(CephService):
         names = [f'{self.TYPE}.{d_id}' for d_id in daemon_ids]
         warn_message = f'It is presumed safe to stop {names}'
         return HandleCommandResult(0, warn_message, '')
+
+    def purge(self, service_name: str) -> None:
+        """Removes configuration
+        """
+        spec = cast(IscsiServiceSpec, self.mgr.spec_store[service_name].spec)
+        try:
+            # remove service configuration from the pool
+            with self.mgr.rados.open_ioctx(spec.pool) as ioctx:
+                ioctx.remove_object("gateway.conf")
+                logger.info(f'<gateway.conf> removed from {spec.pool}')
+
+            # needed to calculate again the hosts where this service was deployed
+            ha = HostAssignment(
+                spec=spec,
+                hosts=self.mgr._hosts_with_daemon_inventory(),
+                daemons=[],
+                networks=self.mgr.cache.networks)
+            _, slots, _ = ha.place()
+
+            # needed to know is we have ssl stuff for iscsi in ceph config
+            if spec.ssl_cert and spec.ssl_key:
+                ret, iscsi_config, err = self.mgr.check_mon_command({
+                    'prefix': 'config-key dump',
+                    'key': 'iscsi',
+                })
+            iscsi_config_dict = json.loads(iscsi_config) if iscsi_config else {}
+
+            for daemon in slots:
+                # remove config for dashboard iscsi gateways
+                ret, out, err = self.mgr.check_mon_command({
+                    'prefix': 'dashboard iscsi-gateway-rm',
+                    'name': daemon.hostname,
+                })
+                logger.info(f'{daemon.hostname} removed from iscsi gateways dashboard config')
+
+                # remove iscsi cert and key from ceph config
+                for iscsi_key, value in iscsi_config_dict.items():
+                    remove_it = False
+                    if daemon.hostname in iscsi_key:
+                        remove_it = (iscsi_key.endswith('iscsi-gateway.crt') and value == spec.ssl_cert) or \
+                                    (iscsi_key.endswith('iscsi-gateway.key') and value == spec.ssl_key)
+                        if remove_it:
+                            ret, out, err = self.mgr.check_mon_command({
+                                'prefix': 'config-key rm',
+                                'key': iscsi_key,
+                            })
+                            logger.info(f'{iscsi_key} removed from ceph config')
+
+        except Exception:
+            logger.exception(f'failed to purge {service_name}')

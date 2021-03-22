@@ -708,18 +708,18 @@ PG::do_osd_ops_iertr::future<Ret> PG::do_osd_ops_execute(
   SuccessFunc&& success_func,
   FailureFunc&& failure_func)
 {
-  return interruptor::do_for_each(ops, [obc, m, &ox](OSDOp& osd_op) {
+  return interruptor::do_for_each(ops, [m, &ox](OSDOp& osd_op) {
     logger().debug(
       "do_osd_ops_execute: {} - object {} - handling op {}",
       *m,
-      obc->obs.oi.soid,
+      ox.get_target(),
       ceph_osd_op_name(osd_op.op.op));
     return ox.execute_op(osd_op);
-  }).safe_then_interruptible([this, obc, m, &ox, &op_info] {
+  }).safe_then_interruptible([this, m, &ox, &op_info] {
     logger().debug(
       "do_osd_ops_execute: {} - object {} all operations successful",
       *m,
-      obc->obs.oi.soid);
+      ox.get_target());
     return std::move(ox).flush_changes_n_do_ops_effects(
       Ref<PG>{this},
       [this, m, &op_info] (auto&& txn,
@@ -729,7 +729,7 @@ PG::do_osd_ops_iertr::future<Ret> PG::do_osd_ops_execute(
 	logger().debug(
 	  "do_osd_ops_execute: {} - object {} submitting txn",
 	  *m,
-	  obc->obs.oi.soid);
+	  obc->get_oid());
         fill_op_params_bump_pg_version(osd_op_p, std::move(m), user_modify);
 	return submit_transaction(
           op_info,

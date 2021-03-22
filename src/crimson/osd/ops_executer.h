@@ -197,10 +197,6 @@ private:
     class OSDOp& osd_op,
     const class ObjectState& os);
 
-  const hobject_t &get_target() const {
-    return obc->obs.oi.soid;
-  }
-
   template <class Func>
   auto do_const_op(Func&& f) {
     // TODO: pass backend as read-only
@@ -249,6 +245,10 @@ public:
   osd_op_ierrorator::future<> flush_changes_n_do_ops_effects(
     Ref<PG> pg,
     MutFunc&& mut_func) &&;
+
+  const hobject_t &get_target() const {
+    return obc->obs.oi.soid;
+  }
 
   const auto& get_message() const {
     return *msg;

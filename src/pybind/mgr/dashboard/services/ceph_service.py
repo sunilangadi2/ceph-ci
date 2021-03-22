@@ -71,12 +71,11 @@ class CephService(object):
         for server in mgr.list_servers():
             for service in server['services']:
                 if service['type'] == service_name:
-                    inst_id = service['id']
-                    if inst_id == service_id:
-                        metadata = mgr.get_metadata(service_name, inst_id)
-                        status = mgr.get_daemon_status(service_name, inst_id)
+                    metadata = mgr.get_metadata(service_name, service['id'])
+                    if service_id == metadata['id']:
+                        status = mgr.get_daemon_status(service_name, service['id'])
                         return {
-                            'id': inst_id,
+                            'id': metadata['id'],
                             'type': service_name,
                             'hostname': server['hostname'],
                             'metadata': metadata,

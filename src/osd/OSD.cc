@@ -7613,13 +7613,6 @@ void OSD::sched_scrub()
 	continue;
       }
 
-      // If this one couldn't reserve, skip for now
-      if (pg->get_reserve_failed()) {
-	pg->unlock();
-	dout(20) << __func__ << " pg  " << scrub_job.pgid << " reserve failed, skipped" << dendl;
-        continue;
-      }
-
       // This has already started, so go on to the next scrub job
       if (pg->is_scrub_active()) {
 	pg->unlock();
@@ -7639,7 +7632,7 @@ void OSD::sched_scrub()
       if (pg->m_scrubber->is_reserving()) {
 	pg->unlock();
 	dout(10) << __func__ << ": reserve in progress pgid " << scrub_job.pgid << dendl;
-	goto out;
+	break;
       }
       dout(15) << "sched_scrub scrubbing " << scrub_job.pgid << " at " << scrub_job.sched_time
 	       << (pg->get_must_scrub() ? ", explicitly requested" :
@@ -7648,34 +7641,11 @@ void OSD::sched_scrub()
       if (pg->sched_scrub()) {
 	pg->unlock();
         dout(10) << __func__ << " scheduled a scrub!" << " (~" << scrub_job.pgid << "~)" << dendl;
-	goto out;
+	break;
       }
-      // If this is set now we must have had a local reserve failure, so can't scrub anything right now
-      if (pg->get_reserve_failed()) {
-	pg->unlock();
-	dout(20) << __func__ << " pg  " << scrub_job.pgid << " local reserve failed, nothing to be done now" << dendl;
-        goto out;
-      }
-
       pg->unlock();
     } while (service.next_scrub_stamp(scrub_job, &scrub_job));
-
-    // Clear reserve_failed from all pending PGs, so we try again
-    if (service.first_scrub_stamp(&scrub_job)) {
-      do {
-        if (scrub_job.sched_time > now)
-	  break;
-        PGRef pg = _lookup_lock_pg(scrub_job.pgid);
-	// If we can't lock, it's ok we can get it next time
-        if (!pg)
-	  continue;
-        pg->clear_reserve_failed();
-        pg->unlock();
-      } while (service.next_scrub_stamp(scrub_job, &scrub_job));
-    }
   }
-
-out:
   dout(20) << "sched_scrub done" << dendl;
 }
 
@@ -9979,6 +9949,15 @@ void OSD::handle_conf_change(const ConfigProxy& conf,
   std::lock_guard l{osd_lock};
 
   if (changed.count("osd_max_backfills") ||
+      changed.count("osd_delete_sleep") ||
+      changed.count("osd_delete_sleep_hdd") ||
+      changed.count("osd_delete_sleep_ssd") ||
+      changed.count("osd_delete_sleep_hybrid") ||
+      changed.count("osd_snap_trim_sleep") ||
+      changed.count("osd_snap_trim_sleep_hdd") ||
+      changed.count("osd_snap_trim_sleep_ssd") ||
+      changed.count("osd_snap_trim_sleep_hybrid") ||
+      changed.count("osd_scrub_sleep") ||
       changed.count("osd_recovery_sleep") ||
       changed.count("osd_recovery_sleep_hdd") ||
       changed.count("osd_recovery_sleep_ssd") ||
@@ -10010,6 +9989,21 @@ void OSD::handle_conf_change(const ConfigProxy& conf,
       cct->_conf.set_val("osd_recovery_sleep_hdd", std::to_string(0));
       cct->_conf.set_val("osd_recovery_sleep_ssd", std::to_string(0));
       cct->_conf.set_val("osd_recovery_sleep_hybrid", std::to_string(0));
+
+      // Disable delete sleep
+      cct->_conf.set_val("osd_delete_sleep", std::to_string(0));
+      cct->_conf.set_val("osd_delete_sleep_hdd", std::to_string(0));
+      cct->_conf.set_val("osd_delete_sleep_ssd", std::to_string(0));
+      cct->_conf.set_val("osd_delete_sleep_hybrid", std::to_string(0));
+
+      // Disable snap trim sleep
+      cct->_conf.set_val("osd_snap_trim_sleep", std::to_string(0));
+      cct->_conf.set_val("osd_snap_trim_sleep_hdd", std::to_string(0));
+      cct->_conf.set_val("osd_snap_trim_sleep_ssd", std::to_string(0));
+      cct->_conf.set_val("osd_snap_trim_sleep_hybrid", std::to_string(0));
+
+      // Disable scrub sleep
+      cct->_conf.set_val("osd_scrub_sleep", std::to_string(0));
     } else {
       service.local_reserver.set_max(cct->_conf->osd_max_backfills);
       service.remote_reserver.set_max(cct->_conf->osd_max_backfills);

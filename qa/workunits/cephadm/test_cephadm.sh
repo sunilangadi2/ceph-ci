@@ -159,6 +159,8 @@ systemctl status docker > /dev/null && ( $CEPHADM --docker version | grep 'ceph 
 ## test shell before bootstrap, when crash dir isn't (yet) present on this host
 $CEPHADM shell --fsid $FSID -- ceph -v | grep 'ceph version'
 $CEPHADM shell --fsid $FSID -e FOO=BAR -- printenv | grep FOO=BAR
+presync_timezone=$($CEPHADM shell --date)
+[[ "$presync_timezone" = *"UTC"* ]] && echo "UTC timezone in container by default"
 
 ## bootstrap
 ORIG_CONFIG=`mktemp -p $TMPDIR`
@@ -389,6 +391,8 @@ $CEPHADM shell --fsid $FSID -- test -d /var/log/ceph
 expect_false $CEPHADM --timeout 10 shell --fsid $FSID -- sleep 60
 $CEPHADM --timeout 60 shell --fsid $FSID -- sleep 10
 $CEPHADM shell --fsid $FSID --mount $TMPDIR $TMPDIR_TEST_MULTIPLE_MOUNTS -- stat /mnt/$(basename $TMPDIR)
+postsync_timezone=$($CEPHADM shell --date)
+[[ "$postsync_timezone" != *"UTC"* ]] && echo "synchronized timezone in container"
 
 ## enter
 expect_false $CEPHADM enter

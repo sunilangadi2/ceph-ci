@@ -15949,7 +15949,7 @@ void BlueStore::_log_alerts(osd_alert_list_t& alerts)
   }
   if (!no_per_pg_omap_alert.empty()) {
     alerts.emplace(
-      "BLUESTORE_NO_PER_PG_OMAP",
+      "BLUESTORE_NO_PER_POOL_OMAP",
       no_per_pg_omap_alert);
   }
   string s0(failed_cmode);

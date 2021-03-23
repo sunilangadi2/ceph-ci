@@ -493,7 +493,7 @@ This warning can be disabled with::
 BLUESTORE_NO_PER_POOL_OMAP
 __________________________
 
-Starting with the Octopus release, BlueStore tracks omap space utilization
+Starting with the Pacific release, BlueStore tracks omap space utilization
 by pool, and one or more OSDs have volumes that were created prior to
 Octopus.  If all OSDs are not running BlueStore with the new tracking
 enabled, the cluster will report and approximate value for per-pool omap usage

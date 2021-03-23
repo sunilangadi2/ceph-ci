@@ -130,8 +130,8 @@ int PushAllCR::operate(const DoutPrefixProvider *dpp)
 }
 
 /// A background thread to run the PushAllCR coroutine and exit.
-class RGWPeriodPusher::CRThread {
-  const DoutPrefixProvider *dpp;
+class RGWPeriodPusher::CRThread : public DoutPrefixProvider {
+  CephContext* cct;
   RGWCoroutinesManager coroutines;
   RGWHTTPManager http;
   boost::intrusive_ptr<PushAllCR> push_all;
@@ -140,13 +140,13 @@ class RGWPeriodPusher::CRThread {
  public:
   CRThread(CephContext* cct, RGWPeriod&& period,
            std::map<std::string, RGWRESTConn>&& conns)
-    : coroutines(cct, NULL),
+    : cct(cct), coroutines(cct, NULL),
       http(cct, coroutines.get_completion_mgr()),
       push_all(new PushAllCR(cct, &http, std::move(period), std::move(conns)))
   {
     http.start();
     // must spawn the CR thread after start
-    thread = std::thread([this]() noexcept { coroutines.run(dpp, push_all.get()); });
+    thread = std::thread([this]() noexcept { coroutines.run(this, push_all.get()); });
   }
   ~CRThread()
   {
@@ -156,6 +156,10 @@ class RGWPeriodPusher::CRThread {
     if (thread.joinable())
       thread.join();
   }
+
+  CephContext *get_cct() const override { return cct; }
+  unsigned get_subsys() const override { return dout_subsys; }
+  std::ostream& gen_prefix(std::ostream& out) const override { return out << "rgw period pusher CR thread: "; }
 };
 
 

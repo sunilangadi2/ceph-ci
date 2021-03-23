@@ -751,7 +751,6 @@ void PGMapDigest::dump_pool_stats_full(
     if (verbose) {
       tbl.define_column("QUOTA OBJECTS", TextTable::RIGHT, TextTable::RIGHT);
       tbl.define_column("QUOTA BYTES", TextTable::RIGHT, TextTable::RIGHT);
-      tbl.define_column("DIRTY", TextTable::RIGHT, TextTable::RIGHT);
       tbl.define_column("USED COMPR", TextTable::RIGHT, TextTable::RIGHT);
       tbl.define_column("UNDER COMPR", TextTable::RIGHT, TextTable::RIGHT);
     }

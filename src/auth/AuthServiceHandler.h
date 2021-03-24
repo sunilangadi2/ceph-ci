@@ -25,32 +25,51 @@ class KeyServer;
 class CryptoKey;
 struct AuthCapsInfo;
 
+enum class global_id_status_t {
+  NONE,
+  NEW_PENDING,  // newly assigned by the mon
+  NEW_OK,
+  NEW_NOT_EXPOSED,
+  RECLAIM_PENDING,  // provided by the client
+  RECLAIM_OK,
+  RECLAIM_UNVERIFIED
+};
+
+std::ostream& operator<<(std::ostream& os,
+			 global_id_status_t global_id_status);
+
 struct AuthServiceHandler {
 protected:
   CephContext *cct;
-public:
   EntityName entity_name;
-  uint64_t global_id;
+  uint64_t global_id = 0;
+  global_id_status_t global_id_status = global_id_status_t::NONE;
 
-  explicit AuthServiceHandler(CephContext *cct_) : cct(cct_), global_id(0) {}
+public:
+  explicit AuthServiceHandler(CephContext *cct_) : cct(cct_) {}
 
   virtual ~AuthServiceHandler() { }
 
-  virtual int start_session(const EntityName& name,
-			    size_t connection_secret_required_length,
-			    ceph::buffer::list *result,
-			    AuthCapsInfo *caps,
-			    CryptoKey *session_key,
-			    std::string *connection_secret) = 0;
+  int start_session(const EntityName& entity_name,
+		    uint64_t global_id,
+		    bool is_new_global_id,
+		    ceph::buffer::list *result,
+		    AuthCapsInfo *caps);
   virtual int handle_request(ceph::buffer::list::const_iterator& indata,
 			     size_t connection_secret_required_length,
 			     ceph::buffer::list *result,
-			     uint64_t *global_id,
 			     AuthCapsInfo *caps,
 			     CryptoKey *session_key,
 			     std::string *connection_secret) = 0;
 
-  EntityName& get_entity_name() { return entity_name; }
+  const EntityName& get_entity_name() { return entity_name; }
+  uint64_t get_global_id() { return global_id; }
+  global_id_status_t get_global_id_status() { return global_id_status; }
+
+private:
+  virtual int do_start_session(bool is_new_global_id,
+			       ceph::buffer::list *result,
+			       AuthCapsInfo *caps) = 0;
 };
 
 extern AuthServiceHandler *get_auth_service_handler(int type, CephContext *cct, KeyServer *ks);

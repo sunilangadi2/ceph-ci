@@ -9,6 +9,7 @@ from ceph.deployment.service_spec import IscsiServiceSpec
 from orchestrator import DaemonDescription, DaemonDescriptionStatus
 from .cephadmservice import CephadmDaemonDeploySpec, CephService
 from .. import utils
+import rados
 
 logger = logging.getLogger(__name__)
 
@@ -138,3 +139,14 @@ class IscsiService(CephService):
         names = [f'{self.TYPE}.{d_id}' for d_id in daemon_ids]
         warn_message = f'It is presumed safe to stop {names}'
         return HandleCommandResult(0, warn_message, '')
+
+    def purge(self, service_name: str) -> None:
+        """Removes the gateway.conf from the iscsi pool
+        """
+        spec = cast(IscsiServiceSpec, self.mgr.spec_store[service_name].spec)
+        try:
+            with self.mgr.rados.open_ioctx(spec.pool) as ioctx:
+                ioctx.remove_object("gateway.conf")
+                logger.debug(f'<gateway.conf> removed from {spec.pool}')
+        except rados.ObjectNotFound:
+            pass

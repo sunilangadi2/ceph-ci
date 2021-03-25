@@ -802,7 +802,6 @@ protected:
   std::string end_marker;
   int64_t limit;
   uint64_t limit_max;
-  rgw::sal::Attrs attrs;
   bool is_truncated;
 
   RGWUsageStats global_stats;

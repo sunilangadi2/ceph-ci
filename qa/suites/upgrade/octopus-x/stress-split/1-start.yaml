@@ -11,6 +11,9 @@ tasks:
         #set config option for which cls modules are allowed to be loaded / used
         osd_class_load_list: "*"
         osd_class_default_list: "*"
+      mon:
+        mon_warn_on_insecure_global_id_reclaim: false
+        mon_warn_on_insecure_global_id_reclaim_allowed: false
     # deploy additional mons the "old" (octopus) way
     add_mons_via_daemon_add: true
 

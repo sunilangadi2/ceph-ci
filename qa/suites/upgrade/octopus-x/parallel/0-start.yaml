@@ -29,3 +29,6 @@ overrides:
     conf:
       osd:
         osd shutdown pgref assert: true
+      mon:
+        mon_warn_on_insecure_global_id_reclaim: false
+        mon_warn_on_insecure_global_id_reclaim_allowed: false

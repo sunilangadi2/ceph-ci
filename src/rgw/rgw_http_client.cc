@@ -613,20 +613,20 @@ int RGWHTTPClient::init_request(rgw_http_req_data *_req_data)
   if (!verify_ssl) {
     curl_easy_setopt(easy_handle, CURLOPT_SSL_VERIFYPEER, 0L);
     curl_easy_setopt(easy_handle, CURLOPT_SSL_VERIFYHOST, 0L);
-    dout(20) << "ssl verification is set to off" << dendl;
+    dout(0) << "ssl verification is set to off" << dendl;
   } else {
     if (!ca_path.empty()) {
       curl_easy_setopt(easy_handle, CURLOPT_CAINFO, ca_path.c_str());
-      dout(20) << "using custom ca cert "<< ca_path.c_str() << " for ssl" << dendl;
+      dout(0) << "using custom ca cert "<< ca_path.c_str() << " for ssl" << dendl;
     }
     if (!client_cert.empty()) {
       if (!client_key.empty()) {
 	curl_easy_setopt(easy_handle, CURLOPT_SSLCERT, client_cert.c_str());
 	curl_easy_setopt(easy_handle, CURLOPT_SSLKEY, client_key.c_str());
-	dout(20) << "using custom client cert " << client_cert.c_str()
+	dout(0) << "using custom client cert " << client_cert.c_str()
 	  << " and private key " << client_key.c_str() << dendl;
       } else {
-	dout(5) << "private key is missing for client certificate" << dendl;
+	dout(0) << "private key is missing for client certificate" << dendl;
       }
     }
   }

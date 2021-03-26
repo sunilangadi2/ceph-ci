@@ -37,6 +37,8 @@ tasks:
 - exec:
     osd.0:
       - ceph osd set-require-min-compat-client nautilus
+      - ceph config set mon mon_warn_on_insecure_global_id_reclaim false --force
+      - ceph config set mon mon_warn_on_insecure_global_id_reclaim_allowed false --force
 - print: "**** done ceph"
 - install.upgrade:
     mon.a:

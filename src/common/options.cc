@@ -2381,7 +2381,7 @@ std::vector<Option> get_global_options() {
     .set_description(""),
 
     Option("auth_allow_insecure_global_id_reclaim", Option::TYPE_BOOL, Option::LEVEL_ADVANCED)
-    .set_default(true)
+    .set_default(false)
     .set_description("Allow reclaiming global_id without presenting a valid ticket proving previous possession of that global_id")
     .set_long_description("Allowing unauthorized global_id (re)use poses a security risk.  Unfortunately, older clients may omit their ticket on reconnects and therefore rely on this being allowed for preserving their global_id for the lifetime of the client instance.  Setting this value to false would immediately prevent new connections from those clients (assuming auth_expose_insecure_global_id_reclaim set to true) and eventually break existing sessions as well (regardless of auth_expose_insecure_global_id_reclaim setting).")
     .add_see_also("mon_warn_on_insecure_global_id_reclaim")

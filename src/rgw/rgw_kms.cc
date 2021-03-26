@@ -253,15 +253,19 @@ protected:
     }
 
     secret_req.set_verify_ssl(cct->_conf->rgw_crypt_vault_verify_ssl);
-
+    if(cct->_conf->rgw_crypt_vault_verify_ssl)
+      ldout(cct, 0) << "ssl enabled " << dendl;
     if (!cct->_conf->rgw_crypt_vault_ssl_cacert.empty()) {
+      ldout(cct, 0) << "setting ca path " << cct->_conf->rgw_crypt_vault_ssl_cacert <<dendl;
       secret_req.set_ca_path(cct->_conf->rgw_crypt_vault_ssl_cacert);
     }
 
     if (!cct->_conf->rgw_crypt_vault_ssl_clientcert.empty()) {
+      ldout(cct, 0) << "setting cleint cert " << cct->_conf->rgw_crypt_vault_ssl_clientcert <<dendl;
       secret_req.set_client_cert(cct->_conf->rgw_crypt_vault_ssl_clientcert);
     }
     if (!cct->_conf->rgw_crypt_vault_ssl_clientkey.empty()) {
+      ldout(cct, 0) << "setting key " << cct->_conf->rgw_crypt_vault_ssl_clientkey <<dendl;
       secret_req.set_client_key(cct->_conf->rgw_crypt_vault_ssl_clientkey);
     }
 

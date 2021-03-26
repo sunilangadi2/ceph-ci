@@ -649,7 +649,7 @@ public:
                                                     conf(_conf) {}
   int operate(const DoutPrefixProvider *dpp) override {
     reenter(this) {
-      ldpp_dout(sync_env->dpp, 5) << conf->id << ": get elasticsearch info for zone: " << sc->source_zone << dendl;
+      ldpp_dout(dpp, 5) << conf->id << ": get elasticsearch info for zone: " << sc->source_zone << dendl;
       yield call(new RGWReadRESTResourceCR<ESInfo> (sync_env->cct,
                                                     conf->conn.get(),
                                                     sync_env->http_manager,
@@ -657,11 +657,11 @@ public:
                                                     &(conf->default_headers),
                                                     &(conf->es_info)));
       if (retcode < 0) {
-        ldpp_dout(sync_env->dpp, 5) << conf->id << ": get elasticsearch failed: " << retcode << dendl;
+        ldpp_dout(dpp, 5) << conf->id << ": get elasticsearch failed: " << retcode << dendl;
         return set_cr_error(retcode);
       }
 
-      ldpp_dout(sync_env->dpp, 5) << conf->id << ": got elastic version=" << conf->es_info.get_version_str() << dendl;
+      ldpp_dout(dpp, 5) << conf->id << ": got elastic version=" << conf->es_info.get_version_str() << dendl;
       return set_cr_done();
     }
     return 0;
@@ -784,7 +784,7 @@ public:
                                                                                versioned_epoch(_versioned_epoch) {}
   int operate(const DoutPrefixProvider *dpp) override {
     reenter(this) {
-      ldpp_dout(sync_env->dpp, 10) << ": stat of remote obj: z=" << sc->source_zone
+      ldpp_dout(dpp, 10) << ": stat of remote obj: z=" << sc->source_zone
                                << " b=" << sync_pipe.info.source_bs.bucket << " k=" << key
                                << " size=" << size << " mtime=" << mtime << dendl;
 
@@ -842,7 +842,7 @@ public:
                                                         mtime(_mtime), conf(_conf) {}
   int operate(const DoutPrefixProvider *dpp) override {
     reenter(this) {
-      ldpp_dout(sync_env->dpp, 10) << ": remove remote obj: z=" << sc->source_zone
+      ldpp_dout(dpp, 10) << ": remove remote obj: z=" << sc->source_zone
                                << " b=" << sync_pipe.info.source_bs.bucket << " k=" << key << " mtime=" << mtime << dendl;
       yield {
         string path = conf->get_obj_path(sync_pipe.dest_bucket_info, key);

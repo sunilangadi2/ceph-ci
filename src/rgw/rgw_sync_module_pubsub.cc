@@ -478,7 +478,7 @@ class PSSubscription {
             try {
               old_config.decode(iter);
             } catch (const buffer::error& e) {
-              ldpp_dout(sync_env->dpp, 0) << __func__ <<  "(): decode life cycle config failed" << dendl;
+              ldpp_dout(dpp, 0) << __func__ <<  "(): decode life cycle config failed" << dendl;
             }
           }
 
@@ -489,7 +489,7 @@ class PSSubscription {
             if (old_rule.get_prefix().empty() && 
                 old_rule.get_expiration().get_days() == retention_days &&
                 old_rule.is_enabled()) {
-              ldpp_dout(sync_env->dpp, 20) << "no need to set lifecycle rule on bucket, existing rule matches config" << dendl;
+              ldpp_dout(dpp, 20) << "no need to set lifecycle rule on bucket, existing rule matches config" << dendl;
               return set_cr_done();
             }
           }
@@ -499,9 +499,9 @@ class PSSubscription {
         yield call(new RGWBucketLifecycleConfigCR(sync_env->async_rados,
                                                   sync_env->store,
                                                   lc_config,
-                                                  sync_env->dpp));
+                                                  dpp));
         if (retcode < 0) {
-          ldpp_dout(sync_env->dpp, 1) << "ERROR: failed to set lifecycle on bucket: ret=" << retcode << dendl;
+          ldpp_dout(dpp, 1) << "ERROR: failed to set lifecycle on bucket: ret=" << retcode << dendl;
           return set_cr_error(retcode);
         }
 
@@ -540,9 +540,9 @@ class PSSubscription {
                                             sync_env->store,
                                             get_bucket_info,
                                             sub->get_bucket_info_result,
-                                            sync_env->dpp));
+                                            dpp));
           if (retcode < 0 && retcode != -ENOENT) {
-            ldpp_dout(sync_env->dpp, 1) << "ERROR: failed to geting bucket info: " << "tenant="
+            ldpp_dout(dpp, 1) << "ERROR: failed to geting bucket info: " << "tenant="
               << get_bucket_info.tenant << " name=" << get_bucket_info.bucket_name << ": ret=" << retcode << dendl;
           }
           if (retcode == 0) {
@@ -552,7 +552,7 @@ class PSSubscription {
 
               int ret = sub->data_access->get_bucket(result->bucket->get_info(), result->bucket->get_attrs(), &sub->bucket);
               if (ret < 0) {
-                ldpp_dout(sync_env->dpp, 1) << "ERROR: data_access.get_bucket() bucket=" << result->bucket << " failed, ret=" << ret << dendl;
+                ldpp_dout(dpp, 1) << "ERROR: data_access.get_bucket() bucket=" << result->bucket << " failed, ret=" << ret << dendl;
                 return set_cr_error(ret);
               }
             }
@@ -560,7 +560,7 @@ class PSSubscription {
             yield call(new InitBucketLifecycleCR(sc, conf,
                                                  sub->get_bucket_info_result->bucket.get()));
             if (retcode < 0) {
-              ldpp_dout(sync_env->dpp, 1) << "ERROR: failed to init lifecycle on bucket (bucket=" << sub_conf->data_bucket_name << ") ret=" << retcode << dendl;
+              ldpp_dout(dpp, 1) << "ERROR: failed to init lifecycle on bucket (bucket=" << sub_conf->data_bucket_name << ") ret=" << retcode << dendl;
               return set_cr_error(retcode);
             }
 
@@ -569,13 +569,13 @@ class PSSubscription {
 
           create_bucket.user_info = sub->env->data_user_info;
           create_bucket.bucket_name = sub_conf->data_bucket_name;
-          ldpp_dout(sync_env->dpp, 20) << "pubsub: bucket create: using user info: " << json_str("obj", *sub->env->data_user_info, true) << dendl;
+          ldpp_dout(dpp, 20) << "pubsub: bucket create: using user info: " << json_str("obj", *sub->env->data_user_info, true) << dendl;
           yield call(new RGWBucketCreateLocalCR(sync_env->async_rados,
                                                 sync_env->store,
                                                 create_bucket,
-                                                sync_env->dpp));
+                                                dpp));
           if (retcode < 0) {
-            ldpp_dout(sync_env->dpp, 1) << "ERROR: failed to create bucket: " << "tenant="
+            ldpp_dout(dpp, 1) << "ERROR: failed to create bucket: " << "tenant="
               << get_bucket_info.tenant << " name=" << get_bucket_info.bucket_name << ": ret=" << retcode << dendl;
             return set_cr_error(retcode);
           }
@@ -584,7 +584,7 @@ class PSSubscription {
         }
 
         /* failed twice on -ENOENT, unexpected */
-        ldpp_dout(sync_env->dpp, 1) << "ERROR: failed to create bucket " << "tenant=" << get_bucket_info.tenant
+        ldpp_dout(dpp, 1) << "ERROR: failed to create bucket " << "tenant=" << get_bucket_info.tenant
           << " name=" << get_bucket_info.bucket_name << dendl;
         return set_cr_error(-EIO);
       }
@@ -630,12 +630,12 @@ class PSSubscription {
         yield call(new RGWObjectSimplePutCR(sync_env->async_rados,
                                             sync_env->store,
                                             put_obj,
-                                            sync_env->dpp));
+                                            dpp));
         if (retcode < 0) {
-          ldpp_dout(sync_env->dpp, 10) << "failed to store event: " << put_obj.bucket << "/" << put_obj.key << " ret=" << retcode << dendl;
+          ldpp_dout(dpp, 10) << "failed to store event: " << put_obj.bucket << "/" << put_obj.key << " ret=" << retcode << dendl;
           return set_cr_error(retcode);
         } else {
-          ldpp_dout(sync_env->dpp, 20) << "event stored: " << put_obj.bucket << "/" << put_obj.key << dendl;
+          ldpp_dout(dpp, 20) << "event stored: " << put_obj.bucket << "/" << put_obj.key << dendl;
         }
 
         return set_cr_done();
@@ -666,12 +666,12 @@ class PSSubscription {
         yield call(sub_conf->push_endpoint->send_to_completion_async(*event.get(), sync_env));
       
         if (retcode < 0) {
-          ldpp_dout(sync_env->dpp, 10) << "failed to push event: " << event->id <<
+          ldpp_dout(dpp, 10) << "failed to push event: " << event->id <<
             " to endpoint: " << sub_conf->push_endpoint_name << " ret=" << retcode << dendl;
           return set_cr_error(retcode);
         }
         
-        ldpp_dout(sync_env->dpp, 20) << "event: " << event->id <<
+        ldpp_dout(dpp, 20) << "event: " << event->id <<
           " pushed to endpoint: " << sub_conf->push_endpoint_name << dendl;
         return set_cr_done();
       }
@@ -767,7 +767,7 @@ class PSManager
     int operate(const DoutPrefixProvider *dpp) override {
       reenter(this) {
         if (owner.empty()) {
-          ldpp_dout(sync_env->dpp, 1) << "ERROR: missing user info when getting subscription: " << sub_name << dendl;
+          ldpp_dout(dpp, 1) << "ERROR: missing user info when getting subscription: " << sub_name << dendl;
             mgr->remove_get_sub(owner, sub_name);
             return set_cr_error(-EINVAL);
         } else {
@@ -777,7 +777,7 @@ class PSManager
             rgw_raw_obj obj;
             ps.get_sub_meta_obj(sub_name, &obj);
             bool empty_on_enoent = false;
-            call(new ReadInfoCR(sync_env->dpp, sync_env->async_rados, sync_env->store->svc()->sysobj,
+            call(new ReadInfoCR(dpp, sync_env->async_rados, sync_env->store->svc()->sysobj,
                                 obj,
                                 &user_sub_conf, empty_on_enoent));
           }
@@ -791,7 +791,7 @@ class PSManager
 
         yield (*ref)->call_init_cr(this);
         if (retcode < 0) {
-          ldpp_dout(sync_env->dpp, 1) << "ERROR: failed to init subscription when getting subscription: " << sub_name << dendl;
+          ldpp_dout(dpp, 1) << "ERROR: failed to init subscription when getting subscription: " << sub_name << dendl;
           mgr->remove_get_sub(owner, sub_name);
           return set_cr_error(retcode);
         }
@@ -887,27 +887,27 @@ public:
                                                     env(_env), conf(env->conf) {}
   int operate(const DoutPrefixProvider *dpp) override {
     reenter(this) {
-      ldpp_dout(sync_env->dpp, 1) << ": init pubsub config zone=" << sc->source_zone << dendl;
+      ldpp_dout(dpp, 1) << ": init pubsub config zone=" << sc->source_zone << dendl;
 
       /* nothing to do here right now */
       create_user.user = conf->user;
       create_user.max_buckets = 0; /* unlimited */
       create_user.display_name = "pubsub";
       create_user.generate_key = false;
-      yield call(new RGWUserCreateCR(sync_env->async_rados, sync_env->store, create_user, sync_env->dpp));
+      yield call(new RGWUserCreateCR(sync_env->async_rados, sync_env->store, create_user, dpp));
       if (retcode < 0 && retcode != -ERR_USER_EXIST) {
-        ldpp_dout(sync_env->dpp, 1) << "ERROR: failed to create rgw user: ret=" << retcode << dendl;
+        ldpp_dout(dpp, 1) << "ERROR: failed to create rgw user: ret=" << retcode << dendl;
         return set_cr_error(retcode);
       }
 
       get_user_info.user = conf->user;
-      yield call(new RGWGetUserInfoCR(sync_env->async_rados, sync_env->store, get_user_info, env->data_user_info, sync_env->dpp));
+      yield call(new RGWGetUserInfoCR(sync_env->async_rados, sync_env->store, get_user_info, env->data_user_info, dpp));
       if (retcode < 0) {
-        ldpp_dout(sync_env->dpp, 1) << "ERROR: failed to create rgw user: ret=" << retcode << dendl;
+        ldpp_dout(dpp, 1) << "ERROR: failed to create rgw user: ret=" << retcode << dendl;
         return set_cr_error(retcode);
       }
 
-      ldpp_dout(sync_env->dpp, 20) << "pubsub: get user info cr returned: " << json_str("obj", *env->data_user_info, true) << dendl;
+      ldpp_dout(dpp, 20) << "pubsub: get user info cr returned: " << json_str("obj", *env->data_user_info, true) << dendl;
 
 
       return set_cr_done();
@@ -968,7 +968,7 @@ public:
       using ReadInfoCR = RGWSimpleRadosReadCR<rgw_pubsub_bucket_topics>;
       yield {
         bool empty_on_enoent = true;
-        call(new ReadInfoCR(sync_env->dpp, sync_env->async_rados, sync_env->store->svc()->sysobj,
+        call(new ReadInfoCR(dpp, sync_env->async_rados, sync_env->store->svc()->sysobj,
                             bucket_obj,
                             &bucket_topics, empty_on_enoent));
       }
@@ -976,13 +976,13 @@ public:
         return set_cr_error(retcode);
       }
 
-      ldpp_dout(sync_env->dpp, 20) << "RGWPSFindBucketTopicsCR(): found " << bucket_topics.topics.size() << " topics for bucket " << bucket << dendl;
+      ldpp_dout(dpp, 20) << "RGWPSFindBucketTopicsCR(): found " << bucket_topics.topics.size() << " topics for bucket " << bucket << dendl;
 
       if (!bucket_topics.topics.empty()) {
 	using ReadUserTopicsInfoCR = RGWSimpleRadosReadCR<rgw_pubsub_topics>;
 	yield {
 	  bool empty_on_enoent = true;
-	  call(new ReadUserTopicsInfoCR(sync_env->dpp, sync_env->async_rados, sync_env->store->svc()->sysobj,
+	  call(new ReadUserTopicsInfoCR(dpp, sync_env->async_rados, sync_env->store->svc()->sysobj,
 					user_obj,
 					&user_topics, empty_on_enoent));
 	}

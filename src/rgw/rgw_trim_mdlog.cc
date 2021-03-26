@@ -360,7 +360,7 @@ int MetaMasterTrimCR::operate(const DoutPrefixProvider *dpp)
   reenter(this) {
     // TODO: detect this and fail before we spawn the trim thread?
     if (env.connections.empty()) {
-      ldpp_dout(env.dpp, 4) << "no peers, exiting" << dendl;
+      ldpp_dout(dpp, 4) << "no peers, exiting" << dendl;
       return set_cr_done();
     }
 
@@ -370,7 +370,7 @@ int MetaMasterTrimCR::operate(const DoutPrefixProvider *dpp)
 
     // must get a successful reply from all peers to consider trimming
     if (ret < 0) {
-      ldpp_dout(env.dpp, 4) << "failed to fetch sync status from all peers" << dendl;
+      ldpp_dout(dpp, 4) << "failed to fetch sync status from all peers" << dendl;
       return set_cr_error(ret);
     }
 
@@ -378,19 +378,19 @@ int MetaMasterTrimCR::operate(const DoutPrefixProvider *dpp)
     ret = take_min_status(env.store->ctx(), env.peer_status.begin(),
                           env.peer_status.end(), &min_status);
     if (ret < 0) {
-      ldpp_dout(env.dpp, 4) << "failed to calculate min sync status from peers" << dendl;
+      ldpp_dout(dpp, 4) << "failed to calculate min sync status from peers" << dendl;
       return set_cr_error(ret);
     }
     yield {
       auto store = env.store;
       auto epoch = min_status.sync_info.realm_epoch;
-      ldpp_dout(env.dpp, 4) << "realm epoch min=" << epoch
+      ldpp_dout(dpp, 4) << "realm epoch min=" << epoch
           << " current=" << env.current.get_epoch()<< dendl;
       if (epoch > env.last_trim_epoch + 1) {
         // delete any prior mdlog periods
-        spawn(new PurgePeriodLogsCR(env.dpp, store, epoch, &env.last_trim_epoch), true);
+        spawn(new PurgePeriodLogsCR(dpp, store, epoch, &env.last_trim_epoch), true);
       } else {
-        ldpp_dout(env.dpp, 10) << "mdlogs already purged up to realm_epoch "
+        ldpp_dout(dpp, 10) << "mdlogs already purged up to realm_epoch "
             << env.last_trim_epoch << dendl;
       }
 
@@ -436,7 +436,7 @@ int MetaPeerTrimShardCR::operate(const DoutPrefixProvider *dpp)
     yield call(create_list_remote_mdlog_shard_cr(&env, period_id, shard_id,
                                                  "", 1, &result));
     if (retcode < 0) {
-      ldpp_dout(env.dpp, 5) << "failed to read first entry from master's mdlog shard "
+      ldpp_dout(dpp, 5) << "failed to read first entry from master's mdlog shard "
           << shard_id << " for period " << period_id
           << ": " << cpp_strerror(retcode) << dendl;
       return set_cr_error(retcode);
@@ -447,12 +447,12 @@ int MetaPeerTrimShardCR::operate(const DoutPrefixProvider *dpp)
       // this empty reply. query the mdlog shard info to read its max timestamp,
       // then retry the listing to make sure it's still empty before trimming to
       // that
-      ldpp_dout(env.dpp, 10) << "empty master mdlog shard " << shard_id
+      ldpp_dout(dpp, 10) << "empty master mdlog shard " << shard_id
           << ", reading last timestamp from shard info" << dendl;
       // read the mdlog shard info for the last timestamp
       yield call(create_read_remote_mdlog_shard_info_cr(&env, period_id, shard_id, &info));
       if (retcode < 0) {
-        ldpp_dout(env.dpp, 5) << "failed to read info from master's mdlog shard "
+        ldpp_dout(dpp, 5) << "failed to read info from master's mdlog shard "
             << shard_id << " for period " << period_id
             << ": " << cpp_strerror(retcode) << dendl;
         return set_cr_error(retcode);
@@ -460,13 +460,13 @@ int MetaPeerTrimShardCR::operate(const DoutPrefixProvider *dpp)
       if (ceph::real_clock::is_zero(info.last_update)) {
         return set_cr_done(); // nothing to trim
       }
-      ldpp_dout(env.dpp, 10) << "got mdlog shard info with last update="
+      ldpp_dout(dpp, 10) << "got mdlog shard info with last update="
           << info.last_update << dendl;
       // re-read the master's first mdlog entry to make sure it hasn't changed
       yield call(create_list_remote_mdlog_shard_cr(&env, period_id, shard_id,
                                                    "", 1, &result));
       if (retcode < 0) {
-        ldpp_dout(env.dpp, 5) << "failed to read first entry from master's mdlog shard "
+        ldpp_dout(dpp, 5) << "failed to read first entry from master's mdlog shard "
             << shard_id << " for period " << period_id
             << ": " << cpp_strerror(retcode) << dendl;
         return set_cr_error(retcode);
@@ -487,22 +487,22 @@ int MetaPeerTrimShardCR::operate(const DoutPrefixProvider *dpp)
     }
 
     if (stable <= *last_trim) {
-      ldpp_dout(env.dpp, 10) << "skipping log shard " << shard_id
+      ldpp_dout(dpp, 10) << "skipping log shard " << shard_id
           << " at timestamp=" << stable
           << " last_trim=" << *last_trim << dendl;
       return set_cr_done();
     }
 
-    ldpp_dout(env.dpp, 10) << "trimming log shard " << shard_id
+    ldpp_dout(dpp, 10) << "trimming log shard " << shard_id
         << " at timestamp=" << stable
         << " last_trim=" << *last_trim << dendl;
     yield {
       std::string oid;
       mdlog->get_shard_oid(shard_id, oid);
-      call(new RGWRadosTimelogTrimCR(env.dpp, env.store, oid, real_time{}, stable, "", ""));
+      call(new RGWRadosTimelogTrimCR(dpp, env.store, oid, real_time{}, stable, "", ""));
     }
     if (retcode < 0 && retcode != -ENODATA) {
-      ldpp_dout(env.dpp, 1) << "failed to trim mdlog shard " << shard_id
+      ldpp_dout(dpp, 1) << "failed to trim mdlog shard " << shard_id
           << ": " << cpp_strerror(retcode) << dendl;
       return set_cr_error(retcode);
     }
@@ -559,7 +559,7 @@ class MetaPeerTrimCR : public RGWCoroutine {
 int MetaPeerTrimCR::operate(const DoutPrefixProvider *dpp)
 {
   reenter(this) {
-    ldpp_dout(env.dpp, 10) << "fetching master mdlog info" << dendl;
+    ldpp_dout(dpp, 10) << "fetching master mdlog info" << dendl;
     yield {
       // query mdlog_info from master for oldest_log_period
       rgw_http_param_pair params[] = {
@@ -572,7 +572,7 @@ int MetaPeerTrimCR::operate(const DoutPrefixProvider *dpp)
                          "/admin/log/", params, &mdlog_info));
     }
     if (retcode < 0) {
-      ldpp_dout(env.dpp, 4) << "failed to read mdlog info from master" << dendl;
+      ldpp_dout(dpp, 4) << "failed to read mdlog info from master" << dendl;
       return set_cr_error(retcode);
     }
     // use master's shard count instead
@@ -580,10 +580,10 @@ int MetaPeerTrimCR::operate(const DoutPrefixProvider *dpp)
 
     if (mdlog_info.realm_epoch > env.last_trim_epoch + 1) {
       // delete any prior mdlog periods
-      yield call(new PurgePeriodLogsCR(env.dpp, env.store, mdlog_info.realm_epoch,
+      yield call(new PurgePeriodLogsCR(dpp, env.store, mdlog_info.realm_epoch,
                                        &env.last_trim_epoch));
     } else {
-      ldpp_dout(env.dpp, 10) << "mdlogs already purged through realm_epoch "
+      ldpp_dout(dpp, 10) << "mdlogs already purged through realm_epoch "
           << env.last_trim_epoch << dendl;
     }
 

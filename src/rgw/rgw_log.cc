@@ -86,8 +86,7 @@ string render_log_object_name(const string& format,
 }
 
 /* usage logger */
-class UsageLogger {
-  const DoutPrefixProvider *dpp;
+class UsageLogger : public DoutPrefixProvider {
   CephContext *cct;
   rgw::sal::Store* store;
   map<rgw_user_bucket, RGWUsageBatch> usage_map;
@@ -112,7 +111,7 @@ class UsageLogger {
   }
 public:
 
-  UsageLogger(const DoutPrefixProvider *_dpp, CephContext *_cct, rgw::sal::Store* _store) : dpp(_dpp), cct(_cct), store(_store), num_entries(0), timer(cct, timer_lock) {
+  UsageLogger(CephContext *_cct, rgw::sal::Store* _store) : cct(_cct), store(_store), num_entries(0), timer(cct, timer_lock) {
     timer.init();
     std::lock_guard l{timer_lock};
     set_timer();
@@ -166,15 +165,19 @@ public:
     num_entries = 0;
     lock.unlock();
 
-    store->log_usage(dpp, old_map);
+    store->log_usage(this, old_map);
   }
+
+  CephContext *get_cct() const override { return cct; }
+  unsigned get_subsys() const override { return dout_subsys; }
+  std::ostream& gen_prefix(std::ostream& out) const override { return out << "rgw UsageLogger: "; }
 };
 
 static UsageLogger *usage_logger = NULL;
 
-void rgw_log_usage_init(const DoutPrefixProvider *dpp, CephContext *cct, rgw::sal::Store* store)
+void rgw_log_usage_init(CephContext *cct, rgw::sal::Store* store)
 {
-  usage_logger = new UsageLogger(dpp, cct, store);
+  usage_logger = new UsageLogger(cct, store);
 }
 
 void rgw_log_usage_finalize()

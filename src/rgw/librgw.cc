@@ -583,7 +583,7 @@ namespace rgw {
     ldh->init();
     ldh->bind();
 
-    rgw_log_usage_init(this, g_ceph_context, store);
+    rgw_log_usage_init(g_ceph_context, store);
 
     // XXX ex-RGWRESTMgr_lib, mgr->set_logging(true)
 

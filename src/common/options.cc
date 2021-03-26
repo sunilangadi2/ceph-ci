@@ -2389,7 +2389,7 @@ std::vector<Option> get_global_options() {
     .add_see_also("auth_expose_insecure_global_id_reclaim"),
 
     Option("auth_expose_insecure_global_id_reclaim", Option::TYPE_BOOL, Option::LEVEL_ADVANCED)
-    .set_default(true)
+    .set_default(false)
     .set_description("Force older clients that may omit their ticket on reconnects to reconnect as part of establishing a session")
     .set_long_description("In permissive mode (auth_allow_insecure_global_id_reclaim set to true), this helps with identifying clients that are not patched.  In enforcing mode (auth_allow_insecure_global_id_reclaim set to false), this is a fail-fast mechanism: don't establish a session that will almost inevitably be broken later.")
     .add_see_also("mon_warn_on_insecure_global_id_reclaim")

@@ -127,7 +127,7 @@ struct CephXAuthenticate {
 
   void encode(ceph::buffer::list& bl) const {
     using ceph::encode;
-    __u8 struct_v = 3;
+    __u8 struct_v = 2;// simulate older client to trigger reveal path
     encode(struct_v, bl);
     encode(client_challenge, bl);
     encode(key, bl);

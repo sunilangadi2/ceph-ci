@@ -16234,36 +16234,35 @@ bool BlueStoreRepairer::preprocess_misreference(KeyValueDB *db)
 unsigned BlueStoreRepairer::apply(KeyValueDB* db)
 {
   if (fix_per_pool_omap_txn) {
-    db->submit_transaction_sync(fix_per_pool_omap_txn);
+    ceph_assert(db->submit_transaction_sync(fix_per_pool_omap_txn) == 0);
     fix_per_pool_omap_txn = nullptr;
   }
   if (fix_fm_leaked_txn) {
-    db->submit_transaction_sync(fix_fm_leaked_txn);
+    ceph_assert(db->submit_transaction_sync(fix_fm_leaked_txn) == 0);
     fix_fm_leaked_txn = nullptr;
   }
   if (fix_fm_false_free_txn) {
-    db->submit_transaction_sync(fix_fm_false_free_txn);
+    ceph_assert(db->submit_transaction_sync(fix_fm_false_free_txn) == 0);
     fix_fm_false_free_txn = nullptr;
   }
   if (remove_key_txn) {
-    db->submit_transaction_sync(remove_key_txn);
+    ceph_assert(db->submit_transaction_sync(remove_key_txn) == 0);
     remove_key_txn = nullptr;
   }
   if (fix_misreferences_txn) {
-    db->submit_transaction_sync(fix_misreferences_txn);
+    ceph_assert(db->submit_transaction_sync(fix_misreferences_txn) == 0);
     fix_misreferences_txn = nullptr;
   }
   if (fix_onode_txn) {
-    db->submit_transaction_sync(fix_onode_txn);
+    ceph_assert(db->submit_transaction_sync(fix_onode_txn) == 0);
     fix_onode_txn = nullptr;
   }
   if (fix_shared_blob_txn) {
-    db->submit_transaction_sync(fix_shared_blob_txn);
+    ceph_assert(db->submit_transaction_sync(fix_shared_blob_txn) == 0);
     fix_shared_blob_txn = nullptr;
   }
-
   if (fix_statfs_txn) {
-    db->submit_transaction_sync(fix_statfs_txn);
+    ceph_assert(db->submit_transaction_sync(fix_statfs_txn) == 0);
     fix_statfs_txn = nullptr;
   }
   unsigned repaired = to_repair_cnt;

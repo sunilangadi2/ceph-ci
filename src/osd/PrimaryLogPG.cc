@@ -3961,6 +3961,13 @@ void PrimaryLogPG::promote_object(ObjectContextRef obc,
   if (promote_obc)
     *promote_obc = obc;
 
+  if (copy_ops.count(obc->obs.oi.soid) && 
+      (objects_blocked_on_snap_promotion.find(obc->obs.oi.soid.get_head())
+       != objects_blocked_on_snap_promotion.end())) {
+      ceph_assert(op);
+      wait_for_blocked_object(obc->obs.oi.soid, op);
+      return;
+  }
   /*
    * Before promote complete, if there are  proxy-reads for the object,
    * for this case we don't use DONTNEED.

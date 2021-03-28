@@ -33,7 +33,6 @@ public:
     bufferlist::const_iterator& indata,
     size_t connection_secret_required_length,
     bufferlist *result_bl,
-    uint64_t *global_id,
     AuthCapsInfo *caps,
     CryptoKey *session_key,
     std::string *connection_secret) override;

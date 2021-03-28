@@ -59,6 +59,8 @@ struct MonSession : public RefCountedObject {
 
   AuthServiceHandler *auth_handler = nullptr;
   EntityName entity_name;
+  uint64_t global_id = 0;
+  global_id_status_t global_id_status = global_id_status_t::NONE;
 
   ConnectionRef proxy_con;
   uint64_t proxy_tid = 0;

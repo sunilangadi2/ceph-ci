@@ -1016,7 +1016,6 @@ void RGWDataChangesLog::renew_run() noexcept {
   static constexpr auto runs_per_prune = 150;
   auto run = 0;
   for (;;) {
-    // TODO FIX THIS 
     const DoutPrefix dp(cct, dout_subsys, "rgw data changes log: ");
     ldpp_dout(&dp, 2) << "RGWDataChangesLog::ChangesRenewThread: start" << dendl;
     int r = renew_entries(&dp);

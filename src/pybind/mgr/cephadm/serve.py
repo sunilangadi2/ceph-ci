@@ -812,6 +812,7 @@ class CephadmServe:
     def _create_daemon(self,
                        daemon_spec: CephadmDaemonDeploySpec,
                        reconfig: bool = False,
+                       redeploy: bool = False,
                        osd_uuid_map: Optional[Dict[str, Any]] = None,
                        ) -> str:
 
@@ -918,7 +919,7 @@ class CephadmServe:
                         daemon_spec.name(), OrchestratorEvent.ERROR, f'Failed to {what}: {err}')
                 return msg
             except OrchestratorError:
-                if not reconfig:
+                if not reconfig and not redeploy:
                     # we have to clean up the daemon. E.g. keyrings.
                     servict_type = daemon_type_to_service(daemon_spec.daemon_type)
                     dd = daemon_spec.to_daemon_description(DaemonDescriptionStatus.error, 'failed')

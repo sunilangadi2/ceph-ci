@@ -429,6 +429,10 @@ class PgScrubber : public ScrubPgIF, public ScrubMachineListener {
 
   [[nodiscard]] bool is_scrub_active() const final { return m_active; }
 
+  //[[nodiscard]] bool get_reserve_failed() const final { return m_reserve_failed; }
+  //void set_reserve_failed() final { /* m_reserve_failed = true;*/ }
+  //void clear_reserve_failed() final { /* m_reserve_failed = false;*/ };
+
  private:
   void reset_internal_state();
 

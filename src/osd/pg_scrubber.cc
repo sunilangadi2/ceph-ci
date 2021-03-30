@@ -1058,6 +1058,7 @@ int PgScrubber::build_replica_map_chunk()
       dout(1) << "Error! Aborting. ActiveReplica::react(SchedReplica) Ret: " << ret
 	      << dendl;
       replica_handling_done();
+      // m_osds->queue_scrub_is_finished(m_pg);
       // only in debug mode for now:
       assert(false && "backend error");
       break;

@@ -59,7 +59,6 @@
 class Allocator;
 class FreelistManager;
 class BlueStoreRepairer;
-class sorted_extents_t;
 //#define DEBUG_CACHE
 //#define DEBUG_DEFERRED
 
@@ -3448,9 +3447,10 @@ public:
     mempool::bluestore_fsck::list<std::string>* expecting_shards,
     std::map<BlobRef, bluestore_blob_t::unused_t>* referenced,
     const BlueStore::FSCK_ObjectCtx& ctx);
-
-  int  read_allocation_from_drive_for_bluestore_tool();
-  
+#ifdef CEPH_BLUESTORE_TOOL_RESTORE_ALLOCATION
+  int  read_allocation_from_drive_for_bluestore_tool(bool test_store_and_restore);
+  int  read_allocation_from_drive_for_fsck() { return read_allocation_from_drive_for_bluestore_tool(false); }
+#endif
 private:
 #define MAX_BLOBS_IN_ONODE 128
   struct  read_alloc_stats_t {
@@ -3463,11 +3463,13 @@ private:
     
     uint32_t collection_search       = 0;
     uint32_t limit_count             = 0;
-    
+
+    uint64_t compressed_blob_count   = 0;
+    uint64_t spanning_blob_count     = 0;
     uint64_t insert_count            = 0;
-    uint64_t saved_inplace_count     = 0;    
     uint64_t extent_count            = 0;
 
+    uint64_t saved_inplace_count     = 0;    
     uint32_t merge_insert_count      = 0;
     uint32_t merge_inplace_count     = 0;
 
@@ -3479,16 +3481,21 @@ private:
     out << "==========================================================" << std::endl;
     out << "NCB::onode_count             = " ;out.width(10);out << stats.onode_count << std::endl
 	<< "NCB::shard_count             = " ;out.width(10);out << stats.shard_count << std::endl
+	<< "NCB::compressed_blob_count   = " ;out.width(10);out << stats.compressed_blob_count << std::endl
+	<< "NCB::spanning_blob_count     = " ;out.width(10);out << stats.spanning_blob_count << std::endl
 	<< "NCB::collection search       = " ;out.width(10);out << stats.collection_search << std::endl
 	<< "NCB::skipped_repeated_extent = " ;out.width(10);out << stats.skipped_repeated_extent << std::endl
 	<< "NCB::skipped_illegal_extent  = " ;out.width(10);out << stats.skipped_illegal_extent << std::endl
 	<< "NCB::extent_count            = " ;out.width(10);out << stats.extent_count << std::endl
 	<< "NCB::insert_count            = " ;out.width(10);out << stats.insert_count << std::endl
-      	<< "NCB::limit_count             = " ;out.width(10);out << stats.limit_count << std::endl
-	<< "NCB::merge_insert_count      = " ;out.width(10);out << stats.merge_insert_count  << std::endl
-	<< "NCB::merge_inplace_count     = " ;out.width(10);out << stats.merge_inplace_count << std::endl
-	<< "NCB::saved_inplace_count     = " ;out.width(10);out << stats.saved_inplace_count << std::endl;
-    if (stats.saved_inplace_count) {
+      	<< "NCB::limit_count             = " ;out.width(10);out << stats.limit_count << std::endl;
+
+    if (stats.merge_insert_count) {
+      out << "NCB::merge_insert_count      = " ;out.width(10);out << stats.merge_insert_count  << std::endl;
+    }
+    if (stats.merge_inplace_count ) {
+      out << "NCB::merge_inplace_count     = " ;out.width(10);out << stats.merge_inplace_count << std::endl;
+      out << "NCB::saved_inplace_count     = " ;out.width(10);out << stats.saved_inplace_count << std::endl;
       out << "NCB::saved inplace per call  = " ;out.width(10);out << stats.saved_inplace_count/stats.merge_inplace_count << std::endl;
     }
     out << "==========================================================" << std::endl;
@@ -3510,21 +3517,19 @@ private:
   int  compare_allocators(Allocator* alloc1, Allocator* alloc2, uint64_t req_extent_count, uint64_t memory_target);
   Allocator* create_allocator(uint64_t bdev_size, string type);
   int  add_existing_bluefs_allocation(Allocator* allocator, read_alloc_stats_t& stats);
-  int  preallocate_space_for_allocator(BlueFS::FileWriter *p_handle, uint64_t p_num_entries);
+  int  allocator_add_restored_entries(Allocator *allocator, const void *buff, unsigned extent_count, uint64_t *p_read_alloc_size,
+				      uint64_t  *p_extent_count, const void *v_header, BlueFS::FileReader *p_handle, uint64_t offset);
+
   int  copy_allocator(Allocator* src_alloc, Allocator *dest_alloc, uint64_t* p_num_entries);
   int  store_allocator(Allocator* allocator);
   int  invalidate_allocation_file_on_bluestore();
   int  restore_allocator(Allocator* allocator);
   int  read_allocation_from_drive_on_startup();
   int  reconstruct_allocations(Allocator* allocator, read_alloc_stats_t &stats);
-  int  read_allocation_from_onodes(Allocator* allocator, read_alloc_stats_t& stats, sorted_extents_t* sorted_extents);
+  int  read_allocation_from_onodes(Allocator* allocator, read_alloc_stats_t& stats);
   int  store_allocation_state_on_bluestore();
   void store_fm_type();
-  void read_allocation_from_single_onode(
-    Allocator*           allocator,
-    BlueStore::OnodeRef& onode_ref,
-    read_alloc_stats_t&  stats,
-    sorted_extents_t*    sorted_extents);
+  void read_allocation_from_single_onode(Allocator* allocator, BlueStore::OnodeRef& onode_ref, read_alloc_stats_t&  stats);
 
   void _fsck_check_object_omap(FSCKDepth depth,
     OnodeRef& o,
@@ -3946,58 +3951,6 @@ public:
     BlueFSVolumeSelector::paths& res) const override;
 
   void dump(std::ostream& sout) override;
-};
-
-struct compact_extent_t{
-  uint64_t offset;
-  uint32_t length;
-}__attribute__((packed));
-
-class sorted_extents_t {
- public:
-  compact_extent_t *m_extent_buff         = nullptr;
-  compact_extent_t *m_p_buff              = nullptr;
-  compact_extent_t *m_p_buff_end          = nullptr;
-  Allocator        *m_allocator           = nullptr;
-  bool              m_in_place_merge      = true;
-  uint64_t          m_insert_count        = 0;
-  uint64_t          m_saved_inplace_count = 0;
-  uint32_t          m_merge_insert_count  = 0;
-  uint32_t          m_merge_inplace_count = 0;
-  CephContext      *cct;
-  std::string       path;
-  sorted_extents_t(uint64_t memory_target, Allocator *allocator, CephContext* cct, const std::string &path);
-  ~sorted_extents_t();
-  
-  inline void add_entry(uint64_t offset, uint32_t length) {
-    *m_p_buff = { offset, length };
-    m_p_buff++;
-    if (m_p_buff < m_p_buff_end) {
-      return;
-    }
-    else {
-      buffer_compaction();
-    }
-  }
-
-  inline void flush() {
-    std::cout << __func__ << "::(1)m_p_buff - m_extent_buff = " << m_p_buff - m_extent_buff << std::endl;
-    if (m_p_buff > m_extent_buff) {
-      sort_merge_and_insert_to_allocator();
-      std::cout << __func__ << "::(2)m_p_buff - m_extent_buff = " << m_p_buff - m_extent_buff << std::endl;
-    }
-  }
-
-  inline uint64_t       get_saved_inplace_count() { return m_saved_inplace_count;}
-  inline uint64_t       get_insert_count()        { return m_insert_count;}
-  inline uint32_t       get_merge_insert_count()  { return m_merge_insert_count;}
-  inline uint32_t       get_merge_inplace_count() { return m_merge_inplace_count;}
-  
-private:
-  void buffer_compaction();
-  void sort_merge_and_insert_to_allocator();
-  void sort_and_merge_inplace();
-
 };
 
 #endif

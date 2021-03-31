@@ -5,7 +5,7 @@ Please see http://ceph.com/ for current info.
 
 ## Contributing Code
 
-Most of Ceph is licensed under the LGPL version 2.1.  Some
+Most of Ceph is licensed under the LGPL version 2.1.  Some  
 miscellaneous code is under BSD-style license or is public domain.
 The documentation is licensed under Creative Commons
 Attribution Share Alike 3.0 (CC-BY-SA-3.0).  There are a handful of headers

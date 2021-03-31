@@ -4429,7 +4429,7 @@ void RGWPutMetadataAccount::execute(optional_yield y)
   /* We are passing here the current (old) user info to allow the function
    * optimize-out some operations. */
   s->user->set_attrs(attrs);
-  op_ret = s->user->store_info(this, y, false, &s->user->get_info());
+  op_ret = s->user->store_by_id(this, y, false, &s->user->get_info());
   acct_op_tracker = s->user->get_version_tracker();
 }
 

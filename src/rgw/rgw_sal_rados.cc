@@ -193,7 +193,7 @@ int RadosUser::load_by_id(const DoutPrefixProvider* dpp, optional_yield y)
     return store->ctl()->user->get_info_by_uid(dpp, info.user_id, &info, y, RGWUserCtl::GetParams().set_objv_tracker(&objv_tracker));
 }
 
-int RadosUser::store_info(const DoutPrefixProvider* dpp, optional_yield y, bool exclusive, RGWUserInfo* old_info)
+int RadosUser::store_by_id(const DoutPrefixProvider* dpp, optional_yield y, bool exclusive, RGWUserInfo* old_info)
 {
     return store->ctl()->user->store_info(dpp, info, y,
 					  RGWUserCtl::PutParams().set_objv_tracker(&objv_tracker)
@@ -202,9 +202,10 @@ int RadosUser::store_info(const DoutPrefixProvider* dpp, optional_yield y, bool 
 					  .set_old_info(old_info));
 }
 
-int RadosUser::remove_info(const DoutPrefixProvider* dpp, optional_yield y, const RGWUserCtl::RemoveParams& params)
+int RadosUser::remove_by_id(const DoutPrefixProvider* dpp, optional_yield y)
 {
-    return store->ctl()->user->remove_info(dpp, info, y, params);
+    return store->ctl()->user->remove_info(dpp, info, y,
+					  RGWUserCtl::RemoveParams().set_objv_tracker(&objv_tracker));
 }
 
 /* Placeholder */

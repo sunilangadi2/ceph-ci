@@ -151,7 +151,7 @@ void RGWPutUserPolicy::execute(optional_yield y)
     encode(policies, in_bl);
     user->get_attrs()[RGW_ATTR_USER_POLICY] = in_bl;
 
-    op_ret = user->store_info(s, s->yield, false);
+    op_ret = user->store_by_id(s, s->yield, false);
     if (op_ret < 0) {
       op_ret = -ERR_INTERNAL_ERROR;
     }
@@ -355,7 +355,7 @@ void RGWDeleteUserPolicy::execute(optional_yield y)
       encode(policies, in_bl);
       user->get_attrs()[RGW_ATTR_USER_POLICY] = in_bl;
 
-      op_ret = user->store_info(s, s->yield, false);
+      op_ret = user->store_by_id(s, s->yield, false);
       if (op_ret < 0) {
         op_ret = -ERR_INTERNAL_ERROR;
       }

@@ -65,8 +65,8 @@ class RadosUser : public User {
 
     /* Placeholders */
     virtual int load_by_id(const DoutPrefixProvider* dpp, optional_yield y) override;
-    virtual int store_info(const DoutPrefixProvider* dpp, optional_yield y, bool exclusive, RGWUserInfo* old_info = nullptr) override;
-    virtual int remove_info(const DoutPrefixProvider* dpp, optional_yield y, const RGWUserCtl::RemoveParams& params = {}) override;
+    virtual int store_by_id(const DoutPrefixProvider* dpp, optional_yield y, bool exclusive, RGWUserInfo* old_info = nullptr) override;
+    virtual int remove_by_id(const DoutPrefixProvider* dpp, optional_yield y) override;
 
     friend class RadosBucket;
 };

@@ -125,7 +125,8 @@ class Metric(object):
         self.name = name
         self.desc = desc
         self.labelnames = labels    # tuple if present
-        self.value: Dict[Tuple[str, ...], Union[float, int]] = {}             # indexed by label values
+        self.value: Dict[Tuple[str, ...], Union[float, int]
+                         ] = {}             # indexed by label values
 
     def clear(self) -> None:
         self.value = {}

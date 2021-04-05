@@ -42,6 +42,9 @@
 	debug asserts on shutdown = true
 	mon health detail to clog = false
 
+	# rotate auth tickets quickly to exercise renewal paths
+	auth mon ticket ttl = 600
+
 [osd]
         osd journal size = 100
 

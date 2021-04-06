@@ -56,6 +56,10 @@ def install_kafka(ctx, config):
         current_version = get_kafka_version(config)
         for client in config:
             ctx.cluster.only(client).run(
+                args=['rm', '-rf', '{tdir}/logs'.format(tdir=test_dir)],
+            )
+
+            ctx.cluster.only(client).run(
                 args=['rm', '-rf', test_dir],
             )
 
@@ -103,17 +107,27 @@ def run_kafka(ctx,config):
     try:
         yield
     finally:
-        log.info('Stopping Zookeeper and Kafka Services...')
+        log.info('Stopping Zookeeper and Kafka Services BY SLEEPING...')
 
         for (client, _) in config.items():
             (remote,) = ctx.cluster.only(client).remotes.keys()
 
+            '''
+            remote.run(
+                args=[
+                    'sudo', 'killall', '-9', 'java'
+                    ]
+                )
+
+            '''
             toxvenv_sh(ctx, remote, 
                 ['cd', '{tdir}/bin'.format(tdir=get_kafka_dir(ctx, config)), run.Raw('&&'),
                  './kafka-server-stop.sh',  
                  '{tir}/config/kafka.properties'.format(tir=get_kafka_dir(ctx, config)),
                 ]
             )
+
+            time.sleep(10)
 
             toxvenv_sh(ctx, remote, 
                 ['cd', '{tdir}/bin'.format(tdir=get_kafka_dir(ctx, config)), run.Raw('&&'), 

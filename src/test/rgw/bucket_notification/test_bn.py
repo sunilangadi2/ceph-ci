@@ -2286,7 +2286,7 @@ def persistent_notification(endpoint_type):
 
     s3_notification_conf = PSNotificationS3(conn, bucket_name, topic_conf_list)
     response, status = s3_notification_conf.set_config()
-    assert_equal(status/100, 2)
+    assert_equal(status/100, 5)
 
     # create objects in the bucket (async)
     number_of_objects = 100

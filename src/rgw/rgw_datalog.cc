@@ -73,40 +73,6 @@ void rgw_data_change_log_entry::decode_json(JSONObj *obj) {
   JSONDecoder::decode_json("entry", entry, obj);
 }
 
-int RGWDataChangesBE::remove(const DoutPrefixProvider *dpp, 
-                             CephContext* cct, librados::Rados* rados,
-			     const rgw_pool& log_pool)
-{
-  auto num_shards = cct->_conf->rgw_data_log_num_shards;
-  librados::IoCtx ioctx;
-  auto r = rgw_init_ioctx(dpp, rados, log_pool.name, ioctx,
-			  false, false);
-  if (r < 0) {
-    if (r == -ENOENT) {
-      return 0;
-    } else {
-      ldpp_dout(dpp, -1) << __PRETTY_FUNCTION__
-		 << ": rgw_init_ioctx failed: " << log_pool.name
-		 << ": " << cpp_strerror(-r) << dendl;
-      return r;
-    }
-  }
-  for (auto i = 0; i < num_shards; ++i) {
-    auto oid = get_oid(cct, i);
-    librados::ObjectWriteOperation op;
-    op.remove();
-    auto r = rgw_rados_operate(dpp, ioctx, oid, &op, null_yield);
-    if (r < 0 && r != -ENOENT) {
-      ldpp_dout(dpp, -1) << __PRETTY_FUNCTION__
-		 << ": remove failed: " << log_pool.name << "/" << oid
-		 << ": " << cpp_strerror(-r) << dendl;
-    }
-  }
-  return 0;
-}
-
-
->>>>>>> rgw: add DPP's to logging for most ops
 class RGWDataChangesOmap final : public RGWDataChangesBE {
   using centries = std::list<cls_log_entry>;
   std::vector<std::string> oids;
@@ -123,45 +89,7 @@ public:
     }
   }
   ~RGWDataChangesOmap() override = default;
-  static int exists(const DoutPrefixProvider *dpp, CephContext* cct, RGWSI_Cls& cls, bool* exists,
-		    bool* has_entries) {
-    auto num_shards = cct->_conf->rgw_data_log_num_shards;
-    std::string out_marker;
-    bool truncated = false;
-    std::list<cls_log_entry> log_entries;
-    const cls_log_header empty_info;
-    *exists = false;
-    *has_entries = false;
-    for (auto i = 0; i < num_shards; ++i) {
-      cls_log_header info;
-      auto oid = get_oid(cct, i);
-      auto r = cls.timelog.info(dpp, oid, &info, null_yield);
-      if (r < 0 && r != -ENOENT) {
-	ldpp_dout(dpp, -1) << __PRETTY_FUNCTION__
-		   << ": failed to get info " << oid << ": " << cpp_strerror(-r)
-		   << dendl;
-	return r;
-      } else if ((r == -ENOENT) || (info == empty_info)) {
-	continue;
-      }
-      *exists = true;
-      r = cls.timelog.list(dpp, oid, {}, {}, 100, log_entries, "", &out_marker,
-			   &truncated, null_yield);
-      if (r < 0) {
-	ldpp_dout(dpp, -1) << __PRETTY_FUNCTION__
-		   << ": failed to list " << oid << ": " << cpp_strerror(-r)
-		   << dendl;
-	return r;
-      } else if (!log_entries.empty()) {
-	*has_entries = true;
-	break; // No reason to continue, once we have both existence
-	       // AND non-emptiness
-      }
-    }
-    return 0;
-  }
 
->>>>>>> rgw: add DPP's to logging for most ops
   void prepare(ceph::real_time ut, const std::string& key,
 	       ceph::buffer::list&& entry, entries& out) override {
     if (!std::holds_alternative<centries>(out)) {
@@ -176,7 +104,7 @@ public:
   int push(const DoutPrefixProvider *dpp, int index, entries&& items) override {
     lr::ObjectWriteOperation op;
     cls_log_add(op, std::get<centries>(items), true);
-    auto r = rgw_rados_operate(ioctx, oids[index], &op, null_yield);
+    auto r = rgw_rados_operate(dpp, ioctx, oids[index], &op, null_yield);
     if (r < 0) {
       ldpp_dout(dpp, -1) << __PRETTY_FUNCTION__
 		 << ": failed to push to " << oids[index] << cpp_strerror(-r)
@@ -189,7 +117,7 @@ public:
 	   ceph::buffer::list&& bl) override {
     lr::ObjectWriteOperation op;
     cls_log_add(op, utime_t(now), {}, key, bl);
-    auto r = rgw_rados_operate(ioctx, oids[index], &op, null_yield);
+    auto r = rgw_rados_operate(dpp, ioctx, oids[index], &op, null_yield);
     if (r < 0) {
       ldpp_dout(dpp, -1) << __PRETTY_FUNCTION__
 		 << ": failed to push to " << oids[index]
@@ -205,13 +133,13 @@ public:
     lr::ObjectReadOperation op;
     cls_log_list(op, {}, {}, std::string(marker.value_or("")),
 		 max_entries, log_entries, out_marker, truncated);
-    auto r = rgw_rados_operate(ioctx, oids[index], &op, nullptr, null_yield);
+    auto r = rgw_rados_operate(dpp, ioctx, oids[index], &op, nullptr, null_yield);
     if (r == -ENOENT) {
       *truncated = false;
       return 0;
     }
     if (r < 0) {
-      lderr(cct) << __PRETTY_FUNCTION__
+      ldpp_dout(dpp, -1) << __PRETTY_FUNCTION__
 		 << ": failed to list " << oids[index]
 		 << cpp_strerror(-r) << dendl;
       return r;
@@ -225,7 +153,7 @@ public:
       try {
 	decode(log_entry.entry, liter);
       } catch (ceph::buffer::error& err) {
-	lderr(cct) << __PRETTY_FUNCTION__
+	ldpp_dout(dpp, -1) << __PRETTY_FUNCTION__
 		   << ": failed to decode data changes log entry: "
 		   << err.what() << dendl;
 	return -EIO;
@@ -238,7 +166,7 @@ public:
     cls_log_header header;
     lr::ObjectReadOperation op;
     cls_log_info(op, &header);
-    auto r = rgw_rados_operate(ioctx, oids[index], &op, nullptr, null_yield);
+    auto r = rgw_rados_operate(dpp, ioctx, oids[index], &op, nullptr, null_yield);
     if (r == -ENOENT) r = 0;
     if (r < 0) {
       ldpp_dout(dpp, -1) << __PRETTY_FUNCTION__
@@ -253,7 +181,7 @@ public:
   int trim(const DoutPrefixProvider *dpp, int index, std::string_view marker) override {
     lr::ObjectWriteOperation op;
     cls_log_trim(op, {}, {}, {}, std::string(marker));
-    auto r = rgw_rados_operate(ioctx, oids[index], &op, null_yield);
+    auto r = rgw_rados_operate(dpp, ioctx, oids[index], &op, null_yield);
     if (r == -ENOENT) r = -ENODATA;
     if (r < 0 && r != -ENODATA) {
       ldpp_dout(dpp, -1) << __PRETTY_FUNCTION__
@@ -278,19 +206,19 @@ public:
   std::string_view max_marker() const override {
     return "99999999"sv;
   }
-  int is_empty() override {
+  int is_empty(const DoutPrefixProvider *dpp) override {
     for (auto shard = 0u; shard < oids.size(); ++shard) {
       std::list<cls_log_entry> log_entries;
       lr::ObjectReadOperation op;
       std::string out_marker;
       bool truncated;
       cls_log_list(op, {}, {}, {}, 1, log_entries, &out_marker, &truncated);
-      auto r = rgw_rados_operate(ioctx, oids[shard], &op, nullptr, null_yield);
+      auto r = rgw_rados_operate(dpp, ioctx, oids[shard], &op, nullptr, null_yield);
       if (r == -ENOENT) {
 	continue;
       }
       if (r < 0) {
-	lderr(cct) << __PRETTY_FUNCTION__
+	ldpp_dout(dpp, -1) << __PRETTY_FUNCTION__
 		   << ": failed to list " << oids[shard]
 		   << cpp_strerror(-r) << dendl;
 	return r;
@@ -325,7 +253,7 @@ public:
     std::get<centries>(out).push_back(std::move(entry));
   }
   int push(const DoutPrefixProvider *dpp, int index, entries&& items) override {
-    auto r = fifos[index].push(std::get<centries>(items), null_yield);
+    auto r = fifos[index].push(dpp, std::get<centries>(items), null_yield);
     if (r < 0) {
       ldpp_dout(dpp, -1) << __PRETTY_FUNCTION__
 		 << ": unable to push to FIFO: " << get_oid(index)
@@ -390,7 +318,7 @@ public:
       return r;
     }
     rados::cls::fifo::info m;
-    fifo.meta(m, null_yield);
+    fifo.meta(dpp, m, null_yield);
     auto p = m.head_part_num;
     if (p < 0) {
       info->marker = ""s;
@@ -433,14 +361,14 @@ public:
       rgw::cls::fifo::marker::max().to_string();
     return std::string_view(mm);
   }
-  int is_empty() override {
+  int is_empty(const DoutPrefixProvider *dpp) override {
     std::vector<rgw::cls::fifo::list_entry> log_entries;
     bool more = false;
     for (auto shard = 0u; shard < fifos.size(); ++shard) {
-      auto r = fifos[shard].list(1, {}, &log_entries, &more,
+      auto r = fifos[shard].list(dpp, 1, {}, &log_entries, &more,
 				 null_yield);
       if (r < 0) {
-	lderr(cct) << __PRETTY_FUNCTION__
+	ldpp_dout(dpp, -1) << __PRETTY_FUNCTION__
 		   << ": unable to list FIFO: " << get_oid(shard)
 		   << ": " << cpp_strerror(-r) << dendl;
 	return r;
@@ -529,16 +457,16 @@ int RGWDataChangesLog::start(const DoutPrefixProvider *dpp, const RGWZone* _zone
   // Should be guaranteed by `set_enum_allowed`
   ceph_assert(defbacking);
   auto log_pool = zoneparams.log_pool;
-  auto r = rgw_init_ioctx(lr, log_pool, ioctx, true, false);
+  auto r = rgw_init_ioctx(dpp, lr, log_pool, ioctx, true, false);
   if (r < 0) {
-    lderr(cct) << __PRETTY_FUNCTION__
+    ldpp_dout(dpp, -1) << __PRETTY_FUNCTION__
 	       << ": Failed to initialized ioctx, r=" << r
 	       << ", pool=" << log_pool << dendl;
     return -r;
   }
 
   auto besr = logback_generations::init<DataLogBackends>(
-    ioctx, metadata_log_oid(), [this](uint64_t gen_id, int shard) {
+    dpp, ioctx, metadata_log_oid(), [this](uint64_t gen_id, int shard) {
       return get_oid(gen_id, shard);
     },
     num_shards, *defbacking, null_yield, *this);
@@ -773,7 +701,7 @@ int RGWDataChangesLog::add_entry(const DoutPrefixProvider *dpp, const RGWBucketI
   return ret;
 }
 
-int DataLogBackends::list(int shard, int max_entries,
+int DataLogBackends::list(const DoutPrefixProvider *dpp, int shard, int max_entries,
 			  std::vector<rgw_data_change_log_entry>& entries,
 			  std::optional<std::string_view> marker,
 			  std::string* out_marker, bool* truncated)
@@ -789,7 +717,7 @@ int DataLogBackends::list(int shard, int max_entries,
     auto be = i->second;
     l.unlock();
     gen_id = be->gen_id;
-    auto r = be->list(shard, max_entries, gentries,
+    auto r = be->list(dpp, shard, max_entries, gentries,
 		      gen_id == start_id ? start_cursor : std::string{},
 		      &out_cursor, truncated);
     if (r < 0)
@@ -851,14 +779,14 @@ int RGWDataChangesLog::get_info(const DoutPrefixProvider *dpp, int shard_id, RGW
 {
   assert(shard_id < num_shards);
   auto be = bes->head();
-  auto r = be->get_info(shard_id, info);
+  auto r = be->get_info(dpp, shard_id, info);
   if (!info->marker.empty()) {
     info->marker = gencursor(be->gen_id, info->marker);
   }
   return r;
 }
 
-int DataLogBackends::trim_entries(int shard_id, std::string_view marker)
+int DataLogBackends::trim_entries(const DoutPrefixProvider *dpp, int shard_id, std::string_view marker)
 {
   auto [target_gen, cursor] = cursorgen(marker);
   std::unique_lock l(m);
@@ -871,7 +799,7 @@ int DataLogBackends::trim_entries(int shard_id, std::string_view marker)
        be = upper_bound(be->gen_id)->second) {
     l.unlock();
     auto c = be->gen_id == target_gen ? cursor : be->max_marker();
-    r = be->trim(shard_id, c);
+    r = be->trim(dpp, shard_id, c);
     if (r == -ENOENT)
       r = -ENODATA;
     if (r == -ENODATA && be->gen_id < target_gen)
@@ -884,7 +812,7 @@ int DataLogBackends::trim_entries(int shard_id, std::string_view marker)
 int RGWDataChangesLog::trim_entries(const DoutPrefixProvider *dpp, int shard_id, std::string_view marker)
 {
   assert(shard_id < num_shards);
-  return bes->trim_entries(shard_id, marker);
+  return bes->trim_entries(dpp, shard_id, marker);
 }
 
 class GenTrim : public rgw::cls::fifo::Completion<GenTrim> {
@@ -897,15 +825,15 @@ public:
   const uint64_t tail_gen;
   boost::intrusive_ptr<RGWDataChangesBE> be;
 
-  GenTrim(DataLogBackends* bes, int shard_id, uint64_t target_gen,
+  GenTrim(const DoutPrefixProvider *dpp, DataLogBackends* bes, int shard_id, uint64_t target_gen,
 	  std::string cursor, uint64_t head_gen, uint64_t tail_gen,
 	  boost::intrusive_ptr<RGWDataChangesBE> be,
 	  lr::AioCompletion* super)
-    : Completion(super), bes(bes), shard_id(shard_id), target_gen(target_gen),
+    : Completion(dpp, super), bes(bes), shard_id(shard_id), target_gen(target_gen),
       cursor(std::move(cursor)), head_gen(head_gen), tail_gen(tail_gen),
       be(std::move(be)) {}
 
-  void handle(Ptr&& p, int r) {
+  void handle(const DoutPrefixProvider *dpp, Ptr&& p, int r) {
     auto gen_id = be->gen_id;
     be.reset();
     if (r == -ENOENT)
@@ -928,11 +856,11 @@ public:
       be = i->second;
     }
     auto c = be->gen_id == target_gen ? cursor : be->max_marker();
-    be->trim(shard_id, c, call(std::move(p)));
+    be->trim(dpp, shard_id, c, call(std::move(p)));
   }
 };
 
-void DataLogBackends::trim_entries(int shard_id, std::string_view marker,
+void DataLogBackends::trim_entries(const DoutPrefixProvider *dpp, int shard_id, std::string_view marker,
 				   librados::AioCompletion* c)
 {
   auto [target_gen, cursor] = cursorgen(marker);
@@ -946,15 +874,15 @@ void DataLogBackends::trim_entries(int shard_id, std::string_view marker,
   }
   auto be = begin()->second;
   l.unlock();
-  auto gt = std::make_unique<GenTrim>(this, shard_id, target_gen,
+  auto gt = std::make_unique<GenTrim>(dpp, this, shard_id, target_gen,
 				      std::string(cursor), head_gen, tail_gen,
 				      be, c);
 
   auto cc = be->gen_id == target_gen ? cursor : be->max_marker();
-  be->trim(shard_id, cc,  GenTrim::call(std::move(gt)));
+  be->trim(dpp, shard_id, cc,  GenTrim::call(std::move(gt)));
 }
 
-int DataLogBackends::trim_generations(std::optional<uint64_t>& through) {
+int DataLogBackends::trim_generations(const DoutPrefixProvider *dpp, std::optional<uint64_t>& through) {
   if (size() != 1) {
     std::vector<mapped_type> candidates;
     {
@@ -967,7 +895,7 @@ int DataLogBackends::trim_generations(std::optional<uint64_t>& through) {
 
     std::optional<uint64_t> highest;
     for (auto& be : candidates) {
-      auto r = be->is_empty();
+      auto r = be->is_empty(dpp);
       if (r < 0) {
 	return r;
       } else if (r == 1) {
@@ -981,21 +909,21 @@ int DataLogBackends::trim_generations(std::optional<uint64_t>& through) {
     if (!highest) {
       return 0;
     }
-    auto ec = empty_to(*highest, null_yield);
+    auto ec = empty_to(dpp, *highest, null_yield);
     if (ec) {
       return ceph::from_error_code(ec);
     }
   }
 
-  return ceph::from_error_code(remove_empty(null_yield));
+  return ceph::from_error_code(remove_empty(dpp, null_yield));
 }
 
 
-int RGWDataChangesLog::trim_entries(int shard_id, std::string_view marker,
+int RGWDataChangesLog::trim_entries(const DoutPrefixProvider *dpp, int shard_id, std::string_view marker,
 				    librados::AioCompletion* c)
 {
   assert(shard_id < num_shards);
-  bes->trim_entries(shard_id, marker, c);
+  bes->trim_entries(dpp, shard_id, marker, c);
   return 0;
 }
 
@@ -1028,16 +956,16 @@ void RGWDataChangesLog::renew_run() noexcept {
 
     if (run == runs_per_prune) {
       std::optional<uint64_t> through;
-      dout(2) << "RGWDataChangesLog::ChangesRenewThread: pruning old generations" << dendl;
-      trim_generations(through);
+      ldpp_dout(&dp, 2) << "RGWDataChangesLog::ChangesRenewThread: pruning old generations" << dendl;
+      trim_generations(&dp, through);
       if (r < 0) {
 	derr << "RGWDataChangesLog::ChangesRenewThread: failed pruning r="
 	     << r << dendl;
       } else if (through) {
-	dout(2) << "RGWDataChangesLog::ChangesRenewThread: pruned generations "
+	ldpp_dout(&dp, 2) << "RGWDataChangesLog::ChangesRenewThread: pruned generations "
 		<< "through " << *through << "." << dendl;
       } else {
-	dout(2) << "RGWDataChangesLog::ChangesRenewThread: nothing to prune."
+	ldpp_dout(&dp, 2) << "RGWDataChangesLog::ChangesRenewThread: nothing to prune."
 		<< dendl;
       }
       run = 0;
@@ -1077,10 +1005,10 @@ std::string RGWDataChangesLog::max_marker() const {
 		   "~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~");
 }
 
-int RGWDataChangesLog::change_format(log_type type, optional_yield y) {
-  return ceph::from_error_code(bes->new_backing(type, y));
+int RGWDataChangesLog::change_format(const DoutPrefixProvider *dpp, log_type type, optional_yield y) {
+  return ceph::from_error_code(bes->new_backing(dpp, type, y));
 }
 
-int RGWDataChangesLog::trim_generations(std::optional<uint64_t>& through) {
-  return bes->trim_generations(through);
+int RGWDataChangesLog::trim_generations(const DoutPrefixProvider *dpp, std::optional<uint64_t>& through) {
+  return bes->trim_generations(dpp, through);
 }

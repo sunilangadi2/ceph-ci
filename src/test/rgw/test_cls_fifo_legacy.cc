@@ -583,7 +583,7 @@ TEST_F(LegacyFIFO, TestAioTrim)
     marker = result.front().marker;
     std::unique_ptr<R::AioCompletion> c(rados.aio_create_completion(nullptr,
 								    nullptr));
-    f->trim(*marker, false, c.get());
+    f->trim(&dp, *marker, false, c.get());
     c->wait_for_complete();
     r = c->get_return_value();
     ASSERT_EQ(0, r);
@@ -654,14 +654,14 @@ TEST_F(LegacyFIFO, TestTrimExclusive) {
 TEST_F(AioLegacyFIFO, TestPushListTrim)
 {
   std::unique_ptr<RCf::FIFO> f;
-  auto r = RCf::FIFO::create(ioctx, fifo_id, &f, null_yield);
+  auto r = RCf::FIFO::create(&dp, ioctx, fifo_id, &f, null_yield);
   ASSERT_EQ(0, r);
   static constexpr auto max_entries = 10u;
   for (uint32_t i = 0; i < max_entries; ++i) {
     cb::list bl;
     encode(i, bl);
     auto c = R::Rados::aio_create_completion();
-    f->push(bl, c);
+    f->push(&dp, bl, c);
     c->wait_for_complete();
     r = c->get_return_value();
     c->release();
@@ -674,7 +674,7 @@ TEST_F(AioLegacyFIFO, TestPushListTrim)
   bool more = false;
   for (auto i = 0u; i < max_entries; ++i) {
     auto c = R::Rados::aio_create_completion();
-    f->list(1, marker, &result, &more, c);
+    f->list(&dp, 1, marker, &result, &more, c);
     c->wait_for_complete();
     r = c->get_return_value();
     c->release();
@@ -695,7 +695,7 @@ TEST_F(AioLegacyFIFO, TestPushListTrim)
   std::string markers[max_entries];
   std::uint32_t min_entry = 0;
   auto c = R::Rados::aio_create_completion();
-  f->list(max_entries * 10, std::nullopt, &result, &more, c);
+  f->list(&dp, max_entries * 10, std::nullopt, &result, &more, c);
   c->wait_for_complete();
   r = c->get_return_value();
   c->release();
@@ -711,7 +711,7 @@ TEST_F(AioLegacyFIFO, TestPushListTrim)
 
   /* trim one entry */
   c = R::Rados::aio_create_completion();
-  f->trim(markers[min_entry], false, c);
+  f->trim(&dp, markers[min_entry], false, c);
   c->wait_for_complete();
   r = c->get_return_value();
   c->release();
@@ -719,7 +719,7 @@ TEST_F(AioLegacyFIFO, TestPushListTrim)
   ++min_entry;
 
   c = R::Rados::aio_create_completion();
-  f->list(max_entries * 10, std::nullopt, &result, &more, c);
+  f->list(&dp, max_entries * 10, std::nullopt, &result, &more, c);
   c->wait_for_complete();
   r = c->get_return_value();
   c->release();
@@ -742,7 +742,7 @@ TEST_F(AioLegacyFIFO, TestPushTooBig)
   static constexpr auto max_entry_size = 128ull;
 
   std::unique_ptr<RCf::FIFO> f;
-  auto r = RCf::FIFO::create(ioctx, fifo_id, &f, null_yield, std::nullopt,
+  auto r = RCf::FIFO::create(&dp, ioctx, fifo_id, &f, null_yield, std::nullopt,
 			     std::nullopt, false, max_part_size, max_entry_size);
   ASSERT_EQ(0, r);
 
@@ -753,14 +753,14 @@ TEST_F(AioLegacyFIFO, TestPushTooBig)
   bl.append(buf, sizeof(buf));
 
   auto c = R::Rados::aio_create_completion();
-  f->push(bl, c);
+  f->push(&dp, bl, c);
   c->wait_for_complete();
   r = c->get_return_value();
   ASSERT_EQ(-E2BIG, r);
   c->release();
 
   c = R::Rados::aio_create_completion();
-  f->push(std::vector<cb::list>{}, c);
+  f->push(&dp, std::vector<cb::list>{}, c);
   c->wait_for_complete();
   r = c->get_return_value();
   c->release();
@@ -773,14 +773,14 @@ TEST_F(AioLegacyFIFO, TestMultipleParts)
   static constexpr auto max_part_size = 2048ull;
   static constexpr auto max_entry_size = 128ull;
   std::unique_ptr<RCf::FIFO> f;
-  auto r = RCf::FIFO::create(ioctx, fifo_id, &f, null_yield, std::nullopt,
+  auto r = RCf::FIFO::create(&dp, ioctx, fifo_id, &f, null_yield, std::nullopt,
 			     std::nullopt, false, max_part_size,
 			     max_entry_size);
   ASSERT_EQ(0, r);
 
   {
     auto c = R::Rados::aio_create_completion();
-    f->get_head_info([&](int r, RCf::part_info&& p) {
+    f->get_head_info(&dp, [&](int r, RCf::part_info&& p) {
       ASSERT_TRUE(p.tag.empty());
       ASSERT_EQ(0, p.magic);
       ASSERT_EQ(0, p.min_ofs);
@@ -808,7 +808,7 @@ TEST_F(AioLegacyFIFO, TestMultipleParts)
     *(int *)buf = i;
     bl.append(buf, sizeof(buf));
     auto c = R::Rados::aio_create_completion();
-    f->push(bl, c);
+    f->push(&dp, bl, c);
     c->wait_for_complete();
     r = c->get_return_value();
     c->release();
@@ -824,7 +824,7 @@ TEST_F(AioLegacyFIFO, TestMultipleParts)
   std::vector<RCf::list_entry> result;
   bool more = false;
   auto c = R::Rados::aio_create_completion();
-  f->list(max_entries, std::nullopt, &result, &more, c);
+  f->list(&dp, max_entries, std::nullopt, &result, &more, c);
   c->wait_for_complete();
   r = c->get_return_value();
   c->release();
@@ -842,7 +842,7 @@ TEST_F(AioLegacyFIFO, TestMultipleParts)
 
   for (auto i = 0u; i < max_entries; ++i) {
     c = R::Rados::aio_create_completion();
-    f->list(1, marker, &result, &more, c);
+    f->list(&dp, 1, marker, &result, &more, c);
     c->wait_for_complete();
     r = c->get_return_value();
     c->release();
@@ -865,7 +865,7 @@ TEST_F(AioLegacyFIFO, TestMultipleParts)
   for (auto i = 0u; i < max_entries; ++i) {
     /* read single entry */
     c = R::Rados::aio_create_completion();
-    f->list(1, marker, &result, &more, c);
+    f->list(&dp, 1, marker, &result, &more, c);
     c->wait_for_complete();
     r = c->get_return_value();
     c->release();
@@ -876,7 +876,7 @@ TEST_F(AioLegacyFIFO, TestMultipleParts)
 
     marker = result.front().marker;
     c = R::Rados::aio_create_completion();
-    f->trim(*marker, false, c);
+    f->trim(&dp, *marker, false, c);
     c->wait_for_complete();
     r = c->get_return_value();
     c->release();
@@ -889,7 +889,7 @@ TEST_F(AioLegacyFIFO, TestMultipleParts)
 
     /* try to read all again, see how many entries left */
     c = R::Rados::aio_create_completion();
-    f->list(max_entries, marker, &result, &more, c);
+    f->list(&dp, max_entries, marker, &result, &more, c);
     c->wait_for_complete();
     r = c->get_return_value();
     c->release();
@@ -926,7 +926,7 @@ TEST_F(AioLegacyFIFO, TestMultipleParts)
   ASSERT_EQ(0, r);
 
   c = R::Rados::aio_create_completion();
-  f->get_head_info([&](int r, RCf::part_info&& p) {
+  f->get_head_info(&dp, [&](int r, RCf::part_info&& p) {
     ASSERT_EQ(next_ofs, p.next_ofs);
   }, c);
   c->wait_for_complete();
@@ -941,7 +941,7 @@ TEST_F(AioLegacyFIFO, TestTwoPushers)
   static constexpr auto max_entry_size = 128ull;
 
   std::unique_ptr<RCf::FIFO> f;
-  auto r = RCf::FIFO::create(ioctx, fifo_id, &f, null_yield, std::nullopt,
+  auto r = RCf::FIFO::create(&dp, ioctx, fifo_id, &f, null_yield, std::nullopt,
 			     std::nullopt, false, max_part_size,
 			     max_entry_size);
   ASSERT_EQ(0, r);
@@ -953,7 +953,7 @@ TEST_F(AioLegacyFIFO, TestTwoPushers)
 				 (max_entry_size + part_entry_overhead));
   const auto max_entries = entries_per_part * 4 + 1;
   std::unique_ptr<RCf::FIFO> f2;
-  r = RCf::FIFO::open(ioctx, fifo_id, &f2, null_yield);
+  r = RCf::FIFO::open(&dp, ioctx, fifo_id, &f2, null_yield);
   std::vector fifos{&f, &f2};
 
   for (auto i = 0u; i < max_entries; ++i) {
@@ -962,7 +962,7 @@ TEST_F(AioLegacyFIFO, TestTwoPushers)
     bl.append(buf, sizeof(buf));
     auto& f = *fifos[i % fifos.size()];
     auto c = R::Rados::aio_create_completion();
-    f->push(bl, c);
+    f->push(&dp, bl, c);
     c->wait_for_complete();
     r = c->get_return_value();
     c->release();
@@ -973,7 +973,7 @@ TEST_F(AioLegacyFIFO, TestTwoPushers)
   std::vector<RCf::list_entry> result;
   bool more = false;
   auto c = R::Rados::aio_create_completion();
-  f2->list(max_entries, std::nullopt, &result, &more, c);
+  f2->list(&dp, max_entries, std::nullopt, &result, &more, c);
   c->wait_for_complete();
   r = c->get_return_value();
   c->release();
@@ -982,7 +982,7 @@ TEST_F(AioLegacyFIFO, TestTwoPushers)
   ASSERT_EQ(max_entries, result.size());
 
   c = R::Rados::aio_create_completion();
-  f2->list(max_entries, std::nullopt, &result, &more, c);
+  f2->list(&dp, max_entries, std::nullopt, &result, &more, c);
   c->wait_for_complete();
   r = c->get_return_value();
   c->release();
@@ -1001,7 +1001,7 @@ TEST_F(AioLegacyFIFO, TestTwoPushersTrim)
   static constexpr auto max_part_size = 2048ull;
   static constexpr auto max_entry_size = 128ull;
   std::unique_ptr<RCf::FIFO> f1;
-  auto r = RCf::FIFO::create(ioctx, fifo_id, &f1, null_yield, std::nullopt,
+  auto r = RCf::FIFO::create(&dp, ioctx, fifo_id, &f1, null_yield, std::nullopt,
 			     std::nullopt, false, max_part_size,
 			     max_entry_size);
   ASSERT_EQ(0, r);
@@ -1015,7 +1015,7 @@ TEST_F(AioLegacyFIFO, TestTwoPushersTrim)
   const auto max_entries = entries_per_part * 4 + 1;
 
   std::unique_ptr<RCf::FIFO> f2;
-  r = RCf::FIFO::open(ioctx, fifo_id, &f2, null_yield);
+  r = RCf::FIFO::open(&dp, ioctx, fifo_id, &f2, null_yield);
   ASSERT_EQ(0, r);
 
   /* push one entry to f2 and the rest to f1 */
@@ -1025,7 +1025,7 @@ TEST_F(AioLegacyFIFO, TestTwoPushersTrim)
     bl.append(buf, sizeof(buf));
     auto& f = (i < 1 ? f2 : f1);
     auto c = R::Rados::aio_create_completion();
-    f->push(bl, c);
+    f->push(&dp, bl, c);
     c->wait_for_complete();
     r = c->get_return_value();
     c->release();
@@ -1038,7 +1038,7 @@ TEST_F(AioLegacyFIFO, TestTwoPushersTrim)
   std::vector<RCf::list_entry> result;
   bool more = false;
   auto c = R::Rados::aio_create_completion();
-  f1->list(num, std::nullopt, &result, &more, c);
+  f1->list(&dp, num, std::nullopt, &result, &more, c);
   c->wait_for_complete();
   r = c->get_return_value();
   c->release();
@@ -1054,7 +1054,7 @@ TEST_F(AioLegacyFIFO, TestTwoPushersTrim)
   auto& entry = result[num - 1];
   marker = entry.marker;
   c = R::Rados::aio_create_completion();
-  f1->trim(marker, false, c);
+  f1->trim(&dp, marker, false, c);
   c->wait_for_complete();
   r = c->get_return_value();
   c->release();
@@ -1063,7 +1063,7 @@ TEST_F(AioLegacyFIFO, TestTwoPushersTrim)
 
   const auto left = max_entries - num;
   c = R::Rados::aio_create_completion();
-  f2->list(left, marker, &result, &more, c);
+  f2->list(&dp, left, marker, &result, &more, c);
   c->wait_for_complete();
   r = c->get_return_value();
   c->release();
@@ -1083,7 +1083,7 @@ TEST_F(AioLegacyFIFO, TestPushBatch)
   static constexpr auto max_entry_size = 128ull;
 
   std::unique_ptr<RCf::FIFO> f;
-  auto r = RCf::FIFO::create(ioctx, fifo_id, &f, null_yield, std::nullopt,
+  auto r = RCf::FIFO::create(&dp, ioctx, fifo_id, &f, null_yield, std::nullopt,
 			     std::nullopt, false, max_part_size,
 			     max_entry_size);
   ASSERT_EQ(0, r);
@@ -1104,7 +1104,7 @@ TEST_F(AioLegacyFIFO, TestPushBatch)
   ASSERT_EQ(max_entries, bufs.size());
 
   auto c = R::Rados::aio_create_completion();
-  f->push(bufs, c);
+  f->push(&dp, bufs, c);
   c->wait_for_complete();
   r = c->get_return_value();
   c->release();
@@ -1115,7 +1115,7 @@ TEST_F(AioLegacyFIFO, TestPushBatch)
   std::vector<RCf::list_entry> result;
   bool more = false;
   c = R::Rados::aio_create_completion();
-  f->list(max_entries, std::nullopt, &result, &more, c);
+  f->list(&dp, max_entries, std::nullopt, &result, &more, c);
   c->wait_for_complete();
   r = c->get_return_value();
   c->release();
@@ -1133,23 +1133,23 @@ TEST_F(AioLegacyFIFO, TestPushBatch)
 TEST_F(LegacyFIFO, TrimAll)
 {
   std::unique_ptr<RCf::FIFO> f;
-  auto r = RCf::FIFO::create(ioctx, fifo_id, &f, null_yield);
+  auto r = RCf::FIFO::create(&dp, ioctx, fifo_id, &f, null_yield);
   ASSERT_EQ(0, r);
   static constexpr auto max_entries = 10u;
   for (uint32_t i = 0; i < max_entries; ++i) {
     cb::list bl;
     encode(i, bl);
-    r = f->push(bl, null_yield);
+    r = f->push(&dp, bl, null_yield);
     ASSERT_EQ(0, r);
   }
 
   /* trim one entry */
-  r = f->trim(RCf::marker::max().to_string(), false, null_yield);
+  r = f->trim(&dp, RCf::marker::max().to_string(), false, null_yield);
   ASSERT_EQ(-ENODATA, r);
 
   std::vector<RCf::list_entry> result;
   bool more;
-  r = f->list(1, std::nullopt, &result, &more, null_yield);
+  r = f->list(&dp, 1, std::nullopt, &result, &more, null_yield);
   ASSERT_EQ(0, r);
   ASSERT_TRUE(result.empty());
 }
@@ -1157,18 +1157,18 @@ TEST_F(LegacyFIFO, TrimAll)
 TEST_F(LegacyFIFO, AioTrimAll)
 {
   std::unique_ptr<RCf::FIFO> f;
-  auto r = RCf::FIFO::create(ioctx, fifo_id, &f, null_yield);
+  auto r = RCf::FIFO::create(&dp, ioctx, fifo_id, &f, null_yield);
   ASSERT_EQ(0, r);
   static constexpr auto max_entries = 10u;
   for (uint32_t i = 0; i < max_entries; ++i) {
     cb::list bl;
     encode(i, bl);
-    r = f->push(bl, null_yield);
+    r = f->push(&dp, bl, null_yield);
     ASSERT_EQ(0, r);
   }
 
   auto c = R::Rados::aio_create_completion();
-  f->trim(RCf::marker::max().to_string(), false, c);
+  f->trim(&dp, RCf::marker::max().to_string(), false, c);
   c->wait_for_complete();
   r = c->get_return_value();
   c->release();
@@ -1176,7 +1176,7 @@ TEST_F(LegacyFIFO, AioTrimAll)
 
   std::vector<RCf::list_entry> result;
   bool more;
-  r = f->list(1, std::nullopt, &result, &more, null_yield);
+  r = f->list(&dp, 1, std::nullopt, &result, &more, null_yield);
   ASSERT_EQ(0, r);
   ASSERT_TRUE(result.empty());
 }

@@ -62,26 +62,6 @@ int get_meta(const DoutPrefixProvider *dpp, lr::IoCtx& ioctx, const std::string&
 	     std::uint32_t* part_entry_overhead,
 	     std::uint64_t tid, optional_yield y,
 	     bool probe = false);
-void update_meta(lr::ObjectWriteOperation* op, const fifo::objv& objv,
-		 const fifo::update& update);
-void part_init(lr::ObjectWriteOperation* op, std::string_view tag,
-	       fifo::data_params params);
-int push_part(const DoutPrefixProvider *dpp, lr::IoCtx& ioctx, const std::string& oid, std::string_view tag,
-	      std::deque<cb::list> data_bufs, std::uint64_t tid, optional_yield y);
-void trim_part(lr::ObjectWriteOperation* op,
-	       std::optional<std::string_view> tag, std::uint64_t ofs,
-	       bool exclusive);
-int list_part(const DoutPrefixProvider *dpp, lr::IoCtx& ioctx, const std::string& oid,
-	      std::optional<std::string_view> tag, std::uint64_t ofs,
-	      std::uint64_t max_entries,
-	      std::vector<fifo::part_list_entry>* entries,
-	      bool* more, bool* full_part, std::string* ptag,
-	      std::uint64_t tid, optional_yield y);
-int get_part_info(const DoutPrefixProvider *dpp, lr::IoCtx& ioctx, const std::string& oid,
-		  fifo::part_header* header, std::uint64_t,
-		  optional_yield y);
->>>>>>> rgw: add DPP's to logging for most ops
-
 struct marker {
   std::int64_t num = 0;
   std::uint64_t ofs = 0;
@@ -156,7 +136,7 @@ class FIFO {
   int _update_meta(const DoutPrefixProvider *dpp, const fifo::update& update,
 		   fifo::objv version, bool* pcanceled,
 		   std::uint64_t tid, optional_yield y);
-  void _update_meta(const fifo::update& update,
+  void _update_meta(const DoutPrefixProvider *dpp, const fifo::update& update,
 		    fifo::objv version, bool* pcanceled,
 		    std::uint64_t tid, lr::AioCompletion* c);
   int create_part(const DoutPrefixProvider *dpp, int64_t part_num, std::string_view tag, std::uint64_t tid,
@@ -164,11 +144,11 @@ class FIFO {
   int remove_part(const DoutPrefixProvider *dpp, int64_t part_num, std::string_view tag, std::uint64_t tid,
 		  optional_yield y);
   int process_journal(const DoutPrefixProvider *dpp, std::uint64_t tid, optional_yield y);
-  void process_journal(std::uint64_t tid, lr::AioCompletion* c);
+  void process_journal(const DoutPrefixProvider *dpp, std::uint64_t tid, lr::AioCompletion* c);
   int _prepare_new_part(const DoutPrefixProvider *dpp, bool is_head, std::uint64_t tid, optional_yield y);
-  void _prepare_new_part(bool is_head, std::uint64_t tid, lr::AioCompletion* c);
+  void _prepare_new_part(const DoutPrefixProvider *dpp, bool is_head, std::uint64_t tid, lr::AioCompletion* c);
   int _prepare_new_head(const DoutPrefixProvider *dpp, std::uint64_t tid, optional_yield y);
-  void _prepare_new_head(std::uint64_t tid, lr::AioCompletion* c);
+  void _prepare_new_head(const DoutPrefixProvider *dpp, std::uint64_t tid, lr::AioCompletion* c);
   int push_entries(const DoutPrefixProvider *dpp, const std::deque<cb::list>& data_bufs,
 		   std::uint64_t tid, optional_yield y);
   void push_entries(const std::deque<cb::list>& data_bufs,
@@ -183,7 +163,7 @@ class FIFO {
   /// Force refresh of metadata, yielding/blocking style
   int read_meta(const DoutPrefixProvider *dpp, std::uint64_t tid, optional_yield y);
   /// Force refresh of metadata, with a librados Completion
-  void read_meta(std::uint64_t tid, lr::AioCompletion* c);
+  void read_meta(const DoutPrefixProvider *dpp, std::uint64_t tid, lr::AioCompletion* c);
 
 public:
 
@@ -231,7 +211,7 @@ public:
 	   optional_yield y //< Optional yield
     );
   /// Push an entry to the FIFO
-  void push(const cb::list& bl, //< Entry to push
+  void push(const DoutPrefixProvider *dpp, const cb::list& bl, //< Entry to push
 	    lr::AioCompletion* c //< Async Completion
     );
   /// Push entries to the FIFO
@@ -240,11 +220,12 @@ public:
 	   optional_yield y //< Optional yield
     );
   /// Push entries to the FIFO
-  void push(const std::vector<cb::list>& data_bufs, //< Entries to push
+  void push(const DoutPrefixProvider *dpp, const std::vector<cb::list>& data_bufs, //< Entries to push
 	    lr::AioCompletion* c //< Async Completion
     );
   /// List entries
-  int list(const DoutPrefixProvider *dpp, int max_entries, //< Maximum entries to list
+  int list(const DoutPrefixProvider *dpp, 
+           int max_entries, //< Maximum entries to list
 	   /// Point after which to begin listing. Start at tail if null
 	   std::optional<std::string_view> markstr,
 	   std::vector<list_entry>* out, //< OUT: entries
@@ -252,7 +233,8 @@ public:
 	   bool* more,
 	   optional_yield y //< Optional yield
     );
-  void list(int max_entries, //< Maximum entries to list
+  void list(const DoutPrefixProvider *dpp, 
+            int max_entries, //< Maximum entries to list
 	    /// Point after which to begin listing. Start at tail if null
 	    std::optional<std::string_view> markstr,
 	    std::vector<list_entry>* out, //< OUT: entries
@@ -268,7 +250,8 @@ public:
 	   optional_yield y //< Optional yield
     );
   /// Trim entries, librados AioCompletion style
-  void trim(std::string_view markstr, //< Position to which to trim, inclusive
+  void trim(const DoutPrefixProvider *dpp, 
+            std::string_view markstr, //< Position to which to trim, inclusive
 	    bool exclusive, //< If true, do not trim the target entry
 	                    //< itself, just all those before it.
 	    lr::AioCompletion* c //< librados AIO Completion
@@ -286,7 +269,7 @@ public:
   /// A convenience method to fetch the part information for the FIFO
   /// head, using librados::AioCompletion, since
   /// libradio::AioCompletions compose lousily.
-  void get_head_info(fu2::unique_function< //< Function to receive info
+  void get_head_info(const DoutPrefixProvider *dpp, fu2::unique_function< //< Function to receive info
 		       void(int r, fifo::part_header&&)>,
 		     lr::AioCompletion* c //< AIO Completion
     );
@@ -295,6 +278,7 @@ public:
 template<typename T>
 struct Completion {
 private:
+  const DoutPrefixProvider *_dpp;
   lr::AioCompletion* _cur = nullptr;
   lr::AioCompletion* _super;
 public:
@@ -308,7 +292,7 @@ public:
     return _super;
   }
 
-  Completion(lr::AioCompletion* super) : _super(super) {
+  Completion(const DoutPrefixProvider *dpp, lr::AioCompletion* super) : _dpp(dpp), _super(super) {
     super->pc->get();
   }
 
@@ -348,7 +332,7 @@ public:
     auto r = t->_cur->get_return_value();
     t->_cur->release();
     t->_cur = nullptr;
-    t->handle(Ptr(t), r);
+    t->handle(t->_dpp, Ptr(t), r);
   }
 };
 

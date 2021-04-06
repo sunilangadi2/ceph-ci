@@ -8814,7 +8814,7 @@ next:
       return -EINVAL;
     }
     auto datalog = static_cast<rgw::sal::RadosStore*>(store)->svc()->datalog_rados;
-    ret = datalog->change_format(*opt_log_type, null_yield);
+    ret = datalog->change_format(dpp(), *opt_log_type, null_yield);
     if (ret < 0) {
       cerr << "ERROR: change_format(): " << cpp_strerror(-ret) << std::endl;
       return -ret;
@@ -8824,7 +8824,7 @@ next:
   if (opt_cmd == OPT::DATALOG_PRUNE) {
     auto datalog = static_cast<rgw::sal::RadosStore*>(store)->svc()->datalog_rados;
     std::optional<uint64_t> through;
-    ret = datalog->trim_generations(through);
+    ret = datalog->trim_generations(dpp(), through);
 
     if (ret < 0) {
       cerr << "ERROR: trim_generations(): " << cpp_strerror(-ret) << std::endl;

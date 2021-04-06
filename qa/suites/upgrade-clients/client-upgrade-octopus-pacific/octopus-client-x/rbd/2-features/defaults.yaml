@@ -3,4 +3,9 @@ overrides:
     conf:
       client:
         rbd default features: 61
+        debug rbd: 20
+        debug rbd mirror: 20
+        debug ms: 1
+        debug client: 20
+        debug librbd: 20
 

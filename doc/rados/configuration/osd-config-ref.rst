@@ -408,14 +408,14 @@ Operations
               between implementations. The WeightedPriorityQueue (``wpq``)
               dequeues operations in relation to their priorities to prevent
               starvation of any queue. WPQ should help in cases where a few OSDs
-              are more overloaded than others. The new mClockQueue
+              are more overloaded than others. The mClockQueue
               (``mclock_scheduler``) prioritizes operations based on which class
               they belong to (recovery, scrub, snaptrim, client op, osd subop).
               See `QoS Based on mClock`_. Requires a restart.
 
 :Type: String
 :Valid Choices: wpq, mclock_scheduler
-:Default: ``wpq``
+:Default: ``mclock_scheduler``
 
 
 ``osd_op_queue_cut_off``

@@ -94,6 +94,9 @@
 	# don't complain about insecure global_id in the test suite
 	mon_warn_on_insecure_global_id_reclaim = false
 	mon_warn_on_insecure_global_id_reclaim_allowed = false
+	# rotate auth tickets quickly to exercise renewal paths
+	auth mon ticket ttl = 660      # 11m
+	auth service ticket ttl = 240  # 4m
 
 [client]
 	rgw cache enabled = true

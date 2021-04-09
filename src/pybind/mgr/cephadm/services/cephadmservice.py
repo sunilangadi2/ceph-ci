@@ -123,6 +123,12 @@ class CephadmService(metaclass=ABCMeta):
     def allow_colo(self) -> bool:
         return False
 
+    def per_host_sidecar(self) -> Optional[str]:
+        return None
+
+    def primary_daemon_type(self) -> str:
+        return self.TYPE
+
     def make_daemon_spec(
             self, host: str,
             daemon_id: str,
@@ -941,6 +947,12 @@ class CephfsMirrorService(CephService):
 
 class IngressService(CephService):
     TYPE = 'ingress'
+
+    def primary_daemon_type(self) -> str:
+        return 'haproxy'
+
+    def per_host_sidecar(self) -> Optional[str]:
+        return 'keepalived'
 
     def prepare_create(
             self,

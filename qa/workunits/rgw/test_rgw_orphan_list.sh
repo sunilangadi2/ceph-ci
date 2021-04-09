@@ -5,8 +5,8 @@ set -ex
 # if defined, debug messages will be displayed and prepended with the string
 # debug="DEBUG"
 
-huge_size=2222 # in megabytes
-big_size=6 # in megabytes
+huge_size=5100 # in megabytes
+big_size=7 # in megabytes
 
 huge_obj=/tmp/huge_obj.temp.$$
 big_obj=/tmp/big_obj.temp.$$
@@ -229,8 +229,16 @@ mys3cmd ls s3://multipart-bkt
 bkt="incomplete-mp-bkt-1"
 
 mys3cmd mb s3://$bkt
-mys3uploadkill $huge_obj $bkt incomplete-mp-obj-1 $fifo 20
-mys3uploadkill $huge_obj $bkt incomplete-mp-obj-2 $fifo 100
+
+mys3uploadkill $huge_obj $bkt incomplete-mp-obj-c $fifo 20
+
+# generate an incomplete multipart with more than 1,000 parts
+mys3uploadkill $huge_obj $bkt incomplete-mp-obj-b $fifo 1005
+
+# generate more than 1000 incomplet multiparts
+for c in $(seq 1005) ;do
+    mys3uploadkill $huge_obj $bkt incomplete-mp-obj-c-$c $fifo 3
+done
 
 ####################################
 # resharded bucket

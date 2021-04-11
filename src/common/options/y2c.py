@@ -28,7 +28,7 @@ def eval_value(v, typ):
             return eval_str(v)
         if typ == 'float':
             return float(v)
-        if typ in ('uint', 'int', 'size', 'secs'):
+        if typ in ('uint', 'int', 'size', 'secs', 'millisecs'):
             return int(v)
         if typ == 'bool':
             return 'true' if v else 'false'

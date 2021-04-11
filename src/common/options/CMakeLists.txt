@@ -4,15 +4,15 @@ set(common_options_srcs build_options.cc)
 file(GENERATE OUTPUT configure_file.cmake
   CONTENT "configure_file(\${input_file} \${output_file} @ONLY)")
 function(file_configure input_file output_file)
-  file(STRINGS ${input_file} subvars REGEX "@[^@]+@")
   set(cmake_defs
     -D input_file=${input_file}
     -D output_file=${output_file})
+  file(STRINGS ${input_file} subvars REGEX "@[^@]+@")
   foreach(line ${subvars})
     string(REGEX REPLACE ".*@([^@]+)@.*" "\\1"
       var "${line}")
     set(value ${${var}})
-    list(APPEND cmake_defs -D ${var}="${value}")
+    list(APPEND cmake_defs -D ${var}=${value})
   endforeach()
   add_custom_command(OUTPUT ${output_file}
     COMMAND ${CMAKE_COMMAND} ${cmake_defs} -P configure_file.cmake

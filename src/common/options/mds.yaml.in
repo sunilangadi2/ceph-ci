@@ -414,6 +414,7 @@ options:
   type: int
   level: advanced
   desc: hash function to select directory fragment for dentry name
+  # CEPH_STR_HASH_RJENKINS
   default: 2
   services:
   - mds

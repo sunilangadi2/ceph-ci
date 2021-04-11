@@ -372,7 +372,7 @@ options:
   type: str
   level: advanced
   desc: directory where erasure-code plugins can be found
-  default: /usr/local/lib/ceph/erasure-code
+  default: @CEPH_INSTALL_FULL_PKGLIBDIR@/erasure-code
   services:
   - mon
   - osd
@@ -704,7 +704,7 @@ options:
   type: str
   level: advanced
   desc: Base directory for dynamically loaded plugins
-  default: /usr/local/lib/ceph
+  default: @CEPH_INSTALL_FULL_PKGLIBDIR@
   services:
   - mon
   - osd
@@ -4219,7 +4219,7 @@ options:
 - name: osd_class_dir
   type: str
   level: advanced
-  default: /usr/local/lib/rados-classes
+  default: @CMAKE_INSTALL_LIBDIR@/rados-classes
 - name: osd_open_classes_on_start
   type: bool
   level: advanced
@@ -6654,7 +6654,7 @@ options:
   type: str
   level: advanced
   desc: Filesystem path to manager modules.
-  default: /usr/local/share/ceph/mgr
+  default: @CEPH_INSTALL_DATADIR@/mgr
   services:
   - mgr
 - name: mgr_disabled_modules

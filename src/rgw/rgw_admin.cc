@@ -56,6 +56,7 @@ extern "C" {
 #include "rgw_http_client_curl.h"
 #include "rgw_zone.h"
 #include "rgw_pubsub.h"
+#include "rgw_sync_module_pubsub.h"
 #include "rgw_bucket_sync.h"
 
 #include "services/svc_sync_modules.h"

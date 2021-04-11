@@ -25,12 +25,12 @@
 #include <boost/tuple/tuple.hpp>
 
 #include "PG.h"
-#include "pg_scrubber.h"
+#include "osd/scrubber/pg_scrubber.h"
 #include "PrimaryLogPG.h"
 #include "OSD.h"
-#include "PrimaryLogScrub.h"
+#include "osd/scrubber/PrimaryLogScrub.h"
 #include "OpRequest.h"
-#include "ScrubStore.h"
+#include "osd/scrubber/ScrubStore.h"
 #include "Session.h"
 #include "objclass/objclass.h"
 #include "osd/ClassHandler.h"

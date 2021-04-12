@@ -1,18 +1,23 @@
 import errno
+import ipaddress
 import json
-import re
 import logging
+import random
+import re
+import string
 from abc import ABCMeta, abstractmethod
 from typing import TYPE_CHECKING, List, Callable, TypeVar, \
     Optional, Dict, Any, Tuple, NewType, cast
 
 from mgr_module import HandleCommandResult, MonCommandFailed
 
-from ceph.deployment.service_spec import ServiceSpec, RGWSpec
+from ceph.deployment.service_spec import ServiceSpec, RGWSpec, IngressSpec
 from ceph.deployment.utils import is_ipv6, unwrap_ipv6
 from orchestrator import OrchestratorError, DaemonDescription, DaemonDescriptionStatus
 from orchestrator._interface import daemon_type_to_service
 from cephadm import utils
+
+from ..utils import resolve_ip
 
 if TYPE_CHECKING:
     from cephadm.module import CephadmOrchestrator
@@ -117,6 +122,12 @@ class CephadmService(metaclass=ABCMeta):
 
     def allow_colo(self) -> bool:
         return False
+
+    def per_host_sidecar(self) -> Optional[str]:
+        return None
+
+    def primary_daemon_type(self) -> str:
+        return self.TYPE
 
     def make_daemon_spec(
             self, host: str,
@@ -394,7 +405,7 @@ class CephService(CephadmService):
         """
         # despite this mapping entity names to daemons, self.TYPE within
         # the CephService class refers to service types, not daemon types
-        if self.TYPE in ['rgw', 'rbd-mirror', 'cephfs-mirror', 'nfs', "iscsi", 'ha-rgw']:
+        if self.TYPE in ['rgw', 'rbd-mirror', 'cephfs-mirror', 'nfs', "iscsi", 'ingress']:
             return AuthEntity(f'client.{self.TYPE}.{daemon_id}')
         elif self.TYPE == 'crash':
             if host == "":
@@ -832,15 +843,15 @@ class RgwService(CephService):
             force: bool = False,
             known: Optional[List[str]] = None  # output argument
     ) -> HandleCommandResult:
-        # if load balancer (ha-rgw) is present block if only 1 daemon up otherwise ok
+        # if load balancer (ingress) is present block if only 1 daemon up otherwise ok
         # if no load balancer, warn if > 1 daemon, block if only 1 daemon
-        def ha_rgw_present() -> bool:
-            running_ha_rgw_daemons = [
-                daemon for daemon in self.mgr.cache.get_daemons_by_type('ha-rgw') if daemon.status == 1]
+        def ingress_present() -> bool:
+            running_ingress_daemons = [
+                daemon for daemon in self.mgr.cache.get_daemons_by_type('ingress') if daemon.status == 1]
             running_haproxy_daemons = [
-                daemon for daemon in running_ha_rgw_daemons if daemon.daemon_type == 'haproxy']
+                daemon for daemon in running_ingress_daemons if daemon.daemon_type == 'haproxy']
             running_keepalived_daemons = [
-                daemon for daemon in running_ha_rgw_daemons if daemon.daemon_type == 'keepalived']
+                daemon for daemon in running_ingress_daemons if daemon.daemon_type == 'keepalived']
             # check that there is at least one haproxy and keepalived daemon running
             if running_haproxy_daemons and running_keepalived_daemons:
                 return True
@@ -853,7 +864,7 @@ class RgwService(CephService):
 
         # if reached here, there is > 1 rgw daemon.
         # Say okay if load balancer present or force flag set
-        if ha_rgw_present() or force:
+        if ingress_present() or force:
             return HandleCommandResult(0, warn_message, '')
 
         # if reached here, > 1 RGW daemon, no load balancer and no force flag.
@@ -932,3 +943,196 @@ class CephfsMirrorService(CephService):
         daemon_spec.keyring = keyring
         daemon_spec.final_config, daemon_spec.deps = self.generate_config(daemon_spec)
         return daemon_spec
+
+
+class IngressService(CephService):
+    TYPE = 'ingress'
+
+    def primary_daemon_type(self) -> str:
+        return 'haproxy'
+
+    def per_host_sidecar(self) -> Optional[str]:
+        return 'keepalived'
+
+    def prepare_create(
+            self,
+            daemon_spec: CephadmDaemonDeploySpec,
+    ) -> CephadmDaemonDeploySpec:
+        if daemon_spec.daemon_type == 'haproxy':
+            return self.haproxy_prepare_create(daemon_spec)
+        if daemon_spec.daemon_type == 'keepalived':
+            return self.keepalived_prepare_create(daemon_spec)
+        assert False, "unexpected daemon type"
+
+    def generate_config(
+            self,
+            daemon_spec: CephadmDaemonDeploySpec
+    ) -> Tuple[Dict[str, Any], List[str]]:
+        if daemon_spec.daemon_type == 'haproxy':
+            return self.haproxy_generate_config(daemon_spec)
+        else:
+            return self.keepalived_generate_config(daemon_spec)
+        assert False, "unexpected daemon type"
+
+    def haproxy_prepare_create(
+            self,
+            daemon_spec: CephadmDaemonDeploySpec,
+    ) -> CephadmDaemonDeploySpec:
+        assert daemon_spec.daemon_type == 'haproxy'
+
+        daemon_id = daemon_spec.daemon_id
+        host = daemon_spec.host
+        spec = cast(IngressSpec, self.mgr.spec_store[daemon_spec.service_name].spec)
+
+        logger.info('Create daemon haproxy.%s on host %s with spec %s' % (
+            daemon_id, host, spec))
+
+        daemon_spec.final_config, daemon_spec.deps = self.haproxy_generate_config(daemon_spec)
+
+        return daemon_spec
+
+    def haproxy_generate_config(
+            self,
+            daemon_spec: CephadmDaemonDeploySpec,
+    ) -> Tuple[Dict[str, Any], List[str]]:
+        spec = cast(IngressSpec, self.mgr.spec_store[daemon_spec.service_name].spec)
+        assert spec.backend_service
+        daemons = self.mgr.cache.get_daemons_by_service(spec.backend_service)
+        deps = [d.name() for d in daemons]
+
+        # generate password?
+        pw_key = f'{spec.service_name()}/monitor_password'
+        password = self.mgr.get_store(pw_key)
+        if password is None:
+            if not spec.monitor_password:
+                password = ''.join(random.choice(string.ascii_lowercase) for _ in range(20))
+                self.mgr.set_store(pw_key, password)
+        else:
+            if spec.monitor_password:
+                self.mgr.set_store(pw_key, None)
+        if spec.monitor_password:
+            password = spec.monitor_password
+
+        haproxy_conf = self.mgr.template.render(
+            'services/ingress/haproxy.cfg.j2',
+            {
+                'spec': spec,
+                'servers': [
+                    {
+                        'name': d.name(),
+                        'ip': d.ip or resolve_ip(str(d.hostname)),
+                        'port': d.ports[0],
+                    } for d in daemons if d.ports
+                ],
+                'user': spec.monitor_user or 'admin',
+                'password': password,
+                'ip': daemon_spec.ip or '*',
+                'frontend_port': daemon_spec.ports[0] if daemon_spec.ports else spec.frontend_port,
+                'monitor_port': daemon_spec.ports[1] if daemon_spec.ports else spec.monitor_port,
+            }
+        )
+        config_files = {
+            'files': {
+                "haproxy.cfg": haproxy_conf,
+            }
+        }
+        if spec.ssl_cert:
+            ssl_cert = spec.ssl_cert
+            if isinstance(ssl_cert, list):
+                ssl_cert = '\n'.join(ssl_cert)
+            config_files['files']['haproxy.pem'] = ssl_cert
+
+        return config_files, sorted(deps)
+
+    def keepalived_prepare_create(
+            self,
+            daemon_spec: CephadmDaemonDeploySpec,
+    ) -> CephadmDaemonDeploySpec:
+        assert daemon_spec.daemon_type == 'keepalived'
+
+        daemon_id = daemon_spec.daemon_id
+        host = daemon_spec.host
+        spec = cast(IngressSpec, self.mgr.spec_store[daemon_spec.service_name].spec)
+
+        logger.info('Create daemon keepalived.%s on host %s with spec %s' % (
+            daemon_id, host, spec))
+
+        daemon_spec.final_config, daemon_spec.deps = self.keepalived_generate_config(daemon_spec)
+
+        return daemon_spec
+
+    def keepalived_generate_config(
+            self,
+            daemon_spec: CephadmDaemonDeploySpec,
+    ) -> Tuple[Dict[str, Any], List[str]]:
+        spec = cast(IngressSpec, self.mgr.spec_store[daemon_spec.service_name].spec)
+        assert spec.backend_service
+
+        # generate password?
+        pw_key = f'{spec.service_name()}/keepalived_password'
+        password = self.mgr.get_store(pw_key)
+        if password is None:
+            if not spec.keepalived_password:
+                password = ''.join(random.choice(string.ascii_lowercase) for _ in range(20))
+                self.mgr.set_store(pw_key, password)
+        else:
+            if spec.keepalived_password:
+                self.mgr.set_store(pw_key, None)
+        if spec.keepalived_password:
+            password = spec.keepalived_password
+
+        daemons = self.mgr.cache.get_daemons_by_service(spec.service_name())
+        deps = sorted([d.name() for d in daemons if d.daemon_type == 'haproxy'])
+
+        host = daemon_spec.host
+        hosts = sorted(list(set([str(d.hostname) for d in daemons])))
+
+        # interface
+        interface = 'eth0'
+        for subnet, ifaces in self.mgr.cache.networks.get(host, {}).items():
+            logger.info(f'subnet {subnet} ifaces {ifaces} virtual_ip {spec.virtual_ip}')
+            if ifaces and ipaddress.ip_address(spec.virtual_ip) in ipaddress.ip_network(subnet):
+                logger.info(f'{spec.virtual_ip} is in {subnet}')
+                interface = list(ifaces.keys())[0]
+                break
+
+        # script to monitor health
+        script = '/usr/bin/false'
+        for d in daemons:
+            if d.hostname == host:
+                if d.daemon_type == 'haproxy':
+                    assert d.ports
+                    port = d.ports[1]   # monitoring port
+                    script = f'/usr/bin/curl http://{d.ip or "localhost"}:{port}/health'
+        assert script
+
+        # set state. first host in placement is master all others backups
+        state = 'BACKUP'
+        if hosts[0] == host:
+            state = 'MASTER'
+
+        # remove host, daemon is being deployed on from hosts list for
+        # other_ips in conf file and converter to ips
+        hosts.remove(host)
+        other_ips = [resolve_ip(h) for h in hosts]
+
+        keepalived_conf = self.mgr.template.render(
+            'services/ingress/keepalived.conf.j2',
+            {
+                'spec': spec,
+                'script': script,
+                'password': password,
+                'interface': interface,
+                'state': state,
+                'other_ips': other_ips,
+                'host_ip': resolve_ip(host),
+            }
+        )
+
+        config_file = {
+            'files': {
+                "keepalived.conf": keepalived_conf,
+            }
+        }
+
+        return config_file, deps

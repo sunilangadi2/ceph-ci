@@ -303,6 +303,7 @@ target_link_libraries(rgw_a
     common_utf8 global
     ${CRYPTO_LIBS}
     ${LUA_LIBRARIES}
+    arrow parquet
     OATH::OATH
   PUBLIC
     rgw_common

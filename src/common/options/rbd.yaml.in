@@ -3,6 +3,7 @@
 
 headers: |
   // rbd feature and io operation validation
+  #include <regex>
   #include "include/stringify.h"
   #include "common/strtol.h"
   #include "librbd/Features.h"

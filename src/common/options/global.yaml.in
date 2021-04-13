@@ -6657,6 +6657,16 @@ options:
   default: @CEPH_INSTALL_DATADIR@/mgr
   services:
   - mgr
+- name: mgr_standby_modules
+  type: bool
+  level: advanced
+  desc: Start modules in standby (redirect) mode when mgr is standby
+  long_desc: The standby modules will generally answer incoming requests with a
+    HTTP redirect to the active manager, allowing users to point their browser at any
+    mgr node and find their way to an active manager.  However, this mode is problematic
+    when using a load balancer because (1) the redirect locations are usually private
+    IPs and (2) the load balancer can't identify which mgr is the right one to send
+    traffic to.
 - name: mgr_disabled_modules
   type: str
   level: advanced

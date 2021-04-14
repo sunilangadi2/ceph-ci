@@ -57,7 +57,7 @@ Configure a Block Device
 	cd /mnt/ceph-block-device
 
 #. Optionally configure the block device to be automatically mapped and mounted
-   at boot (and unmounted/unmapped at shutdown) - see the `rbdmap manpage`_.
+   at boot (and unmounted/unmapped at shutdown) - see the `rbdmap-generator manpage`_.
 
 
 See `block devices`_ for additional details.
@@ -66,4 +66,4 @@ See `block devices`_ for additional details.
 .. _block devices: ../../rbd
 .. _FAQ: http://wiki.ceph.com/How_Can_I_Give_Ceph_a_Try
 .. _OS Recommendations: ../os-recommendations
-.. _rbdmap manpage: ../../man/8/rbdmap
+.. _rbdmap-generator manpage: ../../man/8/rbdmap-generator

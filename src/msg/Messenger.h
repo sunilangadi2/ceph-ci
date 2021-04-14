@@ -34,6 +34,7 @@
 #include "auth/Crypto.h"
 #include "common/item_history.h"
 #include "auth/AuthRegistry.h"
+#include "compressor_registry.h"
 #include "include/ceph_assert.h"
 
 #include <errno.h>
@@ -227,6 +228,9 @@ public:
   void set_auth_server(AuthServer *as) {
     auth_server = as;
   }
+
+  // for compression
+  CompressorRegistry comp_registry;
 
 protected:
   /**

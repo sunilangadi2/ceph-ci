@@ -1,4 +1,0 @@
-[Unit]
-Description=Map RBD devices (Pre)
-RefuseManualStart=yes
-Before=rbdmap.target

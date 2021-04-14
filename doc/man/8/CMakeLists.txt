@@ -64,7 +64,7 @@ if(WITH_RBD)
 	rbd-replay-many.rst
 	rbd-replay-prep.rst
 	rbd-replay.rst
-	rbdmap-generator.rst
+	rbdmap.rst
 	rbd.rst)
   if(LINUX)
     list(APPEND man_srcs rbd-nbd.rst)

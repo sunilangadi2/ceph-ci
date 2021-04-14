@@ -1954,6 +1954,7 @@ void Monitor::handle_probe_probe(MonOpRequestRef op)
 		    ceph_release());
   r->name = name;
   r->quorum = quorum;
+  r->leader = leader;
   monmap->encode(r->monmap_bl, m->get_connection()->get_features());
   r->paxos_first_version = paxos->get_first_committed();
   r->paxos_last_version = paxos->get_version();
@@ -2121,7 +2122,7 @@ void Monitor::handle_probe_reply(MonOpRequestRef op)
       send_mon_message(new MMonJoin(monmap->fsid, name,
 				    messenger->get_myaddrs(), crush_loc,
 				    need_set_crush_loc),
-		       *m->quorum.begin());
+		       m->leader);
     }
   } else {
     if (monmap->contains(m->name)) {
@@ -2396,7 +2397,7 @@ void Monitor::finish_election()
 	     << map_crush_loc <<" -> " << name << "/" << crush_loc << dendl;
     send_mon_message(new MMonJoin(monmap->fsid, name, messenger->get_myaddrs(),
 				  crush_loc, need_set_crush_loc),
-		     *quorum.begin());
+		     leader);
     return;
   }
   do_stretch_mode_election_work();
@@ -6527,7 +6528,7 @@ void Monitor::notify_new_monmap(bool can_change_external_state)
   }
 
   if (monmap->stretch_mode_enabled) {
-    maybe_engage_stretch_mode();
+    try_engage_stretch_mode();
   }
 
   if (is_stretch_mode()) {
@@ -6561,10 +6562,10 @@ struct CMonEnableStretchMode : public Context {
   Monitor *m;
   CMonEnableStretchMode(Monitor *mon) : m(mon) {}
   void finish(int r) {
-    m->maybe_engage_stretch_mode();
+    m->try_engage_stretch_mode();
   }
 };
-void Monitor::maybe_engage_stretch_mode()
+void Monitor::try_engage_stretch_mode()
 {
   dout(20) << __func__ << dendl;
   if (stretch_mode_engaged) return;
@@ -6655,8 +6656,14 @@ void Monitor::go_recovery_stretch_mode()
   if (!osdmon()->is_writeable()) {
     osdmon()->wait_for_writeable_ctx(new CMonGoRecovery(this));
   }
+  osdmon()->trigger_recovery_stretch_mode();
+}
+
+void Monitor::set_recovery_stretch_mode()
+{
+  degraded_stretch_mode = true;
   recovering_stretch_mode = true;
-  osdmon()->trigger_recovery_stretch_mode();  
+  osdmon()->set_recovery_stretch_mode();
 }
 
 void Monitor::maybe_go_degraded_stretch_mode()
@@ -6717,6 +6724,7 @@ void Monitor::set_degraded_stretch_mode()
 {
   degraded_stretch_mode = true;
   recovering_stretch_mode = false;
+  osdmon()->set_degraded_stretch_mode();
 }
 
 struct CMonGoHealthy : public Context {
@@ -6741,7 +6749,6 @@ void Monitor::trigger_healthy_stretch_mode()
   }
 
   ceph_assert(osdmon()->osdmap.recovering_stretch_mode);
-  set_healthy_stretch_mode();
   osdmon()->trigger_healthy_stretch_mode();
   monmon()->trigger_healthy_stretch_mode();
 }
@@ -6750,6 +6757,7 @@ void Monitor::set_healthy_stretch_mode()
 {
   degraded_stretch_mode = false;
   recovering_stretch_mode = false;
+  osdmon()->set_healthy_stretch_mode();
 }
 
 bool Monitor::session_stretch_allowed(MonSession *s, MonOpRequestRef& op)

@@ -390,6 +390,8 @@ def ceph_bootstrap(ctx, config):
             cmd += ['--mon-ip', mons[first_mon_role]]
         if config.get('skip_dashboard'):
             cmd += ['--skip-dashboard']
+        if config.get('single_host_defaults'):
+            cmd += ['--single-host-defaults']
         # bootstrap makes the keyring root 0600, so +r it for our purposes
         cmd += [
             run.Raw('&&'),
@@ -986,6 +988,49 @@ def apply(ctx, config):
         ['ceph', 'orch', 'apply', '-i', '-'],
         stdin=y,
     )
+
+
+def wait_for_service(ctx, config):
+    """
+    Wait for a service to be fully started
+
+      tasks:
+        - cephadm.wait_for_service:
+            service: rgw.foo
+            timeout: 60    # defaults to 300
+
+    """
+    cluster_name = config.get('cluster', 'ceph')
+    timeout = config.get('timeout', 300)
+    service = config.get('service')
+    assert service
+
+    log.info(
+        f'Waiting for {cluster_name} service {service} to start (timeout {timeout})...'
+    )
+    with contextutil.safe_while(sleep=1, tries=timeout) as proceed:
+        while proceed():
+            r = _shell(
+                ctx=ctx,
+                cluster_name=cluster_name,
+                remote=ctx.ceph[cluster_name].bootstrap_remote,
+                args=[
+                    'ceph', 'orch', 'ls', '-f', 'json',
+                ],
+                stdout=StringIO(),
+            )
+            j = json.loads(r.stdout.getvalue())
+            svc = None
+            for s in j:
+                if s['service_name'] == service:
+                    svc = s
+                    break
+            if svc:
+                log.info(
+                    f"{service} has {s['status']['running']}/{s['status']['size']}"
+                )
+                if s['status']['running'] == s['status']['size']:
+                    break
 
 
 @contextlib.contextmanager

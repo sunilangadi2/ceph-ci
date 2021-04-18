@@ -652,7 +652,7 @@ endif()
 set(DASHBOARD_FRONTEND_LANGS "" CACHE STRING
   "List of comma separated ceph-dashboard frontend languages to build. \
   Use value `ALL` to build all languages")
-option(WITH_MGR_ROOK_CLIENT "Enable the mgr's Rook support" ON
+CMAKE_DEPENDENT_OPTION(WITH_MGR_ROOK_CLIENT "Enable the mgr's Rook support" ON
   "WITH_MGR" OFF)
 
 include_directories(SYSTEM ${PROJECT_BINARY_DIR}/include)

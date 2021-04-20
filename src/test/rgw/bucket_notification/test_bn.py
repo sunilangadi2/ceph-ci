@@ -8,9 +8,11 @@ import socket
 import time
 import os
 import string
+import boto
 from http import server as http_server
 from random import randint
 import hashlib
+from nose.plugins.attrib import attr
 
 from boto.s3.connection import S3Connection
 
@@ -616,6 +618,7 @@ def test_ps_s3_topic_with_secret_on_master():
     result = topic_conf.del_config()
 
 
+@attr('basic_test')
 def test_ps_s3_notification_on_master():
     """ test s3 notification set/get/delete on master """
     conn = connection()
@@ -676,14 +679,9 @@ def test_ps_s3_notification_on_master():
     conn.delete_bucket(bucket_name)
 
 
+@attr('amqp_test')
 def test_ps_s3_notification_filter_on_master():
     """ test s3 notification filter on master """
-    if skip_amqp:
-        return SkipTest('This is an AMQP test.')
-
-    proc = init_rabbitmq()
-    if proc is  None:
-        return SkipTest('end2end amqp tests require rabbitmq-server installed')
 
     hostname = get_ip()
     
@@ -852,9 +850,9 @@ def test_ps_s3_notification_filter_on_master():
         key.delete()
     conn.delete_bucket(bucket_name)
     stop_amqp_receiver(receiver, task)
-    clean_rabbitmq(proc)
 
 
+@attr('basic_test')
 def test_ps_s3_notification_errors_on_master():
     """ test s3 notification set/get/delete on master """
     conn = connection()
@@ -950,14 +948,10 @@ def test_ps_s3_notification_errors_on_master():
     # delete the bucket
     conn.delete_bucket(bucket_name)
 
+
+@attr('amqp_test')
 def test_ps_s3_notification_push_amqp_on_master():
     """ test pushing amqp s3 notification on master """
-    if skip_amqp:
-        return SkipTest('This is an AMQP test.')
-
-    proc = init_rabbitmq()
-    if proc is  None:
-        return SkipTest('end2end amqp tests require rabbitmq-server installed')
 
     hostname = get_ip()
     conn = connection()
@@ -1057,9 +1051,9 @@ def test_ps_s3_notification_push_amqp_on_master():
     topic_conf2.del_config()
     # delete the bucket
     conn.delete_bucket(bucket_name)
-    clean_rabbitmq(proc)
 
 
+@attr('kafka_test')
 def test_ps_s3_notification_push_kafka_on_master():
     """ test pushing kafka s3 notification on master """
     conn = connection()
@@ -1147,6 +1141,7 @@ def test_ps_s3_notification_push_kafka_on_master():
         stop_kafka_receiver(receiver, task)
 
 
+@attr('http_test')
 def test_ps_s3_notification_multi_delete_on_master():
     """ test deletion of multiple keys on master """
     hostname = get_ip()
@@ -1213,6 +1208,8 @@ def test_ps_s3_notification_multi_delete_on_master():
     conn.delete_bucket(bucket_name)
     http_server.close()
 
+
+@attr('http_test')
 def test_ps_s3_notification_push_http_on_master():
     """ test pushing http s3 notification on master """
     hostname = get_ip_http()
@@ -1295,6 +1292,8 @@ def test_ps_s3_notification_push_http_on_master():
     conn.delete_bucket(bucket_name)
     http_server.close()
 
+
+@attr('http_test')
 def test_ps_s3_opaque_data_on_master():
     """ test that opaque id set in topic, is sent in notification on master """
     hostname = get_ip()
@@ -1448,10 +1447,12 @@ def ps_s3_creation_triggers_on_master(external_endpoint_address=None, ca_locatio
         clean_rabbitmq(proc)
 
 
+@attr('amqp_test')
 def test_ps_s3_creation_triggers_on_master():
     ps_s3_creation_triggers_on_master()
 
 
+@attr('amqp_test')
 def test_ps_s3_creation_triggers_on_master_external():
     from distutils.util import strtobool
 
@@ -1578,15 +1579,9 @@ def test_ps_s3_creation_triggers_on_master_ssl():
 
         del os.environ['RABBITMQ_CONFIG_FILE']
 
-
+@attr('amqp_test')
 def test_ps_s3_multipart_on_master():
     """ test multipart object upload on master"""
-    if skip_amqp:
-        return SkipTest('This is an AMQP test.')
-
-    proc = init_rabbitmq()
-    if proc is  None:
-        return SkipTest('end2end amqp tests require rabbitmq-server installed')
 
     hostname = get_ip()
     conn = connection()
@@ -1673,17 +1668,11 @@ def test_ps_s3_multipart_on_master():
         key.delete()
     # delete the bucket
     conn.delete_bucket(bucket_name)
-    clean_rabbitmq(proc)
 
 
+@attr('amqp_test')
 def test_ps_s3_metadata_on_master():
     """ test s3 notification of metadata on master """
-    if skip_amqp:
-        return SkipTest('This is an AMQP test.')
-
-    proc = init_rabbitmq()
-    if proc is  None:
-        return SkipTest('end2end amqp tests require rabbitmq-server installed')
 
     hostname = get_ip()
     conn = connection()
@@ -1779,17 +1768,11 @@ def test_ps_s3_metadata_on_master():
     topic_conf.del_config()
     # delete the bucket
     conn.delete_bucket(bucket_name)
-    clean_rabbitmq(proc)
 
 
+@attr('amqp_test')
 def test_ps_s3_tags_on_master():
     """ test s3 notification of tags on master """
-    if skip_amqp:
-        return SkipTest('This is an AMQP test.')
-
-    proc = init_rabbitmq()
-    if proc is  None:
-        return SkipTest('end2end amqp tests require rabbitmq-server installed')
 
     hostname = get_ip()
     conn = connection()
@@ -1861,17 +1844,11 @@ def test_ps_s3_tags_on_master():
     topic_conf.del_config()
     # delete the bucket
     conn.delete_bucket(bucket_name)
-    clean_rabbitmq(proc)
 
 
+@attr('amqp_test')
 def test_ps_s3_versioning_on_master():
     """ test s3 notification of object versions """
-    if skip_amqp:
-        return SkipTest('This is an AMQP test.')
-
-    proc = init_rabbitmq()
-    if proc is  None:
-        return SkipTest('end2end amqp tests require rabbitmq-server installed')
 
     hostname = get_ip()
     conn = connection()
@@ -1937,17 +1914,11 @@ def test_ps_s3_versioning_on_master():
     bucket.delete_key(key.name, version_id=ver2)
     bucket.delete_key(key.name, version_id=ver1)
     conn.delete_bucket(bucket_name)
-    clean_rabbitmq(proc)
 
 
+@attr('amqp_test')
 def test_ps_s3_versioned_deletion_on_master():
     """ test s3 notification of deletion markers on master """
-    if skip_amqp:
-        return SkipTest('This is an AMQP test.')
-
-    proc = init_rabbitmq()
-    if proc is  None:
-        return SkipTest('end2end amqp tests require rabbitmq-server installed')
 
     hostname = get_ip()
     conn = connection()
@@ -2029,7 +2000,6 @@ def test_ps_s3_versioned_deletion_on_master():
     topic_conf.del_config()
     # delete the bucket
     conn.delete_bucket(bucket_name)
-    clean_rabbitmq(proc)
 
 
 def test_ps_s3_persistent_cleanup():
@@ -2408,6 +2378,8 @@ def test_ps_s3_persistent_multiple_gateways():
     gw1.delete_bucket(bucket_name)
     http_server.close()
 
+
+@attr('http_test')
 def test_ps_s3_persistent_multiple_endpoints():
     """ test pushing persistent notification when one of the endpoints has error """
     conn = connection()
@@ -2590,24 +2562,20 @@ def persistent_notification(endpoint_type):
         stop_amqp_receiver(receiver, task)
 
 
+@attr('http_test')
 def test_ps_s3_persistent_notification_http():
     """ test pushing persistent notification http """
     persistent_notification('http')
 
 
+@attr('amqp_test')
 def test_ps_s3_persistent_notification_amqp():
     """ test pushing persistent notification amqp """
-    if skip_amqp:
-        return SkipTest('This is an AMQP test.')
-
-    proc = init_rabbitmq()
-    if proc is  None:
-        return SkipTest('end2end amqp tests require rabbitmq-server installed')
 
     persistent_notification('amqp')
-    clean_rabbitmq(proc)
 
 '''
+@attr('kafka_test')
 def test_ps_s3_persistent_notification_kafka():
     """ test pushing persistent notification http """
     persistent_notification('kafka')
@@ -2618,14 +2586,10 @@ def random_string(length):
     letters = string.ascii_letters
     return ''.join(random.choice(letters) for i in range(length))
 
+
+@attr('amqp_test')
 def test_ps_s3_persistent_notification_large():
     """ test pushing persistent notification of large notifications """
-    if skip_amqp:
-        return SkipTest('This is an AMQP test.')
-
-    proc = init_rabbitmq()
-    if proc is  None:
-        return SkipTest('end2end amqp tests require rabbitmq-server installed')
 
     conn = connection()
     zonegroup = 'default'
@@ -2707,7 +2671,6 @@ def test_ps_s3_persistent_notification_large():
     # delete the bucket
     conn.delete_bucket(bucket_name)
     stop_amqp_receiver(receiver, task)
-    clean_rabbitmq(proc)
 
 
 def test_ps_s3_topic_update():

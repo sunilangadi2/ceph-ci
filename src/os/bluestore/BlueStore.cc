@@ -7443,15 +7443,19 @@ int BlueStore::copy_allocator(Allocator* src_alloc, Allocator* dest_alloc, uint6
     return -1;
   }
 
-  uint64_t idx = 0;
+  uint64_t idx         = 0;
+  bool     null_extent = false;
   auto copy_entries = [&](uint64_t extent_offset, uint64_t extent_length) {
-    if (extent_length == 0) {
+    if (extent_length > 0) {
+      if (idx < *p_num_entries) {
+	arr[idx] = {extent_offset, extent_length};
+      }
+      idx++;
+    }
+    else {
+      null_extent = true;
       derr << __func__ << "::NCB::zero length extent!!! offset=" << extent_offset << ", index=" << idx << dendl;
     }
-    if (idx < *p_num_entries) {
-      arr[idx] = {extent_offset, extent_length};
-    }
-    idx++;
   };
   src_alloc->dump(copy_entries);
   
@@ -7460,6 +7464,12 @@ int BlueStore::copy_allocator(Allocator* src_alloc, Allocator* dest_alloc, uint6
     derr << __func__ << "::NCB::****spillover, num_entries=" << *p_num_entries << ", spillover=" << (idx - *p_num_entries) << dendl;
     return -1;
   }
+
+  if (null_extent) {
+    derr << __func__ << "::NCB::null entries were found!" << dendl;
+    return -1;
+  }
+
   *p_num_entries = idx;
   
   for (idx = 0; idx < *p_num_entries; idx++) {
@@ -7527,14 +7537,15 @@ int BlueStore::store_allocator(Allocator* src_allocator)
 
   // BlueFS stores its internal allocation outside RocksDB (FM) so we should not destage them to the allcoator-file
   // we are going to hide bluefs allocation during allocator-destage as they are stored elsewhere
-
-  std::vector<extent_t> bluefs_extents_vec;
-  // load current bluefs internal allocation into a vector
-  load_bluefs_extents(bluefs, &bluefs_layout, cct, path, bluefs_extents_vec, min_alloc_size);
-  // then remove them from the shared allocator before dumping it to disk (bluefs stored them internally)
-  for (auto itr = bluefs_extents_vec.begin(); itr != bluefs_extents_vec.end(); ++itr) {
-    //dout(0) << __func__ << "::NCB::remove bluefs entry from allocator[" << key << ", " << val << "]" << dendl;
-    allocator->init_add_free(itr->offset, itr->length);
+  {
+    std::vector<extent_t> bluefs_extents_vec;
+    // load current bluefs internal allocation into a vector
+    load_bluefs_extents(bluefs, &bluefs_layout, cct, path, bluefs_extents_vec, min_alloc_size);
+    // then remove them from the shared allocator before dumping it to disk (bluefs stored them internally)
+    for (auto itr = bluefs_extents_vec.begin(); itr != bluefs_extents_vec.end(); ++itr) {
+      //dout(0) << __func__ << "::NCB::remove bluefs entry from allocator[" << key << ", " << val << "]" << dendl;
+      allocator->init_add_free(itr->offset, itr->length);
+    }
   }
 
   // store all extents (except for the bluefs extents we removed) in a single flat file
@@ -7547,6 +7558,7 @@ int BlueStore::store_allocator(Allocator* src_allocator)
   header.encode((char*)p_curr);
   p_curr += header_count_in_extents;
   auto iterated_allocation = [&](uint64_t extent_offset, uint64_t extent_length) {
+    //dout(1) <<  __func__ << "::NCB" << extent_count << "::[" << extent_offset << "," << extent_length << "]" << dendl;
     if (extent_length == 0 && failure_count++ < 5 ) {
       derr <<  __func__ << "::NCB" << extent_count << "::[" << extent_offset << "," << extent_length << "]" << dendl;
     }
@@ -7732,7 +7744,7 @@ int BlueStore::allocator_add_restored_entries(Allocator          *allocator,
     uint64_t length = CEPHTOH_64(p->length);
     *p_read_alloc_size += length;
     if (length > 0) {
-      //{ std::cout << (*p_extent_count) << ") Read[" << offset << "," << length << "]" << std::endl; }
+      //{ dout(1) << (*p_extent_count) << ") NCB::Read[" << offset << "," << length << "]" << dendl; }
       allocator->init_add_free(offset, length);
       (*p_extent_count) ++;
     }
@@ -8229,6 +8241,7 @@ int BlueStore::compare_allocators(Allocator* alloc1, Allocator* alloc2, uint64_t
 //---------------------------------------------------------
 int BlueStore::read_allocation_from_drive_for_bluestore_tool(bool test_store_and_restore)
 {
+  dout(1) << __func__ << "::NCB::test_store_and_restore=" << test_store_and_restore << dendl;
   int ret = 0;
   uint64_t memory_target = cct->_conf.get_val<Option::size_t>("osd_memory_target");
   dout(0) << __func__ << "::NCB::calling open_db_and_around()" << dendl;
@@ -9438,14 +9451,14 @@ int BlueStore::_fsck(BlueStore::FSCKDepth depth, bool repair)
     << (depth == FSCK_DEEP ? " (deep)" :
       depth == FSCK_SHALLOW ? " (shallow)" : " (regular)")
     << dendl;
-
+#if 1
   // force allocation check to exercise recovery code
   dout(1) << __func__ << "::NCB::calling read_allocation_from_drive_for_fsck()" << dendl;
   if (read_allocation_from_drive_for_fsck() != 0) {
     derr << __func__ << "::NCB::Failed read_allocation_from_drive_for_fsck()" << dendl;
     return -1;
   }
-  
+#endif
   // in deep mode we need R/W write access to be able to replay deferred ops
   bool read_only = !(repair || depth == FSCK_DEEP);
   dout(0) << __func__ << "::NCB::calling open_db_and_around()" << dendl;
@@ -10065,109 +10078,82 @@ int BlueStore::_fsck_on_open(BlueStore::FSCKDepth depth, bool repair)
         }
       }
     }
-  
+
     dout(1) << __func__ << " checking freelist vs allocated" << dendl;
-    uint64_t offset, length;
-    bool intersects = false;
-    auto check_flist = [&](uint64_t pos, mempool_dynamic_bitset &bs) {
-      ceph_assert(pos < bs.size());
-      if (bs.test(pos) && !bluefs_used_blocks.test(pos)) {
-	if (offset == SUPER_RESERVED &&
-	    length == min_alloc_size - SUPER_RESERVED) {
-	  // this is due to the change just after luminous to min_alloc_size
-	  // granularity allocations, and our baked in assumption at the top
-	  // of _fsck that 0~round_up_to(SUPER_RESERVED,min_alloc_size) is used
-	  // (vs luminous's round_up_to(SUPER_RESERVED,block_size)).  harmless,
-	  // since we will never allocate this region below min_alloc_size.
-	  dout(10) << __func__ << " ignoring free extent between SUPER_RESERVED"
-		   << " and min_alloc_size, 0x" << std::hex << offset << "~"
-		   << length << std::dec << dendl;
-	} else {
-	  intersects = true;
-	  if (repair && !fm->is_null_manager()) {
-	    repairer.fix_false_free_f(db, fm,
-				      pos * min_alloc_size,
-				      min_alloc_size);
-	  }
-	}
-      } else {
-	bs.set(pos);
-      }
-    };
-
+    // skip freelist vs allocated compare when we have Null fm
     if (fm->is_null_manager()) {
-      // we don't hold allocation info in FM -> read it from the allocator
-      uint32_t entries_count = 0;
-      auto count_entries = [&](uint64_t extent_offset, uint64_t extent_length) {
-	entries_count++;
-      };
-      shared_alloc.a->dump(count_entries);      
-      dout(20) << __func__ << "::NCB entries_count=" << entries_count << dendl;
-
-      unique_ptr<extent_t[]> arr;
-      try {
-	arr = make_unique<extent_t[]>(entries_count);
-	for (uint32_t idx = 0; idx < entries_count; idx++) {
-	  intersects = false;
-	  offset = arr[idx].offset;
-	  length = arr[idx].length;
-	  apply_for_bitset_range(
-	    offset, length, alloc_size, used_blocks, check_flist );
-	  if (intersects) {
-	    derr << "fsck error: free extent 0x" << std::hex << offset
-		 << "~" << length << std::dec
-		 << " intersects allocated blocks" << dendl;
-	    ++errors;
-	  }
-	}
-      } catch (std::bad_alloc&) {
-	derr << __func__ << "::NCB::****Failed dynamic allocation, entries_count=" << entries_count << dendl;
-      }	
+      
     }
     else {
       fm->enumerate_reset();
+      uint64_t offset, length;
       while (fm->enumerate_next(db, &offset, &length)) {
-	intersects = false;
-	apply_for_bitset_range(
-	  offset, length, alloc_size, used_blocks, check_flist );
-	if (intersects) {
+        bool intersects = false;
+        apply_for_bitset_range(
+          offset, length, alloc_size, used_blocks,
+          [&](uint64_t pos, mempool_dynamic_bitset &bs) {
+	    ceph_assert(pos < bs.size());
+            if (bs.test(pos) && !bluefs_used_blocks.test(pos)) {
+	      if (offset == SUPER_RESERVED &&
+	          length == min_alloc_size - SUPER_RESERVED) {
+	        // this is due to the change just after luminous to min_alloc_size
+	        // granularity allocations, and our baked in assumption at the top
+	        // of _fsck that 0~round_up_to(SUPER_RESERVED,min_alloc_size) is used
+	        // (vs luminous's round_up_to(SUPER_RESERVED,block_size)).  harmless,
+	        // since we will never allocate this region below min_alloc_size.
+	        dout(10) << __func__ << " ignoring free extent between SUPER_RESERVED"
+		         << " and min_alloc_size, 0x" << std::hex << offset << "~"
+		         << length << std::dec << dendl;
+	      } else {
+                intersects = true;
+	        if (repair) {
+		  repairer.fix_false_free_f(db, fm,
+					  pos * min_alloc_size,
+					  min_alloc_size);
+	        }
+	      }
+            } else {
+	      bs.set(pos);
+            }
+          }
+        );
+        if (intersects) {
 	  derr << "fsck error: free extent 0x" << std::hex << offset
-	       << "~" << length << std::dec
-	       << " intersects allocated blocks" << dendl;
+	        << "~" << length << std::dec
+	        << " intersects allocated blocks" << dendl;
 	  ++errors;
-	}
+        }
       }
       fm->enumerate_reset();
-    }
-      
-    size_t count = used_blocks.count();
-    if (used_blocks.size() != count) {
-      ceph_assert(used_blocks.size() > count);
-      used_blocks.flip();
-      size_t start = used_blocks.find_first();
-      while (start != decltype(used_blocks)::npos) {
-	size_t cur = start;
-	while (true) {
-	  size_t next = used_blocks.find_next(cur);
-	  if (next != cur + 1) {
-	    ++errors;
-	    derr << "fsck error: leaked extent 0x" << std::hex
-		 << ((uint64_t)start * fm->get_alloc_size()) << "~"
-		 << ((cur + 1 - start) * fm->get_alloc_size()) << std::dec
-		 << dendl;
-	    if (repair && !fm->is_null_manager()) {
-	      repairer.fix_leaked_f(db,
+      size_t count = used_blocks.count();
+      if (used_blocks.size() != count) {
+        ceph_assert(used_blocks.size() > count);
+        used_blocks.flip();
+        size_t start = used_blocks.find_first();
+        while (start != decltype(used_blocks)::npos) {
+	  size_t cur = start;
+	  while (true) {
+	    size_t next = used_blocks.find_next(cur);
+	    if (next != cur + 1) {
+	      ++errors;
+	      derr << "fsck error: leaked extent 0x" << std::hex
+		   << ((uint64_t)start * fm->get_alloc_size()) << "~"
+		   << ((cur + 1 - start) * fm->get_alloc_size()) << std::dec
+		   << dendl;
+	      if (repair) {
+	        repairer.fix_leaked_f(db,
 				    fm,
 				    start * min_alloc_size,
 				    (cur + 1 - start) * min_alloc_size);
+	      }
+	      start = next;
+	      break;
 	    }
-	    start = next;
-	    break;
+	    cur = next;
 	  }
-	  cur = next;
-	}
+        }
+        used_blocks.flip();
       }
-      used_blocks.flip();
     }
   }
   if (repair) {

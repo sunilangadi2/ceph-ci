@@ -2438,7 +2438,9 @@ int RGWRados::fix_head_obj_locator(const RGWBucketInfo& bucket_info, bool copy_o
 #define HEAD_SIZE 512 * 1024
   op.read(0, HEAD_SIZE, &data, NULL);
 
-  ret = rgw_rados_operate(ioctx, oid, &op, &data, null_yield);
+  ret = rgw_rados_operate(
+      ioctx, oid, &op, &data, null_yield,
+      cct->_conf->rgw_balanced_read ? librados::OPERATION_BALANCE_READS : 0);
   if (ret < 0) {
     lderr(cct) << "ERROR: rgw_rados_operate(oid=" << oid << ") returned ret=" << ret << dendl;
     return ret;
@@ -2515,7 +2517,9 @@ int RGWRados::move_rados_obj(librados::IoCtx& src_ioctx,
       mtime = real_clock::from_timespec(mtime_ts);
     }
     rop.read(ofs, chunk_size, &data, NULL);
-    ret = rgw_rados_operate(src_ioctx, src_oid, &rop, &data, null_yield);
+    ret = rgw_rados_operate(
+        src_ioctx, src_oid, &rop, &data, null_yield,
+        cct->_conf->rgw_balanced_read ? librados::OPERATION_BALANCE_READS : 0);
     if (ret < 0) {
       goto done_err;
     }
@@ -6311,7 +6315,9 @@ int RGWRados::Object::Read::read(int64_t ofs, int64_t end, bufferlist& bl, optio
 
   state.cur_ioctx->locator_set_key(read_obj.loc);
 
-  r = state.cur_ioctx->operate(read_obj.oid, &op, NULL);
+  r = state.cur_ioctx->operate(
+      read_obj.oid, &op, NULL,
+      cct->_conf->rgw_balanced_read ? librados::OPERATION_BALANCE_READS : 0);
   ldpp_dout(dpp, 20) << "rados->read r=" << r << " bl.length=" << bl.length() << dendl;
 
   if (r < 0) {
@@ -7568,7 +7574,9 @@ int RGWRados::raw_obj_stat(rgw_raw_obj& obj, uint64_t *psize, real_time *pmtime,
     op.read(0, cct->_conf->rgw_max_chunk_size, first_chunk, NULL);
   }
   bufferlist outbl;
-  r = rgw_rados_operate(ref.pool.ioctx(), ref.obj.oid, &op, &outbl, null_yield);
+  r = rgw_rados_operate(
+      ref.pool.ioctx(), ref.obj.oid, &op, &outbl, null_yield,
+      cct->_conf->rgw_balanced_read ? librados::OPERATION_BALANCE_READS : 0);
 
   if (epoch) {
     *epoch = ref.pool.ioctx().get_last_version();

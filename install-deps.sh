@@ -213,16 +213,6 @@ EOF
     fi
 }
 
-#Installing redis
-git clone https://github.com/cpp-redis/cpp_redis.git
-cd cpp_redis
-git submodule init && git submodule update
-mkdir build && cd build
-cmake .. -DCMAKE_BUILD_TYPE=Release
-make
-make install
-#Redis installed
-
 for_make_check=false
 if tty -s; then
     # interactive
@@ -497,3 +487,14 @@ if $for_make_check; then
     rm -rf $XDG_CACHE_HOME
     type git > /dev/null || (echo "Dashboard uses git to pull dependencies." ; false)
 fi
+
+#Installing redis
+git clone https://github.com/cpp-redis/cpp_redis.git
+cd cpp_redis
+git submodule init && git submodule update
+mkdir build && cd build
+cmake .. -DCMAKE_BUILD_TYPE=Release
+make
+make install
+cd ../..
+#Redis installed

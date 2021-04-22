@@ -4152,6 +4152,11 @@ def command_bootstrap(ctx):
         out = cli(['orch', 'apply', '-i', '/tmp/spec.yml'], extra_mounts=mounts)
         logger.info(out)
 
+    if ctx.output_config == '/etc/ceph/ceph.conf':
+        logger.info('Enabling client.admin keyring and conf on hosts with "admin" label')
+        cli(['orch', 'client-keyring', 'client.admin', 'label:admin'])
+        cli(['orch', 'host', 'label', 'add', get_hostname(), 'admin'])
+
     logger.info('You can access the Ceph CLI with:\n\n'
                 '\tsudo %s shell --fsid %s -c %s -k %s\n' % (
                     sys.argv[0],

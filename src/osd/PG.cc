@@ -1325,7 +1325,7 @@ unsigned int PG::scrub_requeue_priority(Scrub::scrub_prio_t with_priority, unsig
  *  Unless failing to start scrubbing, the 'planned scrub' flag-set is 'frozen' into
  *  PgScrubber's m_flags, then cleared.
  */
-bool PG::sched_scrub()
+Scrub::attempt_t PG::sched_scrub()
 {
   dout(15) << __func__ << " pg(" << info.pgid
 	  << (is_active() ? ") <active>" : ") <not-active>")
@@ -1334,14 +1334,14 @@ bool PG::sched_scrub()
   ceph_assert(!is_scrubbing());
 
   if (!is_primary() || !is_active() || !is_clean()) {
-    return false;
+    return Scrub::attempt_t::pg_state;
   }
 
   if (scrub_queued) {
     // only applicable to the very first time a scrub event is queued
     // (until handled and posted to the scrub FSM)
     dout(10) << __func__ << ": already queued" << dendl;
-    return false;
+    return Scrub::attempt_t::already_started;
   }
 
   // analyse the combination of the requested scrub flags, the osd/pool configuration
@@ -1353,14 +1353,14 @@ bool PG::sched_scrub()
     // (due to configuration or priority issues)
     // The reason was already reported by the callee.
     dout(10) << __func__ << ": failed to initiate a scrub" << dendl;
-    return false;
+    return Scrub::attempt_t::preconditions;
   }
 
   // try to reserve the local OSD resources. If failing: no harm. We will
   // be retried by the OSD later on.
   if (!m_scrubber->reserve_local()) {
     dout(10) << __func__ << ": failed to reserve locally" << dendl;
-    return false;
+    return Scrub::attempt_t::local_resources;
   }
 
   // can commit to the updated flags now, as nothing will stop the scrub
@@ -1377,7 +1377,7 @@ bool PG::sched_scrub()
 
   scrub_queued = true;
   osd->queue_for_scrub(this, Scrub::scrub_prio_t::low_priority);
-  return true;
+  return Scrub::attempt_t::scrubbing;
 }
 
 double PG::next_deepscrub_interval() const
@@ -1532,21 +1532,22 @@ std::optional<requested_scrub_t> PG::verify_scrub_mode() const
 
 void PG::reg_next_scrub()
 {
-  m_scrubber->reg_next_scrub(m_planned_scrub);
+  if (m_scrubber) {
+    m_scrubber->on_primary_change(m_planned_scrub);
+  }
 }
 
 void PG::on_info_history_change()
 {
   dout(20) << __func__ << dendl;
-  if (m_scrubber) {
-    m_scrubber->unreg_next_scrub();
-    m_scrubber->reg_next_scrub(m_planned_scrub);
-  }
+  reg_next_scrub();
 }
 
 void PG::scrub_requested(scrub_level_t scrub_level, scrub_type_t scrub_type)
 {
-  m_scrubber->scrub_requested(scrub_level, scrub_type, m_planned_scrub);
+  if (m_scrubber) {
+    m_scrubber->scrub_requested(scrub_level, scrub_type, m_planned_scrub);
+  }
 }
 
 void PG::clear_ready_to_merge() {

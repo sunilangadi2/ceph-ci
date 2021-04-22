@@ -622,7 +622,7 @@ public:
   virtual void on_shutdown() = 0;
 
   bool get_must_scrub() const;
-  bool sched_scrub();
+  Scrub::attempt_t sched_scrub();
 
   unsigned int scrub_requeue_priority(Scrub::scrub_prio_t with_priority, unsigned int suggested_priority) const;
   /// the version that refers to flags_.priority

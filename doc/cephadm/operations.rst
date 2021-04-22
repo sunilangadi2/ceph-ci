@@ -330,7 +330,7 @@ To place a keyring under management::
 
 - By default, the *path* will be ``/etc/ceph/client.{entity}.keyring``, which is where
   Ceph looks by default.  Be careful specifying alternate locations as existing files
-  maybe overwritten.
+  may be overwritten.
 - A placement of ``*`` (all hosts) is common.
 - The mode defaults to ``0600`` and ownership to ``0:0`` (user root, group root).
 

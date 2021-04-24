@@ -92,9 +92,9 @@ class Aio {
   virtual AioResultList drain() = 0;
 
   static OpFunc librados_op(librados::ObjectReadOperation&& op,
-                            optional_yield y);
+                            optional_yield y, int flags = 0);
   static OpFunc librados_op(librados::ObjectWriteOperation&& op,
-                            optional_yield y);
+                            optional_yield y, int flags = 0);
 };
 
 } // namespace rgw

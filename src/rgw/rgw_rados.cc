@@ -5550,6 +5550,7 @@ int RGWRados::Object::Stat::stat_async()
   RGWObjectCtx& ctx = source->get_ctx();
   rgw_obj& obj = source->get_obj();
   RGWRados *store = source->get_store();
+  CephContext *cct = store->ctx();
 
   RGWObjState *s = ctx.get_state(obj); /* calling this one directly because otherwise a sync request will be sent */
   result.obj = obj;
@@ -5576,7 +5577,10 @@ int RGWRados::Object::Stat::stat_async()
   op.getxattrs(&result.attrs, NULL);
   state.completion = librados::Rados::aio_create_completion(nullptr, nullptr);
   state.io_ctx.locator_set_key(loc);
-  r = state.io_ctx.aio_operate(oid, state.completion, &op, NULL);
+  r = state.io_ctx.aio_operate(
+      oid, state.completion, &op,
+      cct->_conf->rgw_balanced_read ? librados::OPERATION_BALANCE_READS : 0,
+      NULL);
   if (r < 0) {
     ldout(store->ctx(), 5) << __func__
 						   << ": ERROR: aio_operate() returned ret=" << r
@@ -6439,7 +6443,13 @@ int RGWRados::get_obj_iterate_cb(const rgw_raw_obj& read_obj, off_t obj_ofs,
   const uint64_t cost = len;
   const uint64_t id = obj_ofs; // use logical object offset for sorting replies
 
-  auto completed = d->aio->get(obj, rgw::Aio::librados_op(std::move(op), d->yield), cost, id);
+  auto completed =
+      d->aio->get(obj,
+                  rgw::Aio::librados_op(std::move(op), d->yield,
+                                        cct->_conf->rgw_balanced_read
+                                            ? librados::OPERATION_BALANCE_READS
+                                            : 0),
+                  cost, id);
 
   return d->flush(std::move(completed));
 }
@@ -6538,7 +6548,8 @@ int RGWRados::iterate_obj(const DoutPrefixProvider *dpp, RGWObjectCtx& obj_ctx,
   return 0;
 }
 
-int RGWRados::obj_operate(const RGWBucketInfo& bucket_info, const rgw_obj& obj, ObjectWriteOperation *op)
+int RGWRados::obj_operate(const RGWBucketInfo& bucket_info, const rgw_obj& obj,
+                          ObjectWriteOperation* op, int flags)
 {
   rgw_rados_ref ref;
   int r = get_obj_head_ref(bucket_info, obj, &ref);
@@ -6546,10 +6557,12 @@ int RGWRados::obj_operate(const RGWBucketInfo& bucket_info, const rgw_obj& obj, 
     return r;
   }
 
-  return rgw_rados_operate(ref.pool.ioctx(), ref.obj.oid, op, null_yield);
+  return rgw_rados_operate(ref.pool.ioctx(), ref.obj.oid, op, null_yield,
+                           flags);
 }
 
-int RGWRados::obj_operate(const RGWBucketInfo& bucket_info, const rgw_obj& obj, ObjectReadOperation *op)
+int RGWRados::obj_operate(const RGWBucketInfo& bucket_info, const rgw_obj& obj,
+                          ObjectReadOperation* op, int flags)
 {
   rgw_rados_ref ref;
   int r = get_obj_head_ref(bucket_info, obj, &ref);
@@ -6559,7 +6572,8 @@ int RGWRados::obj_operate(const RGWBucketInfo& bucket_info, const rgw_obj& obj, 
 
   bufferlist outbl;
 
-  return rgw_rados_operate(ref.pool.ioctx(), ref.obj.oid, op, &outbl, null_yield);
+  return rgw_rados_operate(ref.pool.ioctx(), ref.obj.oid, op, &outbl,
+                           null_yield, flags);
 }
 
 int RGWRados::olh_init_modification_impl(const RGWBucketInfo& bucket_info, RGWObjState& state, const rgw_obj& olh_obj, string *op_tag)
@@ -7425,7 +7439,9 @@ int RGWRados::get_olh(const RGWBucketInfo& bucket_info, const rgw_obj& obj, RGWO
   ObjectReadOperation op;
   op.getxattrs(&attrset, NULL);
 
-  int r = obj_operate(bucket_info, obj, &op);
+  int r = obj_operate(
+      bucket_info, obj, &op,
+      cct->_conf->rgw_balanced_read ? librados::OPERATION_BALANCE_READS : 0);
   if (r < 0) {
     return r;
   }

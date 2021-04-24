@@ -4130,8 +4130,11 @@ def command_bootstrap(ctx):
 
     if ctx.output_config == '/etc/ceph/ceph.conf':
         logger.info('Enabling client.admin keyring and conf on hosts with "admin" label')
-        cli(['orch', 'client-keyring', 'set', 'client.admin', 'label:admin'])
-        cli(['orch', 'host', 'label', 'add', get_hostname(), 'admin'])
+        try:
+            cli(['orch', 'client-keyring', 'set', 'client.admin', 'label:admin'])
+            cli(['orch', 'host', 'label', 'add', get_hostname(), 'admin'])
+        except Exception:
+            logger.info('Unable to set up "admin" label; assuming older version of Ceph')
 
     if ctx.apply_spec:
         logger.info('Applying %s to cluster' % ctx.apply_spec)

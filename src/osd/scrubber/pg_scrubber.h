@@ -255,9 +255,13 @@ class PgScrubber : public ScrubPgIF, public ScrubMachineListener {
 
   // managing scrub op registration
 
+  void update_scrub_job(const requested_scrub_t& request_flags) final;
+
   void final_rm_from_osd() final;
 
   void on_primary_change(const requested_scrub_t& request_flags) final;
+
+  void on_maybe_registration_change(const requested_scrub_t& request_flags) final;
 
   void scrub_requested(scrub_level_t scrub_level,
 		       scrub_type_t scrub_type,
@@ -602,8 +606,6 @@ class PgScrubber : public ScrubPgIF, public ScrubMachineListener {
 
   ScrubQueue::sched_params_t
   determine_scrub_time(const requested_scrub_t& request_flags);
-
-  void update_scrub_job(const requested_scrub_t& request_flags);
 
   void unregister_from_osd();
 

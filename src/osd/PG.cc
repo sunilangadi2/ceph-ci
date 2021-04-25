@@ -1530,17 +1530,40 @@ std::optional<requested_scrub_t> PG::verify_scrub_mode() const
   return upd_flags;
 }
 
-void PG::reg_next_scrub()
+/*
+ * Note: on_info_history_change() is used in those two cases where we're not sure
+ * whether the role of the PG was changed, and if so - was this change relayed to the
+ * scrub-queue.
+ *
+ * \todo - fully understand and remove these two cases
+ */
+void PG::on_info_history_change()
 {
-  if (m_scrubber) {
-    m_scrubber->on_primary_change(m_planned_scrub);
+  dout(20) << __func__ << " for a " << (is_primary() ? "Primary" : "replica") <<dendl;
+
+  if (/*is_primary() &&*/ m_scrubber) {
+    m_scrubber->on_maybe_registration_change(m_planned_scrub);
   }
 }
 
-void PG::on_info_history_change()
+void PG::reschedule_scrub()
 {
-  dout(20) << __func__ << dendl;
-  reg_next_scrub();
+  dout(20) << __func__ << " for a " << (is_primary() ? "Primary" : "replica") <<dendl;
+
+  // we are assuming no change in primary status
+  if (is_primary() && m_scrubber) {
+    m_scrubber->update_scrub_job(m_planned_scrub);
+  }
+}
+
+void PG::on_primary_status_change(bool was_primary, bool now_primary)
+{
+  // make sure we have a working scrubber when becoming a primary
+  ceph_assert(m_scrubber || !now_primary);
+
+  if ((was_primary != now_primary) && m_scrubber) {
+    m_scrubber->on_primary_change(m_planned_scrub);
+  }
 }
 
 void PG::scrub_requested(scrub_level_t scrub_level, scrub_type_t scrub_type)

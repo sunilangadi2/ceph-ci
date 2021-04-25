@@ -290,6 +290,16 @@ struct ScrubPgIF {
    */
   virtual void on_primary_change(const requested_scrub_t& request_flags) = 0;
 
+  /**
+   * Recalculate the required scrub time.
+   *
+   * This function assumes that the queue registration status is up-to-date,
+   * i.e. the OSD "knows our name" if-f we are the Primary.
+   */
+  virtual void update_scrub_job(const requested_scrub_t& request_flags) = 0;
+
+  virtual void on_maybe_registration_change(const requested_scrub_t& request_flags) = 0;
+
   // on the replica:
   virtual void handle_scrub_reserve_request(OpRequestRef op) = 0;
   virtual void handle_scrub_reserve_release(OpRequestRef op) = 0;

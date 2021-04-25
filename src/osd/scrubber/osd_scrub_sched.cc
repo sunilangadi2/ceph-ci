@@ -8,14 +8,11 @@
 
 #include "pg_scrubber.h"
 
-// consider partial_sort unless requiring more than one scrub-job
-
 
 #define dout_context (cct)
 #define dout_subsys ceph_subsys_osd
 #undef dout_prefix
 #define dout_prefix *_dout << "osd." << whoami << "  "
-
 
 // ////////////////////////////////////////////////////////////////////////////////// //
 // ScrubJob
@@ -83,7 +80,9 @@ void ScrubQueue::remove_from_osd_queue(ceph::ref_t<ScrubJob> scrub_job)
     auto same_pg = [&target_pg](const auto& jobref) { return jobref->pgid == target_pg; };
 
     // search for this entry in both queues
-    std::lock_guard l(jobs_lock);
+    // std::lock_guard l(jobs_lock);
+    std::unique_lock l(jobs_lock, 100ms);
+    ceph_assert(l.owns_lock());
 
     auto e = std::find_if(to_scrub.begin(), to_scrub.end(), same_pg);
     if (e == to_scrub.end()) {
@@ -99,45 +98,56 @@ void ScrubQueue::remove_from_osd_queue(ceph::ref_t<ScrubJob> scrub_job)
   }
 }
 
-// note: "update" here means "update_or_insert"
+void ScrubQueue::register_with_osd(ceph::ref_t<ScrubJob> scrub_job,
+				   const ScrubQueue::sched_params_t& suggested)
+{
+  // a temporary work-around until I figure why we had to call on_maybe_registration_change()
+  if (scrub_job->m_in_queue) {
+    // must not lock
+    dout(10) << "called while already queued" << dendl;
+    update_scrub_job(scrub_job, suggested);
+    return;
+  }
+
+  std::unique_lock l(jobs_lock, 100ms);
+  ceph_assert(l.owns_lock());
+
+  if (scrub_job->m_in_queue) {
+    // (checked now with the lock held)
+    dout(5) << "already registered!!!" << dendl;
+    scrub_job->m_updated = true;
+    return;
+  }
+
+  // adjust the suggested scrub time according to OSD-wide status
+  auto adjusted = adjust_target_time(suggested);
+  scrub_job->set_time_n_deadline(adjusted);
+
+  to_scrub.push_back(scrub_job);
+  scrub_job->m_in_queue = true;
+  scrub_job->m_updated = true;
+  l.unlock();
+
+  dout(10) << " pg(" << scrub_job->pgid << ") inserted: " << scrub_job->sched_time
+	   << dendl;
+}
+
+// look mommy - no locks!
 void ScrubQueue::update_scrub_job(ceph::ref_t<ScrubJob> scrub_job,
 				  const ScrubQueue::sched_params_t& suggested)
 {
   // adjust the suggested scrub time according to OSD-wide status
   auto adjusted = adjust_target_time(suggested);
   scrub_job->set_time_n_deadline(adjusted);
-  const auto& target_pg = scrub_job->pgid;
-  auto same_pg = [&target_pg](const auto& jobref) { return jobref->pgid == target_pg; };
 
   dout(10) << " pg(" << scrub_job->pgid << ") adjusted: " << scrub_job->sched_time
 	   << " RC " << scrub_job->get_nref() << "  (inQ:" << scrub_job->m_in_queue << ")"
 	   << dendl;
 
   scrub_job->penalty_timeout = utime_t(0, 0);  // helps with debugging
-
-  std::lock_guard l(jobs_lock);
-
-  if (scrub_job->m_in_queue) {
-
-    // is this PG in the regular scrub queue?
-    auto in_q = std::find_if(to_scrub.begin(), to_scrub.end(), same_pg);
-
-    if (in_q == to_scrub.end()) {
-
-      // add the scrub-job to the regular queue
-      to_scrub.push_back(scrub_job);
-
-      // ... and remove from the penalty queue
-      auto p = std::find_if(penalized.begin(), penalized.end(), same_pg);
-      if (p != penalized.end()) { // should always be true
-	penalized.erase(p);
-      }
-    }
-  } else {
-    to_scrub.push_back(scrub_job);
-    scrub_job->m_in_queue = true;
-  }
+  scrub_job->m_updated = true;
 }
+
 
 // used under lock
 void ScrubQueue::move_failed_pgs(utime_t now_is)
@@ -161,6 +171,7 @@ void ScrubQueue::move_failed_pgs(utime_t now_is)
       sjob->penalty_timeout = after;
       //}
       sjob->m_resources_failure = false;
+      sjob->m_updated = false;	// as otherwise will immediately be pardoned
 
       // place in the penalty list, and remove from the to-scrub group
       penalized.push_back(sjob);
@@ -173,9 +184,10 @@ void ScrubQueue::move_failed_pgs(utime_t now_is)
   }
 
   if (debug_cnt) {
-    dout(15) << "punished #" << debug_cnt << dendl;
+    dout(15) << "jobs punished #" << debug_cnt << dendl;
   }
 }
+
 
 Scrub::attempt_t ScrubQueue::select_pg_and_scrub(Scrub::ScrubPreconds& preconds)
 {
@@ -188,36 +200,44 @@ Scrub::attempt_t ScrubQueue::select_pg_and_scrub(Scrub::ScrubPreconds& preconds)
   preconds.load_is_low = scrub_load_below_threshold();
   preconds.only_deadlined = !preconds.time_permit || !preconds.load_is_low;
 
-  std::lock_guard l(jobs_lock);
+  // std::lock_guard l(jobs_lock);
+  std::unique_lock l(jobs_lock, 100ms);
+  ceph_assert(l.owns_lock());
 
-  // pardon all penalized jobs that have deadlined
+  // pardon all penalized jobs that have deadlined (or were updated)
   scan_penalized(restore_penalized, now_is);
+
+  // remove the 'updated' flag from all entries
+  std::for_each(to_scrub.begin(), to_scrub.end(), clear_upd_flag);
 
   // add failed scrub attempts to the penalized list
   move_failed_pgs(now_is);
 
   // try the regular queue first
-  auto res = select_from_group(to_scrub, preconds,  now_is);
+  auto res = select_from_group(to_scrub, preconds, now_is);
 
   // in the sole scenario in which we've gone over all ripe jobs without success - we
   // will try the penalized
   if (res == Scrub::attempt_t::none_ready && !penalized.empty()) {
-    res = select_from_group(penalized, preconds,now_is);
+    res = select_from_group(penalized, preconds, now_is);
     dout(10) << "tried the penalized. Res: " << (int)res << dendl;
     restore_penalized = true;
   }
 
+  dout(15) << dendl;
   return res;
 }
 
+// reminder: 'group' here is either 'to_scrub' or 'penalized'
 Scrub::attempt_t ScrubQueue::select_from_group(ScrubQContainer& group,
 					       const Scrub::ScrubPreconds& preconds,
 					       utime_t now_is)
 {
   dout(15) << dendl;
 
-  auto first_bad = std::partition(group.begin(), group.end(), valid_jobs);
+  auto first_bad = std::partition(group.begin(), group.end(), valid_job);
   group.erase(first_bad, group.end());
+
   std::sort(group.begin(), group.end(), time_indirect_t{});
 
   for (auto jb = group.begin(); jb != group.end(); ++jb) {
@@ -241,33 +261,38 @@ Scrub::attempt_t ScrubQueue::select_from_group(ScrubQContainer& group,
       continue;
     }
 
-    // we have a candidate to scrub. We need some PG information to know if scrubbing is
-    // allowed
+    // we have a candidate to scrub. We turn to the OSD to verify that the PG configuration
+    // allows the specified type of scrub, and to initiate the scrub.
     switch (
       m_osds.initiate_a_scrub(candidate->pgid, preconds.allow_requested_repair_only)) {
 
       case Scrub::attempt_t::scrubbing:
 	// the happy path. We are done
+	dout(20) << " initiated for " << candidate->pgid << dendl;
 	return Scrub::attempt_t::scrubbing;
 
       case Scrub::attempt_t::already_started:
       case Scrub::attempt_t::preconditions:
       case Scrub::attempt_t::pg_state:
 	// continue with the next job
+	dout(20) << " failed (state/cond/started) " << candidate->pgid << dendl;
 	break;
 
       case Scrub::attempt_t::no_pg:
 	// Couldn't lock the pg. Shouldn't really happen
+	dout(20) << " failed (no pg) " << candidate->pgid << dendl;
 	break;
 
       case Scrub::attempt_t::local_resources:
 	// failure to secure local resources. No point in trying the other
 	// PGs at this time. Note that this is not the same as replica resources
 	// failure!
+	dout(20) << " failed (local) " << candidate->pgid << dendl;
 	return Scrub::attempt_t::local_resources;
 
       case Scrub::attempt_t::none_ready:
 	// can't happen. Just for the compiler.
+	dout(20) << " failed !!! " << candidate->pgid << dendl;
 	return Scrub::attempt_t::none_ready;
     }
   }
@@ -349,24 +374,30 @@ bool ScrubQueue::scrub_load_below_threshold() const
   return false;
 }
 
+
 // note: called with jobs_lock held
 void ScrubQueue::scan_penalized(bool forgive_all, utime_t time_now)
 {
   dout(20) << time_now << (forgive_all ? " all " : " - ") << penalized.size() << dendl;
 
+  // clear dead entries
+  penalized.erase(std::remove_if(penalized.begin(), penalized.end(), invalid_job),
+		  penalized.end());
+
   if (forgive_all) {
 
-    std::copy_if(penalized.begin(), penalized.end(), std::back_inserter(to_scrub),
-		 valid_jobs);
+    std::copy(penalized.begin(), penalized.end(), std::back_inserter(to_scrub));
     penalized.clear();
 
   } else {
 
-    auto stays = std::partition(
-      penalized.begin(), penalized.end(),
-      [time_now](const auto& e) { return (*e).penalty_timeout < time_now; });
-    std::copy_if(penalized.begin(), stays, std::back_inserter(to_scrub), valid_jobs);
-    penalized.erase(penalized.begin(), stays);
+    auto forgiven_last =
+      std::partition(penalized.begin(), penalized.end(), [time_now](const auto& e) {
+	return (*e).m_updated || ((*e).penalty_timeout <= time_now);
+      });
+
+    std::copy(penalized.begin(), forgiven_last, std::back_inserter(to_scrub));
+    penalized.erase(penalized.begin(), forgiven_last);
     dout(20) << "penalized after screening: " << penalized.size() << dendl;
   }
 }
@@ -433,11 +464,13 @@ ScrubQueue::ScrubQContainer ScrubQueue::list_all_valid() const
   ScrubQueue::ScrubQContainer all_jobs;
   all_jobs.reserve(to_scrub.size() + penalized.size());
 
-  lock_guard l{jobs_lock};
-  std::copy_if(to_scrub.begin(), to_scrub.end(), std::back_inserter(all_jobs),
-	       valid_jobs);
+  // lock_guard l{jobs_lock};
+  std::unique_lock l(jobs_lock, 100ms);
+  ceph_assert(l.owns_lock());
+
+  std::copy_if(to_scrub.begin(), to_scrub.end(), std::back_inserter(all_jobs), valid_job);
   std::copy_if(penalized.begin(), penalized.end(), std::back_inserter(all_jobs),
-	       valid_jobs);
+	       valid_job);
 
   return all_jobs;
 }

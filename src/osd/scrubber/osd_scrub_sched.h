@@ -8,6 +8,7 @@
 #include <optional>
 #include <set>
 #include <vector>
+#include <atomic>
 
 #include "common/RefCountedObj.h"
 #include "osd/osd_types.h"
@@ -55,10 +56,18 @@ class ScrubQueue {
     /// is in either the 'to_scrub' or the 'penalized' vectors.
     bool m_in_queue{false};
 
-    bool m_being_removed{false};  ///< set to allow safe removal of the ref'ed PG
+    bool m_pg_being_removed{false};  ///< set to allow safe removal of the ref'ed PG
 
     // last scrub attempt failed in securing replica resources
     bool m_resources_failure{false};
+    //std::atomic_bool m_resources_failure{false};
+
+    /// m_updated is a temporary flag, used to create a barrier after sched_time
+    /// and 'deadline', and possibly other job entries, were modified by a possibly
+    /// different task.
+    /// m_updated also signals the need to move a job back from the penalized to the
+    /// regular queue.
+    std::atomic_bool m_updated{false};
 
     utime_t penalty_timeout{0, 0};
 
@@ -84,6 +93,17 @@ class ScrubQueue {
   using ScrubJobRef = ceph::ref_t<ScrubJob>;
   using ScrubQContainer = std::vector<ceph::ref_t<ScrubJob>>;
 
+  /**
+   * called periodically by the OSD to select the first scrub-eligible PG
+   * and scrub it.
+   *
+   * \todo complete notes re order of selection
+   *
+   * @param preconds
+   * @return
+   *
+   * locking: locks jobs_lock
+   */
   Scrub::attempt_t select_pg_and_scrub(Scrub::ScrubPreconds& preconds);
 
   /**
@@ -106,6 +126,44 @@ class ScrubQueue {
   };
 
   /**
+   * add to the OSD's to_scrub queue
+   *
+   * Pre-conds:
+   * - m_in_queue is checked to be false. The insertion is rejected otherwise
+   *   (note comment in re why the locking scheme prevents this interface from
+   *   being used as insert-or-update);
+   * - m_pg_being_removed is false;
+   * -
+   *
+   * locking: locks job_lock
+   */
+  void register_with_osd(ceph::ref_t<ScrubJob> sjob, const sched_params_t& suggested);
+
+  /**
+   * modify the scrub-job of a specific PG
+   *
+   * The (possibly modified) scrub-job is added to the list of PGs to be periodically
+   * scrubbed by the OSD.
+   * The registration is active as long as the PG exists and the OSD is its primary.
+   *
+   * There are 3 argument combinations to consider:
+   * - 'must' is asserted, and the suggested time is 'scrub_must_stamp':
+   *   the registration will be with "beginning of time" target, making the
+   *   PG eligible to immediate scrub (given that external conditions do not
+   *   prevent scrubbing)
+   *
+   * - 'must' is asserted, and the suggested time is 'now':
+   *   This happens if our stats are unknown. The results is similar to the previous
+   *   scenario.
+   *
+   * - not a 'must': we take the suggested time as a basis, and add to it some
+   *   configuration / random delays.
+   *
+   *   locking: not using the jobs_lock
+   */
+  void update_scrub_job(ceph::ref_t<ScrubJob> sjob, const sched_params_t& suggested);
+
+  /**
    * Add/modify the scrub-job of a specific PG
    *
    * The (possibly modified) scrub-job is added to the list of PGs to be periodically
@@ -125,7 +183,7 @@ class ScrubQueue {
    * - not a 'must': we take the suggested time as a basis, and add to it some
    *   configuration / random delays.
    */
-  void update_scrub_job(ceph::ref_t<ScrubJob> sjob, const sched_params_t& suggested);
+  //void update_scrub_job(ceph::ref_t<ScrubJob> sjob, const sched_params_t& suggested);
 
  private:
   /**
@@ -169,7 +227,9 @@ class ScrubQueue {
   mutable ceph::mutex resource_lock = ceph::make_mutex("ScrubQueue::resource_lock");
 
   /// job queues lock
-  mutable ceph::mutex jobs_lock = ceph::make_mutex("ScrubQueue::jobs_lock");
+  //mutable ceph::mutex jobs_lock = ceph::make_mutex("ScrubQueue::jobs_lock");
+  mutable std::timed_mutex jobs_lock; // = ceph::make_mutex("ScrubQueue::jobs_lock");
+
 
   ScrubQContainer to_scrub;   ///< scrub-jobs (i.e. PGs) to scrub
   ScrubQContainer penalized;  ///< those that failed to reserve resources
@@ -182,15 +242,15 @@ class ScrubQueue {
   struct sched_order_t {
     bool operator()(const ScrubJob& lhs, const ScrubJob& rhs) const
     {
-      if (!lhs.m_being_removed) {
+      if (!lhs.m_pg_being_removed) {
 
-	if (rhs.m_being_removed)
+	if (rhs.m_pg_being_removed)
 	  return true;
 
 	return lhs.sched_time < rhs.sched_time;
 
       } else {
-	return rhs.m_being_removed;
+	return rhs.m_pg_being_removed;
       }
     }
   };
@@ -218,8 +278,16 @@ class ScrubQueue {
     }
   };
 
-  static inline constexpr auto valid_jobs = [](const auto& jobref) {
-    return !jobref->m_being_removed;
+  static inline constexpr auto valid_job = [](const auto& jobref) {
+    return !jobref->m_pg_being_removed;
+  };
+
+  static inline constexpr auto invalid_job = [](const auto& jobref) {
+    return jobref->m_pg_being_removed;
+  };
+
+  static inline constexpr auto clear_upd_flag = [](const auto& jobref) -> void {
+    jobref->m_updated = false;
   };
 
   // the counters used to manage scrub activity parallelism:
@@ -241,6 +309,11 @@ class ScrubQueue {
    */
   TimeAndDeadline adjust_target_time(const sched_params_t& recomputed_params) const;
 
+  /**
+   *
+   *
+   * locking: called with job_lock held
+   */
   void move_failed_pgs(utime_t now_is);
 
   Scrub::attempt_t select_from_group(ScrubQContainer& group,

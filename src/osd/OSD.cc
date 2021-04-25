@@ -7400,7 +7400,7 @@ void OSD::sched_scrub()
 	       << sj->m_in_queue << "/ n: " << sj->get_nref()
 	       << " / f: " << sj->m_resources_failure
 	       << " / pen.to: " << sj->penalty_timeout
-	       << " / rmed: " << sj->m_being_removed << dendl;
+	       << " / rmed: " << sj->m_pg_being_removed << dendl;
     }
   }
 
@@ -7458,7 +7458,7 @@ void OSD::resched_all_scrubs()
 
     if (!pg->m_planned_scrub.must_scrub && !pg->m_planned_scrub.need_auto) {
       dout(15) << __func__ << ": reschedule " << job.pgid << dendl;
-      pg->on_info_history_change();
+      pg->reschedule_scrub();
     }
     pg->unlock();
   }

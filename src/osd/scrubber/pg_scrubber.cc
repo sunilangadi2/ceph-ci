@@ -448,9 +448,7 @@ bool PgScrubber::is_scrub_registered() const
 void PgScrubber::final_rm_from_osd()
 {
   // make sure the OSD won't try to scrub this one just now
-  // RRR consider atomic flag here
-  m_scrub_job->m_being_removed = true;
-  m_osds->get_scrub_services().remove_from_osd_queue(m_scrub_job);
+  m_scrub_job->m_pg_being_removed = true;
 }
 
 void PgScrubber::on_primary_change(const requested_scrub_t& request_flags)
@@ -458,26 +456,72 @@ void PgScrubber::on_primary_change(const requested_scrub_t& request_flags)
   dout(10) << __func__ << (is_primary() ? " Primary " : " Replica ")
   		<< " flags: " << request_flags << dendl;
 
+  if (!m_scrub_job) {
+    return;
+  }
+
+  if (m_scrub_job->m_pg_being_removed) {
+    return;
+  }
+
   if (is_primary()) {
-    // wrong to check, as this same function is used for reg_next_scrub()
-    // if (!is_scrub_registered()) {
-      update_scrub_job(request_flags);
-    //}
+    auto suggested =  determine_scrub_time(request_flags);
+    m_osds->get_scrub_services().register_with_osd(m_scrub_job, suggested);
   } else {
     unregister_from_osd();
   }
+
+  dout(11) << __func__ << " done " << is_scrub_registered() << dendl;
+}
+
+void PgScrubber::on_maybe_registration_change(const requested_scrub_t& request_flags)
+{
+  dout(10) << __func__ << (is_primary() ? " Primary " : " Replica ")
+  	   << (is_scrub_registered() ? " in-q" : " not-in-q")
+	   << " flags: " << request_flags << dendl;
+
+  if (!m_scrub_job) {
+    return;
+  }
+
+  if (is_primary()) {
+
+    if (m_scrub_job->m_in_queue) {
+      // already registered
+      auto suggested = determine_scrub_time(request_flags);
+      m_osds->get_scrub_services().update_scrub_job(m_scrub_job, suggested);
+    } else {
+      on_primary_change(request_flags);
+    }
+  } else {
+    unregister_from_osd();
+  }
+
+  dout(11) << __func__ << " done " << is_scrub_registered() << dendl;
 }
 
 void PgScrubber::update_scrub_job(const requested_scrub_t& request_flags)
 {
   dout(10) << __func__ << " flags: " << request_flags << dendl;
 
+  {
+    // testing:
+    // verify that the 'in_q' status matches our Primariority
+    if (m_scrub_job) {
+      if (is_primary() ^ m_scrub_job->m_in_queue) {
+	dout(1) << __func__ << " !!!!!!!!!!!!!!!!! primary vs in_q "
+		<< (is_primary() ? "Primary" : "Replica")<< dendl;
+      }
+    }
+  }
+
   if (is_primary()) {
-    if (m_scrub_job && !m_scrub_job->m_being_removed) {
-      auto suggested =  determine_scrub_time(request_flags);
+    if (m_scrub_job && !m_scrub_job->m_pg_being_removed) {
+      auto suggested = determine_scrub_time(request_flags);
       m_osds->get_scrub_services().update_scrub_job(m_scrub_job, suggested);
     }
   }
+  dout(10) << __func__ << " done" << dendl;
 }
 
 ScrubQueue::sched_params_t
@@ -509,6 +553,10 @@ PgScrubber::determine_scrub_time(const requested_scrub_t& request_flags)
       m_pg->get_pool().info.opts.value_or(pool_opts_t::SCRUB_MAX_INTERVAL, 0.0);
   }
 
+  dout(15) << __func__ << " suggested: " << res.suggested_stamp << " hist: "
+    << m_pg->info.history.last_scrub_stamp << " v:" << m_pg->info.stats.stats_invalid
+    << " / " << m_pg->cct->_conf->osd_scrub_invalid_stats << " must:"
+	   << (res.is_must==ScrubQueue::must_scrub_t::mandatory ? "y" : "n" )<< dendl;
   return res;
 }
 
@@ -1886,7 +1934,7 @@ PgScrubber::~PgScrubber()
   if (m_scrub_job) {
     // make sure the OSD won't try to scrub this one just now
     // RRR consider atomic flag here
-    m_scrub_job->m_being_removed = true;
+    m_scrub_job->m_pg_being_removed = true;
 
     final_rm_from_osd();
     //m_scrub_job.reset();

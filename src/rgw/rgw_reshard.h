@@ -259,4 +259,8 @@ public:
   void stop();
 };
 
+int bilog_trim(const DoutPrefixProvider* p, rgw::sal::RadosStore* store,
+	       RGWBucketInfo& bucket_info, uint64_t gen, int shard_id,
+	       std::string_view start_marker, std::string_view end_marker);
+
 #endif

@@ -435,14 +435,16 @@ class BucketTrimInstanceCR : public RGWCoroutine {
   std::shared_ptr<rgw_bucket_get_sync_policy_result> source_policy;
   rgw_bucket bucket;
   const std::string& zone_id; //< my zone id
-  RGWBucketInfo _bucket_info; 
+  RGWBucketInfo _bucket_info;
   const RGWBucketInfo *pbucket_info; //< pointer to bucket instance info to locate bucket indices
   int child_ret = 0;
+  uint64_t generation;
   const DoutPrefixProvider *dpp;
 
   using StatusShards = std::vector<rgw_bucket_shard_sync_info>;
   std::vector<StatusShards> peer_status; //< sync status for each peer
   std::vector<std::string> min_markers; //< min marker per shard
+  std::string gen_str = std::to_string(generation);
 
  public:
   BucketTrimInstanceCR(rgw::sal::RadosStore* store, RGWHTTPManager *http,
@@ -453,6 +455,8 @@ class BucketTrimInstanceCR : public RGWCoroutine {
       http(http), observer(observer),
       bucket_instance(bucket_instance),
       zone_id(store->svc()->zone->get_zone().id),
+#warning Get this from somewhere?
+      generation(0),
       dpp(dpp) {
     rgw_bucket_parse_bucket_key(cct, bucket_instance, &bucket, nullptr);
     source_policy = make_shared<rgw_bucket_get_sync_policy_result>();
@@ -519,7 +523,8 @@ int BucketTrimInstanceCR::operate(const DoutPrefixProvider *dpp)
           { "bucket", bucket_instance.c_str() }, /* equal to source-bucket when `options==merge` and source-bucket
                                                     param is not provided */
           { "source-zone", zone_id.c_str() },
-          { nullptr, nullptr }
+	  { "generation", gen_str.c_str() },
+	  { nullptr, nullptr }
         };
 
         auto ziter = zone_conn_map.find(zid);

@@ -11,6 +11,7 @@
 #include "rgw_sal_rados.h"
 #include "cls/rgw/cls_rgw_client.h"
 #include "cls/lock/cls_lock_client.h"
+#include "services/svc_bilog_rados.h"
 #include "common/errno.h"
 #include "common/ceph_json.h"
 
@@ -1208,4 +1209,77 @@ unsigned RGWReshard::ReshardWorker::get_subsys() const
 std::ostream& RGWReshard::ReshardWorker::gen_prefix(std::ostream& out) const
 {
   return out << "rgw reshard worker thread: ";
+}
+
+int bilog_trim(const DoutPrefixProvider* p, rgw::sal::RadosStore* store,
+	       RGWBucketInfo& bucket_info, uint64_t gen, int shard_id,
+	       std::string_view start_marker, std::string_view end_marker)
+{
+  auto& logs = bucket_info.layout.logs;
+  auto log = std::find_if(logs.begin(), logs.end(), rgw::matches_gen(gen));
+  if (log == logs.end()) {
+    ldpp_dout(p, 5) << __PRETTY_FUNCTION__ << ":" << __LINE__
+		    << "ERROR: no log layout with gen=" << gen << dendl;
+    return -ENOENT;
+  }
+
+  auto log_layout = *log; // current log layout for log listing
+
+  auto r = static_cast<rgw::sal::RadosStore*>(store)->svc()->bilog_rados
+    ->log_trim(p, bucket_info, log_layout, shard_id, start_marker, end_marker);
+  if (r < 0) {
+    ldpp_dout(p, 5) << __PRETTY_FUNCTION__ << ":" << __LINE__
+		    << "ERROR: bilog_rados->log_trim returned r=" << r << dendl;
+    return r;
+  }
+
+  // Do not delete the only generation
+
+  if (logs.size() == 1) {
+    return 0;
+  }
+
+  // Check for emptiness
+
+  std::list<rgw_bi_log_entry> l;
+  bool truncated = false;
+  std::string empty;
+  r = store->svc()->bilog_rados->log_list(p, bucket_info, log_layout, shard_id,
+					  empty, 1, l, &truncated);
+  if (r < 0) {
+    ldpp_dout(p, 5) << __PRETTY_FUNCTION__ << ":" << __LINE__
+		    << "ERROR: bilog_rados->log_list returned r=" << r << dendl;
+  }
+  if (truncated || !l.empty()) {
+    return 0;
+  }
+
+
+  // Delete the empty generation
+
+  logs.erase(log);
+  r = store->getRados()->put_bucket_instance_info(bucket_info, false, {},
+						  nullptr, p);
+  if (r < 0) {
+    ldpp_dout(p, 5) << __PRETTY_FUNCTION__ << ":" << __LINE__
+		    << "ERROR: put_bucket_instance_info returned r="
+		    << r << dendl;
+    return r;
+  }
+
+  // XXX What is the right way to get the
+  // bucket_index_layout_generation for an older generation?
+  rgw::bucket_index_layout_generation i;
+  i = bucket_info.layout.current_index;
+  i.gen = log_layout.layout.in_index.gen;
+  i.layout.normal = log_layout.layout.in_index.layout;
+
+  r = store->svc()->bi->clean_index(p, bucket_info, i);
+  if (r < 0) {
+    ldpp_dout(p, 5) << __PRETTY_FUNCTION__ << ":" << __LINE__
+		    << "ERROR: bi->clean_index returned r="
+		    << r << dendl;
+
+  }
+  return 0;
 }

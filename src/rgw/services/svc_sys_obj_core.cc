@@ -135,7 +135,9 @@ int RGWSI_SysObj_Core::raw_stat(const rgw_raw_obj& obj, uint64_t *psize, real_ti
     op.read(0, cct->_conf->rgw_max_chunk_size, first_chunk, nullptr);
   }
   bufferlist outbl;
-  r = rados_obj.operate(&op, &outbl, y);
+  r = rados_obj.operate(
+      &op, &outbl, y,
+      cct->_conf->rgw_balanced_read ? librados::OPERATION_BALANCE_READS : 0);
 
   if (epoch) {
     *epoch = rados_obj.get_last_version();
@@ -239,7 +241,9 @@ int RGWSI_SysObj_Core::read(RGWSysObjectCtxBase& obj_ctx,
     ldout(cct, 20) << "get_rados_obj() on obj=" << obj << " returned " << r << dendl;
     return r;
   }
-  r = rados_obj.operate(&op, nullptr, y);
+  r = rados_obj.operate(
+      &op, nullptr, y,
+      cct->_conf->rgw_balanced_read ? librados::OPERATION_BALANCE_READS : 0);
   if (r < 0) {
     ldout(cct, 20) << "rados_obj.operate() r=" << r << " bl.length=" << bl->length() << dendl;
     return r;
@@ -286,8 +290,10 @@ int RGWSI_SysObj_Core::get_attr(const rgw_raw_obj& obj,
 
   int rval;
   op.getxattr(name, dest, &rval);
-  
-  r = rados_obj.operate(&op, nullptr, y);
+
+  r = rados_obj.operate(
+      &op, nullptr, y,
+      cct->_conf->rgw_balanced_read ? librados::OPERATION_BALANCE_READS : 0);
   if (r < 0)
     return r;
 
@@ -369,8 +375,10 @@ int RGWSI_SysObj_Core::omap_get_vals(const rgw_raw_obj& obj,
     std::map<string, bufferlist> t;
     int rval;
     op.omap_get_vals2(start_after, count, &t, &more, &rval);
-  
-    r = rados_obj.operate(&op, nullptr, y);
+
+    r = rados_obj.operate(
+        &op, nullptr, y,
+        cct->_conf->rgw_balanced_read ? librados::OPERATION_BALANCE_READS : 0);
     if (r < 0) {
       return r;
     }
@@ -410,8 +418,10 @@ int RGWSI_SysObj_Core::omap_get_all(const rgw_raw_obj& obj,
     std::map<string, bufferlist> t;
     int rval;
     op.omap_get_vals2(start_after, count, &t, &more, &rval);
-  
-    r = rados_obj.operate(&op, nullptr, y);
+
+    r = rados_obj.operate(
+        &op, nullptr, y,
+        cct->_conf->rgw_balanced_read ? librados::OPERATION_BALANCE_READS : 0);
     if (r < 0) {
       return r;
     }

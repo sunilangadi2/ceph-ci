@@ -433,7 +433,9 @@ auto logback_generations::read(optional_yield y) noexcept ->
     cls_version_read(op, &v2);
     cb::list bl;
     op.read(0, 0, &bl, nullptr);
-    auto r = rgw_rados_operate(ioctx, oid, &op, nullptr, y);
+    auto r = rgw_rados_operate(
+        ioctx, oid, &op, nullptr, y,
+        cct->_conf->rgw_balanced_read ? librados::OPERATION_BALANCE_READS : 0);
     if (r < 0) {
       if (r == -ENOENT) {
 	ldout(cct, 5) << __PRETTY_FUNCTION__ << ":" << __LINE__

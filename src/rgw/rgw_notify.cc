@@ -85,7 +85,10 @@ class Manager : public DoutPrefixProvider {
       librados::ObjectReadOperation op;
       queues_t queues_chunk;
       op.omap_get_keys2(start_after, max_chunk, &queues_chunk, &more, &rval);
-      const auto ret = rgw_rados_operate(rados_ioctx, Q_LIST_OBJECT_NAME, &op, nullptr, y);
+      const auto ret = rgw_rados_operate(
+          rados_ioctx, Q_LIST_OBJECT_NAME, &op, nullptr, y,
+          cct->_conf->rgw_balanced_read ? librados::OPERATION_BALANCE_READS
+                                        : 0);
       if (ret == -ENOENT) {
         // queue list object was not created - nothing to do
         return 0;

@@ -7957,11 +7957,16 @@ int BlueStore::read_allocation_from_onodes(Allocator* allocator, read_alloc_stat
   spg_t               pgid;
   BlueStore::OnodeRef onode_ref;
   bool                has_open_onode = false;
-  int                 shard_id = 0;
-
+  int                 shard_id       = 0;
+  uint32_t            obj_count      = 0;
+  uint32_t            count_interval = 1'000'000;
   // iterate over all ONodes stored in RocksDB 
-  for (it->lower_bound(string()); it->valid(); it->next()) {
-
+  for (it->lower_bound(string()); it->valid(); it->next(), obj_count++) {
+    // trace an even after every million processed objects (typically every 5-10 seconds)
+    if ( obj_count && (obj_count % count_interval == 0) ) {
+        dout(1) << "::NCB::processed objects count = " << obj_count << dendl;
+    }
+    
     // add the extents from the shards to the main Obj
     if (is_extent_shard_key(it->key())) {
       onode_ref->extent_map.add_shard_info_to_onode(it->value(), shard_id);
@@ -7985,7 +7990,7 @@ int BlueStore::read_allocation_from_onodes(Allocator* allocator, read_alloc_stat
     ghobject_t oid;
     int ret = get_key_object(it->key(), &oid);
     if (ret < 0) {
-      derr << __func__ << "::NCB::fsck error: bad object key " << pretty_binary_string(it->key()) << dendl;
+      derr << __func__ << "::NCB::bad object key " << pretty_binary_string(it->key()) << dendl;
       continue;
     }
 
@@ -8007,7 +8012,7 @@ int BlueStore::read_allocation_from_onodes(Allocator* allocator, read_alloc_stat
       }
 	
       if (!collection_ref) {
-	derr << __func__ << "::NCB::fsck error: stray object " << oid << " not owned by any collection" << dendl;
+	derr << __func__ << "::NCB::stray object " << oid << " not owned by any collection" << dendl;
 	continue;
       }
 
@@ -8023,37 +8028,7 @@ int BlueStore::read_allocation_from_onodes(Allocator* allocator, read_alloc_stat
     read_allocation_from_single_onode(allocator, onode_ref, stats);
   }
   dout(1) << __func__ << "::NCB::onode_count=" << stats.onode_count << " ,shard_count=" << stats.shard_count << dendl;
-  return 0;
-}
 
-//---------------------------------------------------------
-int BlueStore::add_existing_bluefs_allocation(Allocator* allocator, read_alloc_stats_t &stats)
-{
-  // first add space used by superblock
-  auto super_length = std::max<uint64_t>(min_alloc_size, SUPER_RESERVED);
-  dout(1) << __func__ << "::NCB::init_rm_free(0, " << super_length << ")" << dendl;
-  allocator->init_rm_free(0, super_length);
-  stats.extent_count++;
-  
-  // then add space used by bluefs to store rocksdb
-  unsigned extent_count = 0;   
-  if (bluefs) {
-    interval_set<uint64_t> bluefs_extents;
-    int ret = bluefs->get_block_extents(bluefs_layout.shared_bdev, &bluefs_extents);
-    if (ret < 0) {
-      return ret;
-    }
-    for (auto itr = bluefs_extents.begin(); itr != bluefs_extents.end(); extent_count++, itr++) {
-      //dout(1) << "::NCB::BlueFS[" << extent_count << "] <" << itr.get_start() << "," << itr.get_len() << ">" << dendl;
-      allocator->init_rm_free(itr.get_start(), itr.get_len());
-      stats.extent_count++;
-    }
-  }
-
-
-
-
-  dout(1) << __func__ << "::NCB::bluefs extent_count=" << extent_count << dendl;
   return 0;
 }
 
@@ -8068,15 +8043,15 @@ int BlueStore::reconstruct_allocations(Allocator* allocator, read_alloc_stats_t 
     dout(1) << __func__ << "::NCB::init_add_free(0, " << bdev_size << ")" << dendl;
     allocator->init_add_free(0, bdev_size);
 
-    // first add allocation space used by the bluefs itself
-    int ret = add_existing_bluefs_allocation(allocator, stats);
-    if (ret < 0) {
-      return ret;
-    }
+    // first add space used by superblock
+    auto super_length = std::max<uint64_t>(min_alloc_size, SUPER_RESERVED);
+    dout(1) << __func__ << "::NCB::init_rm_free(0, " << super_length << ")" << dendl;
+    allocator->init_rm_free(0, super_length);
+    stats.extent_count++;
 
     dout(1) << __func__ << "::NCB::calling read_allocation_from_onodes()" << dendl;
     // then add all space taken by Objects
-    ret = read_allocation_from_onodes(allocator, stats);
+    int ret = read_allocation_from_onodes(allocator, stats);
     if (ret < 0) {
       derr << __func__ << "::NCB::failed read_allocation_from_onodes()" << dendl;
       return ret;
@@ -8124,9 +8099,11 @@ int BlueStore::read_allocation_from_drive_on_startup()
   utime_t duration = ceph_clock_now() - start;
   dout(1) << __func__ << "::NCB:: <<<FINISH>>> in " << duration << " seconds, num_entries=" << num_entries << dendl;
   dout(1) << "NCB::num_entries=" << num_entries << ", extent_count=" << stats.extent_count << dendl;  
-  dout(1) << __func__ << "::NCB calling store_allocator(shared_alloc.a)" << dendl;  
-  store_allocator(shared_alloc.a);
-  dout(5) << stats << dendl;
+  //dout(1) << __func__ << "::NCB calling store_allocator(shared_alloc.a)" << dendl;  
+  //store_allocator(shared_alloc.a);
+  //dout(5) << stats << dendl;
+
+  dout(1) << __func__ << "::NCB::Allocation Recovery was completed" << dendl;
   return ret;
 }
 
@@ -8239,6 +8216,28 @@ int BlueStore::compare_allocators(Allocator* alloc1, Allocator* alloc2, uint64_t
 }
 
 //---------------------------------------------------------
+int BlueStore::add_existing_bluefs_allocation(Allocator* allocator, read_alloc_stats_t &stats)
+{  
+  // then add space used by bluefs to store rocksdb
+  unsigned extent_count = 0;   
+  if (bluefs) {
+    interval_set<uint64_t> bluefs_extents;
+    int ret = bluefs->get_block_extents(bluefs_layout.shared_bdev, &bluefs_extents);
+    if (ret < 0) {
+      return ret;
+    }
+    for (auto itr = bluefs_extents.begin(); itr != bluefs_extents.end(); extent_count++, itr++) {
+      //dout(1) << "::NCB::BlueFS[" << extent_count << "] <" << itr.get_start() << "," << itr.get_len() << ">" << dendl;
+      allocator->init_rm_free(itr.get_start(), itr.get_len());
+      stats.extent_count++;
+    }
+  }
+
+  dout(1) << __func__ << "::NCB::bluefs extent_count=" << extent_count << dendl;
+  return 0;
+}
+
+//---------------------------------------------------------
 int BlueStore::read_allocation_from_drive_for_bluestore_tool(bool test_store_and_restore)
 {
   dout(1) << __func__ << "::NCB::test_store_and_restore=" << test_store_and_restore << dendl;
@@ -8270,12 +8269,19 @@ int BlueStore::read_allocation_from_drive_for_bluestore_tool(bool test_store_and
   else {
     return -1;
   }
-  dout(1) << __func__ << "::NCB calling reconstruct_allocations()" << dendl;
+  dout(1) << __func__ << "::NCB calling reconstruct_allocations()" << dendl;  
   utime_t    start = ceph_clock_now();
   ret = reconstruct_allocations(allocator, stats);
   if (ret != 0) {
     _close_db_and_around(false); return ret;
   }
+
+  // add allocation space used by the bluefs itself
+  ret = add_existing_bluefs_allocation(allocator, stats);
+  if (ret < 0) {
+    _close_db_and_around(false); return ret;
+  }
+
   utime_t duration = ceph_clock_now() - start;
   stats.insert_count = 0;
   auto count_entries = [&](uint64_t extent_offset, uint64_t extent_length) {
@@ -8324,7 +8330,9 @@ int BlueStore::read_allocation_from_drive_for_bluestore_tool(bool test_store_and
     }
   }
 
+  std::cout << "<<<FINISH>>> in " << duration << " seconds; insert_count=" << stats.insert_count << "\n\n" << dendl;
   std::cout << stats << std::endl;
+
   //out_db:
   delete allocator;
   _shutdown_cache();

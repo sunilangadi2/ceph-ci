@@ -5958,7 +5958,7 @@ void RGWCompleteMultipart::execute(optional_yield y)
   op_ret = serializer->try_lock(this, dur, y);
   if (op_ret < 0) {
     ldpp_dout(this, 0) << "failed to acquire lock" << dendl;
-    if (op_ret == -ENOENT && check_previously_completed(this, parts)) {
+    if (op_ret == -ENOENT && check_previously_completed(parts)) {
       ldpp_dout(this, 1) << "NOTICE: This multipart completion is already completed" << dendl;
       op_ret = 0;
       return;
@@ -6146,13 +6146,13 @@ void RGWCompleteMultipart::execute(optional_yield y)
   }
 }
 
-bool RGWCompleteMultipart::check_previously_completed(const DoutPrefixProvider* dpp, const RGWMultiCompleteUpload* parts)
+bool RGWCompleteMultipart::check_previously_completed(const RGWMultiCompleteUpload* parts)
 {
   // re-calculate the etag from the parts and compare to the existing object
   s->object->set_bucket(s->bucket.get());
   int ret = s->object->get_obj_attrs(s->obj_ctx, s->yield, this);
   if (ret < 0) {
-    ldpp_dout(dpp, 0) << __func__ << "() ERROR: get_obj_attrs() returned ret=" << ret << dendl;
+    ldpp_dout(this, 0) << __func__ << "() ERROR: get_obj_attrs() returned ret=" << ret << dendl;
     return false;
   }
   rgw::sal::Attrs sattrs = s->object->get_attrs();
@@ -6164,7 +6164,7 @@ bool RGWCompleteMultipart::check_previously_completed(const DoutPrefixProvider* 
     char petag[CEPH_CRYPTO_MD5_DIGESTSIZE];
     hex_to_buf(partetag.c_str(), petag, CEPH_CRYPTO_MD5_DIGESTSIZE);
     hash.Update((const unsigned char *)petag, sizeof(petag));
-    ldpp_dout(dpp, 20) << __func__ << "() re-calculating multipart etag: part: "
+    ldpp_dout(this, 20) << __func__ << "() re-calculating multipart etag: part: "
                                    << index << ", etag: " << partetag << dendl;
   }
 
@@ -6176,11 +6176,11 @@ bool RGWCompleteMultipart::check_previously_completed(const DoutPrefixProvider* 
            "-%lld", (long long)parts->parts.size());
 
   if (oetag.compare(final_etag_str) != 0) {
-    ldpp_dout(dpp, 1) << __func__ << "() NOTICE: etag mismatch: object etag:"
+    ldpp_dout(this, 1) << __func__ << "() NOTICE: etag mismatch: object etag:"
                                   << oetag << ", re-calculated etag:" << final_etag_str << dendl;
     return false;
   }
-  ldpp_dout(dpp, 5) << __func__ << "() object etag and re-calculated etag match, etag: " << oetag << dendl;
+  ldpp_dout(this, 5) << __func__ << "() object etag and re-calculated etag match, etag: " << oetag << dendl;
   return true;
 }
 

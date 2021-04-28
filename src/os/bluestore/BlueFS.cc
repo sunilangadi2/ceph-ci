@@ -2814,11 +2814,13 @@ int BlueFS::_flush_range(FileWriter *h, uint64_t offset, uint64_t length)
     uint64_t x_len = std::min(p->length - x_off, length);
     bufferlist t;
     t.substr_of(bl, bloff, x_len);
+    //(reverse PR 34109 (Optimizing the lock of bluestore writing process) which led to a deadlock)
     if (cct->_conf->bluefs_sync_write) {
       bdev[p->bdev]->write(p->offset + x_off, t, buffered, h->write_hint);
     } else {
       bdev[p->bdev]->aio_write(p->offset + x_off, t, h->iocv[p->bdev], buffered, h->write_hint);
     }
+    //(reverse PR 34109 (Optimizing the lock of bluestore writing process) which led to a deadlock)
     h->dirty_devs[p->bdev] = true;
     if (p->bdev == BDEV_SLOW) {
       bytes_written_slow += t.length();

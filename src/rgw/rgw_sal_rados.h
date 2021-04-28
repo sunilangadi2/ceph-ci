@@ -300,7 +300,7 @@ class RadosBucket : public Bucket {
 				 std::map<RGWObjCategory, RGWStorageStats>& stats,
 				 std::string* max_marker = nullptr,
 				 bool* syncstopped = nullptr) override;
-    virtual int get_bucket_stats_async(int shard_id, RGWGetBucketStats_CB* ctx) override;
+    virtual int get_bucket_stats_async(const DoutPrefixProvider *dpp, int shard_id, RGWGetBucketStats_CB* ctx) override;
     virtual int read_bucket_stats(const DoutPrefixProvider* dpp, optional_yield y) override;
     virtual int sync_user_stats(const DoutPrefixProvider *dpp, optional_yield y) override;
     virtual int update_container_stats(const DoutPrefixProvider* dpp) override;
@@ -537,7 +537,7 @@ class RadosNotification : public Notification {
   rgw::notify::reservation_t res;
 
   public:
-    RadosNotification(RadosStore* _store, Object* _obj, req_state* _s, rgw::notify::EventType _type) : Notification(_obj, _type), store(_store), res(_store, _s, _obj) { }
+    RadosNotification(const DoutPrefixProvider *_dpp, RadosStore* _store, Object* _obj, req_state* _s, rgw::notify::EventType _type) : Notification(_obj, _type), store(_store), res(_dpp, _store, _s, _obj) { }
     ~RadosNotification() = default;
 
     virtual int publish_reserve(const DoutPrefixProvider *dpp, RGWObjTags* obj_tags = nullptr) override;

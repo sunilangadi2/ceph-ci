@@ -7690,7 +7690,7 @@ next:
     }
 
     auto num_shards = g_conf()->rgw_md_log_max_shards;
-    ret = crs.run(create_admin_meta_log_trim_cr(dpp(), static_cast<rgw::sal::RadosStore*>(store), &http, num_shards));
+    ret = crs.run(dpp(), create_admin_meta_log_trim_cr(dpp(), static_cast<rgw::sal::RadosStore*>(store), &http, num_shards));
     if (ret < 0) {
       cerr << "automated mdlog trim failed with " << cpp_strerror(ret) << std::endl;
       return -ret;

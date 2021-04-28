@@ -884,7 +884,7 @@ std::unique_ptr<Notification> RadosStore::get_notification(rgw::sal::Object* obj
 							    struct req_state* s,
 							    rgw::notify::EventType event_type)
 {
-  return std::unique_ptr<Notification>(new RadosNotification(this, obj, s, event_type));
+  return std::unique_ptr<Notification>(new RadosNotification(s, this, obj, s, event_type));
 }
 
 std::unique_ptr<GCChain> RadosStore::get_gc_chain(rgw::sal::Object* obj)
@@ -998,9 +998,9 @@ int RadosStore::get_config_key_val(std::string name, bufferlist* bl)
   return svc()->config_key->get(name, true, bl);
 }
 
-int RadosStore::meta_list_keys_init(const std::string& section, const std::string& marker, void** phandle)
+int RadosStore::meta_list_keys_init(const DoutPrefixProvider *dpp, const std::string& section, const std::string& marker, void** phandle)
 {
-  return ctl()->meta.mgr->list_keys_init(section, marker, phandle);
+  return ctl()->meta.mgr->list_keys_init(dpp, section, marker, phandle);
 }
 
 int RadosStore::meta_list_keys_next(void* handle, int max, list<std::string>& keys, bool* truncated)
@@ -1070,7 +1070,7 @@ int RadosStore::get_roles(const DoutPrefixProvider *dpp,
   RGWListRawObjsCtx ctx;
   do {
     list<std::string> oids;
-    int r = rados->list_raw_objects(pool, prefix, 1000, ctx, oids, &is_truncated);
+    int r = rados->list_raw_objects(dpp, pool, prefix, 1000, ctx, oids, &is_truncated);
     if (r < 0) {
       ldpp_dout(dpp, 0) << "ERROR: listing filtered objects failed: "
                   << prefix << ": " << cpp_strerror(-r) << dendl;
@@ -1127,7 +1127,7 @@ int RadosStore::get_oidc_providers(const DoutPrefixProvider *dpp,
   RGWListRawObjsCtx ctx;
   do {
     list<std::string> oids;
-    int r = rados->list_raw_objects(pool, prefix, 1000, ctx, oids, &is_truncated);
+    int r = rados->list_raw_objects(dpp, pool, prefix, 1000, ctx, oids, &is_truncated);
     if (r < 0) {
       ldpp_dout(dpp, 0) << "ERROR: listing filtered objects failed: OIDC pool: "
                   << pool.name << ": " << prefix << ": " << cpp_strerror(-r) << dendl;
@@ -2052,7 +2052,7 @@ int RadosLuaScriptManager::put(const DoutPrefixProvider* dpp, optional_yield y, 
   bufferlist bl;
   ceph::encode(script, bl);
 
-  int r = rgw_put_system_obj(obj_ctx, pool, key, bl, false, nullptr, real_time(), y);
+  int r = rgw_put_system_obj(dpp, obj_ctx, pool, key, bl, false, nullptr, real_time(), y);
   if (r < 0) {
     return r;
   }
@@ -2062,7 +2062,7 @@ int RadosLuaScriptManager::put(const DoutPrefixProvider* dpp, optional_yield y, 
 
 int RadosLuaScriptManager::del(const DoutPrefixProvider* dpp, optional_yield y, const std::string& key)
 {
-  int r = rgw_delete_system_obj(store->svc()->sysobj, pool, key, nullptr, y);
+  int r = rgw_delete_system_obj(dpp, store->svc()->sysobj, pool, key, nullptr, y);
   if (r < 0 && r != -ENOENT) {
     return r;
   }
@@ -2078,7 +2078,7 @@ int RadosOIDCProvider::store_url(const DoutPrefixProvider *dpp, const std::strin
   bufferlist bl;
   using ceph::encode;
   encode(*this, bl);
-  return rgw_put_system_obj(obj_ctx, store->get_zone()->get_params().oidc_pool, oid, bl, exclusive, nullptr, real_time(), y);
+  return rgw_put_system_obj(dpp, obj_ctx, store->get_zone()->get_params().oidc_pool, oid, bl, exclusive, nullptr, real_time(), y);
 }
 
 int RadosOIDCProvider::read_url(const DoutPrefixProvider *dpp, const std::string& url, const std::string& tenant)
@@ -2125,7 +2125,7 @@ int RadosOIDCProvider::delete_obj(const DoutPrefixProvider *dpp, optional_yield 
 
   // Delete url
   std::string oid = tenant + get_url_oid_prefix() + url;
-  ret = rgw_delete_system_obj(store->svc()->sysobj, pool, oid, nullptr, y);
+  ret = rgw_delete_system_obj(dpp, store->svc()->sysobj, pool, oid, nullptr, y);
   if (ret < 0) {
     ldpp_dout(dpp, 0) << "ERROR: deleting oidc url from pool: " << pool.name << ": "
                   << provider_url << ": " << cpp_strerror(-ret) << dendl;
@@ -2143,7 +2143,7 @@ int RadosRole::store_info(const DoutPrefixProvider *dpp, bool exclusive, optiona
   bufferlist bl;
   encode(*this, bl);
 
-  return rgw_put_system_obj(obj_ctx, store->get_zone()->get_params().roles_pool, oid, bl, exclusive, nullptr, real_time(), y);
+  return rgw_put_system_obj(dpp, obj_ctx, store->get_zone()->get_params().roles_pool, oid, bl, exclusive, nullptr, real_time(), y);
 }
 
 int RadosRole::store_name(const DoutPrefixProvider *dpp, bool exclusive, optional_yield y)
@@ -2158,7 +2158,7 @@ int RadosRole::store_name(const DoutPrefixProvider *dpp, bool exclusive, optiona
   using ceph::encode;
   encode(nameToId, bl);
 
-  return rgw_put_system_obj(obj_ctx, store->get_zone()->get_params().roles_pool, oid, bl, exclusive, nullptr, real_time(), y);
+  return rgw_put_system_obj(dpp, obj_ctx, store->get_zone()->get_params().roles_pool, oid, bl, exclusive, nullptr, real_time(), y);
 }
 
 int RadosRole::store_path(const DoutPrefixProvider *dpp, bool exclusive, optional_yield y)
@@ -2168,7 +2168,7 @@ int RadosRole::store_path(const DoutPrefixProvider *dpp, bool exclusive, optiona
 
   bufferlist bl;
 
-  return rgw_put_system_obj(obj_ctx, store->get_zone()->get_params().roles_pool, oid, bl, exclusive, nullptr, real_time(), y);
+  return rgw_put_system_obj(dpp, obj_ctx, store->get_zone()->get_params().roles_pool, oid, bl, exclusive, nullptr, real_time(), y);
 }
 
 int RadosRole::read_id(const DoutPrefixProvider *dpp, const std::string& role_name, const std::string& tenant, std::string& role_id, optional_yield y)
@@ -2303,7 +2303,7 @@ int RadosRole::create(const DoutPrefixProvider *dpp, bool exclusive, optional_yi
 
     //Delete the role info that was stored in the previous call
     std::string oid = get_info_oid_prefix() + id;
-    int info_ret = rgw_delete_system_obj(store->svc()->sysobj, pool, oid, nullptr, y);
+    int info_ret = rgw_delete_system_obj(dpp, store->svc()->sysobj, pool, oid, nullptr, y);
     if (info_ret < 0) {
       ldpp_dout(dpp, 0) << "ERROR: cleanup of role id from Role pool: "
                   << id << ": " << cpp_strerror(-info_ret) << dendl;
@@ -2317,14 +2317,14 @@ int RadosRole::create(const DoutPrefixProvider *dpp, bool exclusive, optional_yi
                   << path << ": " << cpp_strerror(-ret) << dendl;
     //Delete the role info that was stored in the previous call
     std::string oid = get_info_oid_prefix() + id;
-    int info_ret = rgw_delete_system_obj(store->svc()->sysobj, pool, oid, nullptr, y);
+    int info_ret = rgw_delete_system_obj(dpp, store->svc()->sysobj, pool, oid, nullptr, y);
     if (info_ret < 0) {
       ldpp_dout(dpp, 0) << "ERROR: cleanup of role id from Role pool: "
                   << id << ": " << cpp_strerror(-info_ret) << dendl;
     }
     //Delete role name that was stored in previous call
     oid = tenant + get_names_oid_prefix() + name;
-    int name_ret = rgw_delete_system_obj(store->svc()->sysobj, pool, oid, nullptr, y);
+    int name_ret = rgw_delete_system_obj(dpp, store->svc()->sysobj, pool, oid, nullptr, y);
     if (name_ret < 0) {
       ldpp_dout(dpp, 0) << "ERROR: cleanup of role name from Role pool: "
                   << name << ": " << cpp_strerror(-name_ret) << dendl;
@@ -2354,7 +2354,7 @@ int RadosRole::delete_obj(const DoutPrefixProvider *dpp, optional_yield y)
 
   // Delete id
   std::string oid = get_info_oid_prefix() + id;
-  ret = rgw_delete_system_obj(store->svc()->sysobj, pool, oid, nullptr, y);
+  ret = rgw_delete_system_obj(dpp, store->svc()->sysobj, pool, oid, nullptr, y);
   if (ret < 0) {
     ldpp_dout(dpp, 0) << "ERROR: deleting role id from Role pool: "
                   << id << ": " << cpp_strerror(-ret) << dendl;
@@ -2362,7 +2362,7 @@ int RadosRole::delete_obj(const DoutPrefixProvider *dpp, optional_yield y)
 
   // Delete name
   oid = tenant + get_names_oid_prefix() + name;
-  ret = rgw_delete_system_obj(store->svc()->sysobj, pool, oid, nullptr, y);
+  ret = rgw_delete_system_obj(dpp, store->svc()->sysobj, pool, oid, nullptr, y);
   if (ret < 0) {
     ldpp_dout(dpp, 0) << "ERROR: deleting role name from Role pool: "
                   << name << ": " << cpp_strerror(-ret) << dendl;
@@ -2370,7 +2370,7 @@ int RadosRole::delete_obj(const DoutPrefixProvider *dpp, optional_yield y)
 
   // Delete path
   oid = tenant + get_path_oid_prefix() + path + get_info_oid_prefix() + id;
-  ret = rgw_delete_system_obj(store->svc()->sysobj, pool, oid, nullptr, y);
+  ret = rgw_delete_system_obj(dpp, store->svc()->sysobj, pool, oid, nullptr, y);
   if (ret < 0) {
     ldpp_dout(dpp, 0) << "ERROR: deleting role path from Role pool: "
                   << path << ": " << cpp_strerror(-ret) << dendl;

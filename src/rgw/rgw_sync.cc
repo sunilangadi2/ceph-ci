@@ -420,7 +420,7 @@ public:
   RGWAsyncReadMDLogEntries(const DoutPrefixProvider *dpp, RGWCoroutine *caller, RGWAioCompletionNotifier *cn, rgw::sal::RadosStore* _store,
                            RGWMetadataLog* mdlog, int _shard_id,
                            std::string _marker, int _max_entries)
-    : RGWAsyncRadosRequest(caller, cn), dpp(_dpp), store(_store), mdlog(mdlog),
+    : RGWAsyncRadosRequest(caller, cn), dpp(dpp), store(_store), mdlog(mdlog),
       shard_id(_shard_id), max_entries(_max_entries), marker(std::move(_marker)) {}
 };
 

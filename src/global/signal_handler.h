@@ -19,6 +19,7 @@
 #include "acconfig.h"
 
 typedef void (*signal_handler_t)(int);
+typedef void (*signal_action_handler_t)(int, siginfo_t*, void*);
 
 #if defined(HAVE_SIGDESCR_NP)
 # define sig_str(signum) sigdescr_np(signum)
@@ -28,7 +29,7 @@ typedef void (*signal_handler_t)(int);
 # define sig_str(signum) sys_siglist[signum]
 #endif
 
-void install_sighandler(int signum, signal_handler_t handler, int flags);
+void install_sighandler(int signum, signal_action_handler_t handler, int flags);
 
 // handles SIGHUP
 void sighup_handler(int signum);

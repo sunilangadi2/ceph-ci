@@ -58,9 +58,11 @@ public:
   bool is_null_manager() {
     return null_manager == true;
   }
+#ifdef HAVE_LIBZBD
   virtual std::vector<zone_state_t> get_zone_states(KeyValueDB *kvdb) const {
     return {};
   }
+#endif
 };
 
 

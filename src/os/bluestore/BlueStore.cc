@@ -7610,6 +7610,7 @@ Allocator* BlueStore::create_allocator(uint64_t bdev_size, string type) {
   dout(1) << __func__ << "::NCB::type=" << type << dendl;
   // create allocator
   uint64_t alloc_size = min_alloc_size;
+#ifdef HAVE_LIBZBD
   if (bdev->is_smr()) {
     int ret = _zoned_check_config_settings();
     if (ret < 0) {
@@ -7617,12 +7618,14 @@ Allocator* BlueStore::create_allocator(uint64_t bdev_size, string type) {
     }       
     alloc_size = _zoned_piggyback_device_parameters_onto(alloc_size);
   }
-
+#endif
   Allocator* alloc = Allocator::create(cct, type, bdev_size, alloc_size, "recovery");
   if (alloc) {
+#ifdef HAVE_LIBZBD
     if (bdev->is_smr()) {
       alloc->zoned_set_zone_states(fm->get_zone_states(db));
     }
+#endif
     return alloc;
   }
   else {
@@ -8330,7 +8333,7 @@ int BlueStore::read_allocation_from_drive_for_bluestore_tool(bool test_store_and
     }
   }
 
-  std::cout << "<<<FINISH>>> in " << duration << " seconds; insert_count=" << stats.insert_count << "\n\n" << dendl;
+  std::cout << "<<<FINISH>>> in " << duration << " seconds; insert_count=" << stats.insert_count << "\n\n" << std::endl;
   std::cout << stats << std::endl;
 
   //out_db:

@@ -919,6 +919,7 @@ int validate_pool(IoCtx &io_ctx, CephContext *cct) {
     // might have been blacklisted by peer -- ensure we still own
     // the lock by pinging the OSD
     int r = ictx->exclusive_lock->assert_header_locked();
+    ldout(cct, 20) << __func__ << ": ictx=" << ictx <<  " r=" << r << dendl;
     if (r == -EBUSY || r == -ENOENT) {
       return 0;
     } else if (r < 0) {

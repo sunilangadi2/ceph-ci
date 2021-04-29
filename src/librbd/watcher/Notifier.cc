@@ -87,6 +87,7 @@ void Notifier::handle_notify(int r, Context *on_finish) {
       m_work_queue->queue(ctx, 0);
     }
     m_aio_notify_flush_ctxs.clear();
+    ldout(m_cct, 20) << "aio_notify_flush_ctx cleared" << dendl;
   }
 
   if (on_finish != nullptr) {

@@ -497,6 +497,7 @@ Context *ImageWatcher<I>::remove_async_request(const AsyncRequestId &id) {
     Context *on_complete = it->second.first;
     m_async_requests.erase(it);
     return on_complete;
+    ldout(m_image_ctx.cct, 20) << __func__ << id << " returned oncomplete " << dendl;
   }
   return nullptr;
 }
@@ -534,8 +535,8 @@ void ImageWatcher<I>::notify_async_request(const AsyncRequestId &async_request_i
   ceph_assert(on_finish != nullptr);
   ceph_assert(ceph_mutex_is_locked(m_image_ctx.owner_lock));
 
-  ldout(m_image_ctx.cct, 10) << this << " async request: " << async_request_id
-                             << dendl;
+  ldout(m_image_ctx.cct, 10) << __func__ << this << " async request: " <<
+    async_request_id << dendl;
 
   Context *on_notify = new LambdaContext([this, async_request_id](int r) {
     if (r < 0) {
@@ -543,6 +544,8 @@ void ImageWatcher<I>::notify_async_request(const AsyncRequestId &async_request_i
       Context *on_complete = remove_async_request(async_request_id);
       if (on_complete != nullptr) {
         on_complete->complete(r);
+      ldout(m_image_ctx.cct, 10) << this << " async request: " << async_request_id
+      << " completed" << dendl;
       }
     }
   });
@@ -551,6 +554,8 @@ void ImageWatcher<I>::notify_async_request(const AsyncRequestId &async_request_i
     [this, async_request_id, on_finish](int r) {
       m_task_finisher->cancel(Task(TASK_CODE_ASYNC_REQUEST, async_request_id));
       on_finish->complete(r);
+      ldout(m_image_ctx.cct, 10) << this << " async request: " << async_request_id
+	<< " completed" << dendl;
     });
 
   {
@@ -711,6 +716,8 @@ bool ImageWatcher<I>::handle_payload(const AsyncProgressPayload &payload,
 template <typename I>
 bool ImageWatcher<I>::handle_payload(const AsyncCompletePayload &payload,
                                      C_NotifyAck *ack_ctx) {
+  ldout(m_image_ctx.cct, 10) << __func__ << " r=" << payload.result << dendl;
+
   Context *on_complete = remove_async_request(payload.async_request_id);
   if (on_complete != nullptr) {
     ldout(m_image_ctx.cct, 10) << this << " request finished: "

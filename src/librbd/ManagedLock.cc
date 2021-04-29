@@ -293,6 +293,7 @@ int ManagedLock<I>::assert_header_locked() {
   }
 
   int r = m_ioctx.operate(m_oid, &op, nullptr);
+  ldout(m_cct, 10) << " r=" << r << dendl;
   if (r < 0) {
     if (r == -EBLACKLISTED) {
       ldout(m_cct, 5) << "client is not lock owner -- client blacklisted"

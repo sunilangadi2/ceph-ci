@@ -64,6 +64,7 @@ void AioCompletion::complete() {
   CephContext *cct = ictx->cct;
 
   ssize_t r = rval;
+  ldout(cct, 20) << __func__ << " r=" << r << dendl;
   tracepoint(librbd, aio_complete_enter, this, r);
   if (ictx->perfcounter != nullptr) {
     ceph::timespan elapsed = coarse_mono_clock::now() - start_time;
@@ -89,11 +90,11 @@ void AioCompletion::complete() {
       break;
     }
   }
-
   if ((aio_type == AIO_TYPE_CLOSE) ||
       (aio_type == AIO_TYPE_OPEN && r < 0)) {
     // must destroy ImageCtx prior to invoking callback
     delete ictx;
+
     ictx = nullptr;
     external_callback = false;
   }

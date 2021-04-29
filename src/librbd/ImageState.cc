@@ -287,6 +287,7 @@ void ImageState<I>::close(Context *on_finish) {
 
   m_lock.lock();
   ceph_assert(!is_closed());
+  ldout(cct, 20) << __func__ << ": completing close" << dendl;
 
   Action action(ACTION_TYPE_CLOSE);
   action.refresh_seq = m_refresh_seq;
@@ -564,6 +565,9 @@ template <typename I>
 void ImageState<I>::complete_action_unlock(State next_state, int r) {
   ceph_assert(ceph_mutex_is_locked(m_lock));
   ceph_assert(!m_actions_contexts.empty());
+
+  CephContext *cct = m_image_ctx->cct;
+  ldout(cct, 10) << this << " " << __func__ << dendl;
 
   ActionContexts action_contexts(std::move(m_actions_contexts.front()));
   m_actions_contexts.pop_front();

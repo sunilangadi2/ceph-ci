@@ -1,0 +1,17 @@
+os_type: ubuntu
+arch: x86_64
+roles:
+- - mon.a
+  - mgr.x
+  - osd.0
+  - client.0
+tasks:
+- install:
+    extra_system_packages:
+     deb:
+     - linux-tools-generic
+- workunit:
+    basedir: qa/standalone
+    clients:
+      all:
+        - c2c

@@ -1,4 +1,3 @@
-os_type: ubuntu
 arch: x86_64
 roles:
 - - mon.a
@@ -8,8 +7,10 @@ roles:
 tasks:
 - install:
     extra_system_packages:
-     deb:
-     - linux-tools-generic
+      rpm:
+        - perf
+      deb:
+        - linux-tools-generic
 - workunit:
     basedir: qa/standalone
     clients:

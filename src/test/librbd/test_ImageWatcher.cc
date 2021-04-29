@@ -412,6 +412,57 @@ TEST_F(TestImageWatcher, NotifyRebuildObjectMap) {
   ASSERT_EQ(0, rebuild_task.result);
 }
 
+struct UpdateFeaturesTask {
+  librbd::ImageCtx *ictx;
+  int result;
+
+  UpdateFeaturesTask(librbd::ImageCtx *ictx)
+    : ictx(ictx) {}
+
+  void operator()() {
+    std::shared_lock l{ictx->owner_lock};
+    C_SaferCond ctx;
+    uint64_t features = 24;
+    bool enabled = 0;
+
+    ictx->image_watcher->notify_update_features(0, features, enabled, &ctx);
+    result = ctx.wait();
+
+  }
+};
+
+TEST_F(TestImageWatcher, NotifyUpdateFeatures) {
+  REQUIRE_FEATURE(RBD_FEATURE_EXCLUSIVE_LOCK);
+
+  librbd::ImageCtx *ictx;
+  ASSERT_EQ(0, open_image(m_image_name, &ictx));
+
+  ASSERT_EQ(0, register_image_watch(*ictx));
+  ASSERT_EQ(0, lock_image(*ictx, ClsLockType::EXCLUSIVE,
+        "auto " + stringify(m_watch_ctx->get_handle())));
+
+  m_notify_acks = {{NOTIFY_OP_UPDATE_FEATURES, create_response_message(0)}};
+
+  UpdateFeaturesTask update_features_task(ictx);
+  ASSERT_NE(0, update_features_task.result);
+  boost::thread thread(boost::ref(update_features_task));
+
+  ASSERT_TRUE(wait_for_notifies(*ictx));
+
+  //can't test this
+  NotifyOps expected_notify_ops;
+  expected_notify_ops += NOTIFY_OP_UPDATE_FEATURES;
+
+  AsyncRequestId async_request_id;
+  ASSERT_TRUE(extract_async_request_id(NOTIFY_OP_UPDATE_FEATURES,
+					&async_request_id));
+
+  //hoping we test this somewhere
+  ASSERT_EQ(0, notify_async_complete(ictx, async_request_id, 0));
+  ASSERT_TRUE(thread.timed_join(boost::posix_time::seconds(10)));
+  ASSERT_EQ(0, update_features_task.result);
+}
+
 TEST_F(TestImageWatcher, NotifySnapCreate) {
   REQUIRE_FEATURE(RBD_FEATURE_EXCLUSIVE_LOCK);
 

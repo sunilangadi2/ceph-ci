@@ -80,6 +80,7 @@ void NotifyLockOwner::handle_notify(int r) {
     decode(response_message, iter);
 
     r = response_message.result;
+    ldout(cct, 1) << " client responded with r=" << r << dendl;
   } catch (const buffer::error &err) {
     r = -EINVAL;
   }
@@ -87,6 +88,8 @@ void NotifyLockOwner::handle_notify(int r) {
 }
 
 void NotifyLockOwner::finish(int r) {
+  CephContext *cct = m_image_ctx.cct;
+  ldout(cct, 10) << " r=" << r << dendl;
   m_on_finish->complete(r);
   delete this;
 }

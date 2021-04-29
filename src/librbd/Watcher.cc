@@ -242,6 +242,9 @@ void Watcher::handle_error(uint64_t handle, int err) {
 
 void Watcher::acknowledge_notify(uint64_t notify_id, uint64_t handle,
 	                         bufferlist &out) {
+
+  ldout(m_cct, 10) << __func__ << " id=" << notify_id << ", " << "handle=" <<
+    handle << dendl;
   m_ioctx.notify_ack(m_oid, notify_id, handle, out);
 }
 

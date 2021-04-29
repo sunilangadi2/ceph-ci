@@ -133,6 +133,7 @@ template <typename I>
 void ImageWatcher<I>::schedule_async_complete(const AsyncRequestId &request,
                                               int r) {
   m_async_op_tracker.start_op();
+  ldout(m_image_ctx.cct, 20) << " remote " << __func__ << request << dendl;
   auto ctx = new LambdaContext(
     boost::bind(&ImageWatcher<I>::notify_async_complete, this, request, r));
   m_task_finisher->queue(ctx);
@@ -492,6 +493,9 @@ void ImageWatcher<I>::notify_lock_owner(const Payload& payload,
 template <typename I>
 Context *ImageWatcher<I>::remove_async_request(const AsyncRequestId &id) {
   std::unique_lock async_request_locker{m_async_request_lock};
+
+  ldout(m_image_ctx.cct, 20) << __func__ << id << dendl;
+
   auto it = m_async_requests.find(id);
   if (it != m_async_requests.end()) {
     Context *on_complete = it->second.first;
@@ -534,8 +538,8 @@ void ImageWatcher<I>::notify_async_request(const AsyncRequestId &async_request_i
   ceph_assert(on_finish != nullptr);
   ceph_assert(ceph_mutex_is_locked(m_image_ctx.owner_lock));
 
-  ldout(m_image_ctx.cct, 10) << this << " async request: " << async_request_id
-                             << dendl;
+  ldout(m_image_ctx.cct, 10) << __func__ << this << " async request: " <<
+    async_request_id << dendl;
 
   Context *on_notify = new LambdaContext([this, async_request_id](int r) {
     if (r < 0) {
@@ -543,6 +547,8 @@ void ImageWatcher<I>::notify_async_request(const AsyncRequestId &async_request_i
       Context *on_complete = remove_async_request(async_request_id);
       if (on_complete != nullptr) {
         on_complete->complete(r);
+      ldout(m_image_ctx.cct, 10) << this << " async request: " << async_request_id
+	<< " completed" << dendl;
       }
     }
   });
@@ -551,6 +557,8 @@ void ImageWatcher<I>::notify_async_request(const AsyncRequestId &async_request_i
     [this, async_request_id, on_finish](int r) {
       m_task_finisher->cancel(Task(TASK_CODE_ASYNC_REQUEST, async_request_id));
       on_finish->complete(r);
+      ldout(m_image_ctx.cct, 10) << this << " async request: " << async_request_id
+	<< " completed" << dendl;
     });
 
   {

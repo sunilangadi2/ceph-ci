@@ -7621,11 +7621,6 @@ Allocator* BlueStore::create_allocator(uint64_t bdev_size, string type) {
 #endif
   Allocator* alloc = Allocator::create(cct, type, bdev_size, alloc_size, "recovery");
   if (alloc) {
-#ifdef HAVE_LIBZBD
-    if (bdev->is_smr()) {
-      alloc->zoned_set_zone_states(fm->get_zone_states(db));
-    }
-#endif
     return alloc;
   }
   else {

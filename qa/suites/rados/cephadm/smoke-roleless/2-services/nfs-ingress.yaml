@@ -1,0 +1,35 @@
+tasks:
+- vip:
+
+# make sure cephadm notices the new IP
+- cephadm.shell:
+    host.a:
+      - ceph orch device ls --refresh
+
+- cephadm.shell:
+    host.a:
+      - ceph osd pool create nfs.foo
+
+# deploy nfs + ingress
+- cephadm.apply:
+    specs:
+      - service_type: nfs
+        service_id: foo
+        placement:
+          count: 2
+        spec:
+          pool: nfs.foo
+          port: 12049
+      - service_type: ingress
+        service_id: nfs.foo
+        spec:
+          backend_service: nfs.foo
+          frontend_port: 2049
+          monitor_port: 9002
+          virtual_ip: "{{VIP0}}/{{VIPPREFIXLEN}}"
+- cephadm.wait_for_service:
+    service: nfs.foo
+- cephadm.wait_for_service:
+    service: ingress.nfs.foo
+
+## FIXME test mount; take each proxy down in turn and ensure things still work ##

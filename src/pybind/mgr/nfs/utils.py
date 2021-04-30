@@ -1,6 +1,6 @@
 import orchestrator
 
-POOL_NAME = 'nfs-ganesha'
+POOL_NAME = '.nfs-ganesha'
 
 
 def available_clusters(mgr):

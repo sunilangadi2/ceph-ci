@@ -16,6 +16,7 @@ from pyfakefs import fake_filesystem
 
 from .. import DEFAULT_VERSION, mgr
 from ..controllers import generate_controller_routes, json_error_page
+from ..module import Module
 from ..plugins import PLUGIN_MANAGER, debug, feature_toggles  # noqa
 from ..services.auth import AuthManagerTool
 from ..services.exception import dashboard_exception_handler
@@ -28,6 +29,16 @@ PLUGIN_MANAGER.hook.register_commands()
 logger = logging.getLogger('tests')
 
 
+class ModuleTestClass(Module):
+    """Dashboard module subclass for testing the module methods."""
+
+    def __init__(self):
+        pass
+
+    def _unconfigure_logging(self) -> None:
+        pass
+
+
 class CmdException(Exception):
     def __init__(self, retcode, message):
         super(CmdException, self).__init__(message)
@@ -38,16 +49,17 @@ def exec_dashboard_cmd(command_handler, cmd, **kwargs):
     inbuf = kwargs['inbuf'] if 'inbuf' in kwargs else None
     cmd_dict = {'prefix': 'dashboard {}'.format(cmd)}
     cmd_dict.update(kwargs)
-    if cmd_dict['prefix'] not in CLICommand.COMMANDS:
-        ret, out, err = command_handler(cmd_dict)
-        if ret < 0:
-            raise CmdException(ret, err)
-        try:
-            return json.loads(out)
-        except ValueError:
-            return out
 
-    ret, out, err = CLICommand.COMMANDS[cmd_dict['prefix']].call(mgr, cmd_dict, inbuf)
+    if command_handler:
+        ret, out, err = command_handler(cmd_dict)
+    else:
+        dashboard_module = ModuleTestClass()
+        if cmd_dict['prefix'] in CLICommand.COMMANDS:
+            ret, out, err = CLICommand.COMMANDS[cmd_dict['prefix']].call(dashboard_module, cmd_dict,
+                                                                         inbuf)
+        else:
+            ret, out, err = dashboard_module.handle_command(inbuf, cmd_dict)
+
     if ret < 0:
         raise CmdException(ret, err)
     try:

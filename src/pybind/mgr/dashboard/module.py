@@ -264,6 +264,12 @@ class Module(MgrModule, CherryPyConfig):
     for options in PLUGIN_MANAGER.hook.get_options() or []:
         MODULE_OPTIONS.extend(options)
 
+    MSG_SSL_CERT_ERROR = 'Please specify the certificate file with "-i" option'
+    MSG_SSL_CERT_UPDATED = 'SSL certificate updated'
+    MSG_SSL_CERT_KEY_ERROR = 'Please specify the certificate key file with "-i" option'
+    MSG_SSL_CERT_KEY_UPDATED = 'SSL certificate key updated'
+    MSG_SSL_SELF_SIGNED_CERT_CREATED = 'Self-signed certificate created'
+
     __pool_stats = collections.defaultdict(lambda: collections.defaultdict(
         lambda: collections.deque(maxlen=10)))  # type: dict
 
@@ -360,28 +366,26 @@ class Module(MgrModule, CherryPyConfig):
     @CLIWriteCommand("dashboard set-ssl-certificate")
     def set_ssl_certificate(self,
                             mgr_id: Optional[str] = None,
-                            inbuf: Optional[bytes] = None):
+                            inbuf: Optional[str] = None):
         if inbuf is None:
-            return -errno.EINVAL, '',\
-                'Please specify the certificate file with "-i" option'
+            return -errno.EINVAL, '', self.MSG_SSL_CERT_ERROR
         if mgr_id is not None:
-            self.set_store(_get_localized_key(mgr_id, 'crt'), inbuf.decode())
+            self.set_store(_get_localized_key(mgr_id, 'crt'), inbuf)
         else:
-            self.set_store('crt', inbuf.decode())
-        return 0, 'SSL certificate updated', ''
+            self.set_store('crt', inbuf)
+        return 0, self.MSG_SSL_CERT_UPDATED, ''
 
     @CLIWriteCommand("dashboard set-ssl-certificate-key")
     def set_ssl_certificate_key(self,
                                 mgr_id: Optional[str] = None,
-                                inbuf: Optional[bytes] = None):
+                                inbuf: Optional[str] = None):
         if inbuf is None:
-            return -errno.EINVAL, '',\
-                'Please specify the certificate key file with "-i" option'
+            return -errno.EINVAL, '', self.MSG_SSL_CERT_KEY_ERROR
         if mgr_id is not None:
-            self.set_store(_get_localized_key(mgr_id, 'key'), inbuf.decode())
+            self.set_store(_get_localized_key(mgr_id, 'key'), inbuf)
         else:
-            self.set_store('key', inbuf.decode())
-        return 0, 'SSL certificate key updated', ''
+            self.set_store('key', inbuf)
+        return 0, self.MSG_SSL_CERT_KEY_UPDATED, ''
 
     def handle_command(self, inbuf, cmd):
         # pylint: disable=too-many-return-statements
@@ -399,7 +403,7 @@ class Module(MgrModule, CherryPyConfig):
             return 0, str(ttl), ''
         if cmd['prefix'] == 'dashboard create-self-signed-cert':
             self.create_self_signed_cert()
-            return 0, 'Self-signed certificate created', ''
+            return 0, self.MSG_SSL_SELF_SIGNED_CERT_CREATED, ''
         if cmd['prefix'] == 'dashboard grafana dashboards update':
             push_local_dashboards()
             return 0, 'Grafana dashboards updated', ''
@@ -409,8 +413,8 @@ class Module(MgrModule, CherryPyConfig):
 
     def create_self_signed_cert(self):
         cert, pkey = create_self_signed_cert('IT', 'ceph-dashboard')
-        self.set_store('crt', cert)
-        self.set_store('key', pkey)
+        self.set_ssl_certificate(inbuf=cert)
+        self.set_ssl_certificate_key(inbuf=pkey)
 
     def notify(self, notify_type, notify_id):
         NotificationQueue.new_notification(notify_type, notify_id)

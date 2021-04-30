@@ -1,0 +1,7 @@
+tasks:
+- cephadm.apply:
+    specs:
+      - service_type: nfs
+        service_id: foo
+- cephadm.wait_for_service:
+    service: nfs.foo

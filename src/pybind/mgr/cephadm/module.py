@@ -1400,6 +1400,17 @@ Then run the following:
             raise OrchestratorError('New host %s (%s) failed check(s): %s' % (
                 spec.hostname, spec.addr, errors))
 
+        # prime crush map?
+        if spec.location:
+            rc, out, err = self.mon_command({
+                'prefix': 'osd crush add-bucket',
+                'name': spec.hostname,
+                'type': 'host',
+                'args': [f'{k}={v}' for k, v in spec.location.items()],
+            })
+            if rc:
+                raise OrchestratorError(f'Unable to set host location: {err}')
+
         self.inventory.add_host(spec)
         self.cache.prime_empty_host(spec.hostname)
         self.offline_hosts_remove(spec.hostname)

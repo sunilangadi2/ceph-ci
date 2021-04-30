@@ -78,48 +78,60 @@ std::string ServiceMap::Service::get_summary() const
     return "no daemons active";
   }
 
-  // If "daemon_type" is present, this will be used in place of "daemon" when
-  // reporting the count (e.g., "${N} daemons").
-  //
-  // We will additional break down the count by various groupings, based
-  // on the following keys:
-  //
-  //   "hostname" -> host(s)
-  //   "zone_id" -> zone(s)
-  //
-  // The `ceph -s` will be something likes:
-  //    iscsi: 3 portals active (3 hosts)
-  //      rgw: 3 gateways active (3 hosts, 1 zone)
+  std::ostringstream ss;
 
-  std::map<std::string, std::set<std::string>> groupings;
-  std::string type("daemon");
-  int num = 0;
+  // The format two pairs in metadata:
+  //   "daemon_type"   : "${TYPE}"
+  //   "daemon_prefix" : "${PREFIX}"
+  //
+  // TYPE: will be used to replace the default "daemon(s)"
+  // showed in `ceph -s`. If absent, the "daemon" will be used.
+  // PREFIX: if present the active members will be classified
+  // by the prefix instead of "daemon_name".
+  //
+  // For exmaple for iscsi gateways, it will be something likes:
+  //   "daemon_type"   : "portal"
+  //   "daemon_prefix" : "gateway${N}"
+  // The `ceph -s` will be something likes:
+  //    iscsi: 3 portals active (gateway0, gateway1, gateway2)
+
+  std::map<std::string, std::set<std::string>> prefs;
   for (auto& d : daemons) {
-    ++num;
-    if (auto p = d.second.metadata.find("daemon_type");
-	p != d.second.metadata.end()) {
-      type = p->second;
+    // In case the "daemon_type" is absent, use the
+    // default "daemon" type
+    std::string type("daemon");
+    std::string prefix;
+
+    auto t = d.second.metadata.find("daemon_type");
+    if (t != d.second.metadata.end()) {
+      type = d.second.metadata.at("daemon_type");
     }
-    for (auto k : {make_pair("zone", "zone_id"),
-	  make_pair("host", "hostname")}) {
-      auto p = d.second.metadata.find(k.second);
-      if (p != d.second.metadata.end()) {
-	groupings[k.first].insert(p->second);
-      }
+    auto p = d.second.metadata.find("daemon_prefix");
+    if (p != d.second.metadata.end()) {
+      prefix = d.second.metadata.at("daemon_prefix");
+    } else {
+      // In case the "daemon_prefix" is absent, show
+      // the daemon_name instead.
+      prefix = d.first;
     }
+    auto& pref = prefs[type];
+    pref.insert(prefix);
   }
 
-  std::ostringstream ss;
-  ss << num << " " << type << (num > 1 ? "s" : "") << " active";
-  if (groupings.size()) {
-    ss << " (";
-    for (auto i = groupings.begin(); i != groupings.end(); ++i) {
-      if (i != groupings.begin()) {
-	ss << ", ";
-      }
-      ss << i->second.size() << " " << i->first << (i->second.size() ? "s" : "");
+  for (auto &pr : prefs) {
+    if (!ss.str().empty())
+      ss << ", ";
+
+    ss << pr.second.size() << " " << pr.first
+       << (pr.second.size() > 1 ? "s" : "")
+       << " active";
+
+    if (pr.second.size()) {
+      ss << " (";
+      std::copy(std::begin(pr.second), std::end(pr.second),
+                std::experimental::make_ostream_joiner(ss, ", "));
+      ss << ")";
     }
-    ss << ")";
   }
 
   return ss.str();

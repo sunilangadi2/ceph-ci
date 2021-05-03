@@ -679,10 +679,10 @@ class NFSServiceSpec(ServiceSpec):
             config=config, networks=networks)
 
         #: RADOS pool where NFS client recovery data is stored.
-        self.pool = pool
+        self.pool = pool or 'nfs-ganesha'
 
         #: RADOS namespace where NFS client recovery data is stored in the pool.
-        self.namespace = namespace
+        self.namespace = namespace or service_id
 
         self.port = port
 

@@ -663,13 +663,13 @@ class NFSServiceSpec(ServiceSpec):
     def __init__(self,
                  service_type: str = 'nfs',
                  service_id: Optional[str] = None,
-                 pool: Optional[str] = None,
-                 namespace: Optional[str] = None,
                  placement: Optional[PlacementSpec] = None,
                  unmanaged: bool = False,
                  preview_only: bool = False,
                  config: Optional[Dict[str, str]] = None,
                  networks: Optional[List[str]] = None,
+                 pool: Optional[str] = None,
+                 namespace: Optional[str] = None,
                  port: Optional[int] = None,
                  ):
         assert service_type == 'nfs'

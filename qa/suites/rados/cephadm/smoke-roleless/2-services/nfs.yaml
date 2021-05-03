@@ -1,0 +1,11 @@
+tasks:
+- cephadm.shell:
+    host.a:
+      - ceph osd pool create nfs.foo
+- cephadm.apply:
+    specs:
+      - service_type: nfs
+        service_id: foo
+        spec:
+          pool: nfs.foo
+          port: 12049

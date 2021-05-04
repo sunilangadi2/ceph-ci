@@ -1133,7 +1133,8 @@ void PgScrubber::set_op_parameters(requested_scrub_t& request)
     state_set(PG_STATE_DEEP_SCRUB);
   }
 
-  if (request.must_repair || m_flags.auto_repair) {
+  bool has_deep_errors = (m_pg->info.stats.stats.sum.num_deep_scrub_errors > 0);
+  if (request.must_repair || (m_flags.auto_repair && has_deep_errors)) {
     state_set(PG_STATE_REPAIR);
   }
 

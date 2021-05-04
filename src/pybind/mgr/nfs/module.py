@@ -31,7 +31,7 @@ class Module(orchestrator.OrchestratorClientMixin, MgrModule):
                                              cluster_id=clusterid, pseudo_path=binding,
                                              read_only=readonly, path=path)
 
-    @CLICommand('nfs export delete', perm='rw')
+    @CLICommand('nfs export rm', perm='rw')
     def _cmd_nfs_export_delete(self, clusterid: str, binding: str):
         """Delete a cephfs export"""
         return self.export_mgr.delete_export(cluster_id=clusterid, pseudo_path=binding)
@@ -62,7 +62,7 @@ class Module(orchestrator.OrchestratorClientMixin, MgrModule):
         """Updates an NFS Cluster"""
         return self.nfs.update_nfs_cluster(cluster_id=clusterid, placement=placement)
 
-    @CLICommand('nfs cluster delete', perm='rw')
+    @CLICommand('nfs cluster rm', perm='rw')
     def _cmd_nfs_cluster_delete(self, clusterid: str):
         """Deletes an NFS Cluster"""
         return self.nfs.delete_nfs_cluster(cluster_id=clusterid)

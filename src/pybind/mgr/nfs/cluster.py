@@ -2,8 +2,10 @@ import logging
 import socket
 import json
 import re
+from typing import cast
 
 from ceph.deployment.service_spec import NFSServiceSpec, PlacementSpec, IngressSpec
+from cephadm.utils import resolve_ip
 
 import orchestrator
 
@@ -136,7 +138,10 @@ class NFSCluster:
         self._set_cluster_id(cluster_id)
         completion = self.mgr.list_daemons(daemon_type='nfs')
         orchestrator.raise_if_exception(completion)
-        host_ip = []
+        r = {
+            'virtual_ip': None,
+            'backend': [],
+        }
         # Here completion.result is a list DaemonDescription objects
         for cluster in completion.result:
             if self.cluster_id == cluster.service_id():
@@ -147,16 +152,24 @@ class NFSCluster:
                 ('2404:6800:4009:80d::200e', 2049, 0, 0))]
                 """
                 try:
-                    host_ip.append({
+                    r['backend'].append({
                             "hostname": cluster.hostname,
-                            "ip": list(set([ip[4][0] for ip in socket.getaddrinfo(
-                                cluster.hostname, 2049, flags=socket.AI_CANONNAME,
-                                type=socket.SOCK_STREAM)])),
-                            "port": 2049  # Default ganesha port
+                            "ip": cluster.ip or resolve_ip(cluster.hostname),
+                            "port": cluster.ports[0]
                             })
                 except socket.gaierror:
                     continue
-        return host_ip
+
+        sc = self.mgr.describe_service(service_type='ingress')
+        orchestrator.raise_if_exception(sc)
+        for i in sc.result:
+            spec = cast(IngressSpec, i.spec)
+            if spec.backend_service == f'nfs.{cluster_id}':
+                r['virtual_ip'] = i.virtual_ip.split('/')[0]
+                r['port'] = i.ports[0] or 2049
+                if i.ports and len(i.ports) > 1:
+                    r['monitor_port'] = i.ports[1]
+        return r
 
     def show_nfs_cluster_info(self, cluster_id=None):
         try:

@@ -1133,7 +1133,7 @@ void PgScrubber::set_op_parameters(requested_scrub_t& request)
     state_set(PG_STATE_DEEP_SCRUB);
   }
 
-  if (request.must_repair || m_flags.auto_repair) {
+  if (request.must_repair) {
     state_set(PG_STATE_REPAIR);
   }
 
@@ -1190,11 +1190,15 @@ void PgScrubber::scrub_compare_maps()
     ss.str("");
     ss.clear();
 
+    bool is_auto_repair = m_flags.auto_repair;
     m_pg->get_pgbackend()->be_compare_scrubmaps(
-      maps, master_set, state_test(PG_STATE_REPAIR), m_missing, m_inconsistent,
+      maps, master_set, is_auto_repair, m_missing, m_inconsistent,
       authoritative, missing_digest, m_shallow_errors, m_deep_errors, m_store.get(),
       m_pg->info.pgid, m_pg->recovery_state.get_acting(), ss);
     dout(2) << ss.str() << dendl;
+
+    if (is_auto_repair && (m_deep_errors > 0 || !m_missing.empty() || !missing_digest.empty()))
+      state_set(PG_STATE_REPAIR);
 
     if (!ss.str().empty()) {
       m_osds->clog->error(ss);

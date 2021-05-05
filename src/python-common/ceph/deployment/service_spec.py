@@ -663,13 +663,14 @@ class NFSServiceSpec(ServiceSpec):
     def __init__(self,
                  service_type: str = 'nfs',
                  service_id: Optional[str] = None,
-                 pool: Optional[str] = None,
-                 namespace: Optional[str] = None,
                  placement: Optional[PlacementSpec] = None,
                  unmanaged: bool = False,
                  preview_only: bool = False,
                  config: Optional[Dict[str, str]] = None,
                  networks: Optional[List[str]] = None,
+                 pool: Optional[str] = None,
+                 namespace: Optional[str] = None,
+                 port: Optional[int] = None,
                  ):
         assert service_type == 'nfs'
         super(NFSServiceSpec, self).__init__(
@@ -682,6 +683,13 @@ class NFSServiceSpec(ServiceSpec):
 
         #: RADOS namespace where NFS client recovery data is stored in the pool.
         self.namespace = namespace
+
+        self.port = port
+
+    def get_port_start(self) -> List[int]:
+        if self.port:
+            return [self.port]
+        return []
 
     def validate(self) -> None:
         super(NFSServiceSpec, self).validate()

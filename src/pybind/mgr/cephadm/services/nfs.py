@@ -55,14 +55,11 @@ class NFSService(CephService):
                         self.mgr.spec_store.save_rank_map(spec.service_name(), rank_map)
 
     def config(self, spec: NFSServiceSpec, daemon_id: str) -> None:  # type: ignore
+        from nfs.cluster import create_ganesha_pool
+
         assert self.TYPE == spec.service_type
         assert spec.pool
-        pool_list = [p['pool_name'] for p in self.mgr.get_osdmap().dump().get('pools', [])]
-
-        if spec.pool not in pool_list:
-            self.mgr.check_mon_command({'prefix': 'osd pool create', 'pool': spec.pool})
-            self.mgr.check_mon_command({'prefix': 'osd pool application enable',
-                                        'pool': spec.pool, 'app': 'nfs'})
+        create_ganesha_pool(self.mgr, spec.pool)
 
     def prepare_create(self, daemon_spec: CephadmDaemonDeploySpec) -> CephadmDaemonDeploySpec:
         assert self.TYPE == daemon_spec.daemon_type

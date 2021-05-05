@@ -3527,8 +3527,7 @@ private:
   int  read_allocation_from_drive_on_startup();
   int  reconstruct_allocations(Allocator* allocator, read_alloc_stats_t &stats);
   int  read_allocation_from_onodes(Allocator* allocator, read_alloc_stats_t& stats);
-  int  store_allocation_state_on_bluestore();
-  void store_fm_type();
+  int  commit_to_null_manager();
   void read_allocation_from_single_onode(Allocator* allocator, BlueStore::OnodeRef& onode_ref, read_alloc_stats_t&  stats);
 
   void _fsck_check_object_omap(FSCKDepth depth,

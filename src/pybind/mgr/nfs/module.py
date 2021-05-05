@@ -1,7 +1,8 @@
 import logging
 import threading
+from typing import Optional, List
 
-from mgr_module import MgrModule, CLICommand
+from mgr_module import MgrModule, CLICommand, Option
 import orchestrator
 
 from .export import ExportMgr
@@ -11,7 +12,7 @@ log = logging.getLogger(__name__)
 
 
 class Module(orchestrator.OrchestratorClientMixin, MgrModule):
-    MODULE_OPTIONS = []
+    MODULE_OPTIONS: List[Option] = []
 
     def __init__(self, *args, **kwargs):
         self.inited = False
@@ -73,7 +74,7 @@ class Module(orchestrator.OrchestratorClientMixin, MgrModule):
         return self.nfs.list_nfs_cluster()
 
     @CLICommand('nfs cluster info', perm='r')
-    def _cmd_nfs_cluster_info(self, clusterid: str=None):
+    def _cmd_nfs_cluster_info(self, clusterid: Optional[str] = None):
         """Displays NFS Cluster info"""
         return self.nfs.show_nfs_cluster_info(cluster_id=clusterid)
 

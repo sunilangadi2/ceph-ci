@@ -665,6 +665,16 @@ std::vector<Option> get_global_options() {
     .set_description("port number for the remote graylog server")
     .add_see_also("log_graylog_host"),
 
+    Option("log_to_journald", Option::TYPE_BOOL, Option::LEVEL_BASIC)
+    .set_default(false)
+    .set_description("send log lines to journald")
+    .add_see_also("err_to_journald"),
+
+    Option("err_to_journald", Option::TYPE_BOOL, Option::LEVEL_BASIC)
+    .set_default(false)
+    .set_description("send critical error log lines to journald")
+    .add_see_also("log_to_journald"),
+
     Option("log_coarse_timestamps", Option::TYPE_BOOL, Option::LEVEL_ADVANCED)
     .set_default(true)
     .set_description("timestamp log entries from coarse system clock "
@@ -782,6 +792,12 @@ std::vector<Option> get_global_options() {
     .add_service("mon")
     .set_description("Graylog port for cluster log messages")
     .add_see_also("mon_cluster_log_to_graylog"),
+
+    Option("mon_cluster_log_to_journald", Option::TYPE_STR, Option::LEVEL_ADVANCED)
+    .set_default("false")
+    .set_flag(Option::FLAG_RUNTIME)
+    .add_service("mon")
+    .set_description("Make monitor send cluster log to journald"),
 
     Option("enable_experimental_unrecoverable_data_corrupting_features", Option::TYPE_STR, Option::LEVEL_ADVANCED)
     .set_flag(Option::FLAG_RUNTIME)
@@ -1019,6 +1035,11 @@ std::vector<Option> get_global_options() {
     Option("ms_dispatch_throttle_bytes", Option::TYPE_SIZE, Option::LEVEL_ADVANCED)
     .set_default(100_M)
     .set_description("Limit messages that are read off the network but still being processed"),
+
+    Option("ms_bind_exclude_lo_iface", Option::TYPE_BOOL, Option::LEVEL_ADVANCED)
+    .set_default(true)
+    .set_flag(Option::FLAG_STARTUP)
+    .set_description("Allow servers to bind loopback network interfaces (lo)"),
 
     Option("ms_bind_ipv4", Option::TYPE_BOOL, Option::LEVEL_ADVANCED)
     .set_default(true)
@@ -2281,15 +2302,22 @@ std::vector<Option> get_global_options() {
     .add_service("mon")
     .set_description(""),
 
-    Option("paxos_service_trim_min", Option::TYPE_INT, Option::LEVEL_ADVANCED)
+    Option("paxos_service_trim_min", Option::TYPE_UINT, Option::LEVEL_ADVANCED)
     .set_default(250)
     .add_service("mon")
     .set_description(""),
 
-    Option("paxos_service_trim_max", Option::TYPE_INT, Option::LEVEL_ADVANCED)
+    Option("paxos_service_trim_max", Option::TYPE_UINT, Option::LEVEL_ADVANCED)
     .set_default(500)
     .add_service("mon")
     .set_description(""),
+
+    Option("paxos_service_trim_max_multiplier", Option::TYPE_UINT, Option::LEVEL_ADVANCED)
+    .set_default(20)
+    .set_min(0)
+    .add_service("mon")
+    .set_description("factor by which paxos_service_trim_max will be multiplied to get a new upper bound when trim sizes are high  (0 disables it)")
+    .set_flag(Option::FLAG_RUNTIME),
 
     Option("paxos_kill_at", Option::TYPE_INT, Option::LEVEL_DEV)
     .set_default(0)
@@ -2333,7 +2361,7 @@ std::vector<Option> get_global_options() {
     .set_description(""),
 
     Option("cephx_require_version", Option::TYPE_INT, Option::LEVEL_ADVANCED)
-    .set_default(1)
+    .set_default(2)
     .set_description("Cephx version required (1 = pre-mimic, 2 = mimic+)"),
 
     Option("cephx_cluster_require_signatures", Option::TYPE_BOOL, Option::LEVEL_ADVANCED)
@@ -2341,7 +2369,7 @@ std::vector<Option> get_global_options() {
     .set_description(""),
 
     Option("cephx_cluster_require_version", Option::TYPE_INT, Option::LEVEL_ADVANCED)
-    .set_default(1)
+    .set_default(2)
     .set_description("Cephx version required by the cluster from clients (1 = pre-mimic, 2 = mimic+)"),
 
     Option("cephx_service_require_signatures", Option::TYPE_BOOL, Option::LEVEL_ADVANCED)
@@ -2349,7 +2377,7 @@ std::vector<Option> get_global_options() {
     .set_description(""),
 
     Option("cephx_service_require_version", Option::TYPE_INT, Option::LEVEL_ADVANCED)
-    .set_default(1)
+    .set_default(2)
     .set_description("Cephx version required from ceph services (1 = pre-mimic, 2 = mimic+)"),
 
     Option("cephx_sign_messages", Option::TYPE_BOOL, Option::LEVEL_ADVANCED)
@@ -4199,9 +4227,9 @@ std::vector<Option> get_global_options() {
     .set_description(""),
 
     Option("bluefs_buffered_io", Option::TYPE_BOOL, Option::LEVEL_ADVANCED)
-    .set_default(false)
+    .set_default(true)
     .set_description("Enabled buffered IO for bluefs reads.")
-    .set_long_description("When this option is enabled, bluefs will in some cases perform buffered reads.  This allows the kernel page cache to act as a secondary cache for things like RocksDB compaction.  For example, if the rocksdb block cache isn't large enough to hold blocks from the compressed SST files itself, they can be read from page cache instead of from the disk.  This option previously was enabled by default, however in some test cases it appears to cause excessive swap utilization by the linux kernel and a large negative performance impact after several hours of run time.  Please exercise caution when enabling."),
+    .set_long_description("When this option is enabled, bluefs will in some cases perform buffered reads.  This allows the kernel page cache to act as a secondary cache for things like RocksDB compaction.  For example, if the rocksdb block cache isn't large enough to hold blocks from the compressed SST files itself, they can be read from page cache instead of from the disk."),
 
     Option("bluefs_sync_write", Option::TYPE_BOOL, Option::LEVEL_ADVANCED)
     .set_default(false)
@@ -4630,7 +4658,7 @@ std::vector<Option> get_global_options() {
     .set_description("Run deep fsck at mount when bluestore_fsck_on_mount is set to true"),
 
     Option("bluestore_fsck_quick_fix_on_mount", Option::TYPE_BOOL, Option::LEVEL_DEV)
-      .set_default(true)
+      .set_default(false)
       .set_description("Do quick-fix for the store at mount"),
 
     Option("bluestore_fsck_on_umount", Option::TYPE_BOOL, Option::LEVEL_DEV)
@@ -4812,9 +4840,17 @@ std::vector<Option> get_global_options() {
     .set_default(false)
     .set_description("Make fsck error (instead of warn) when objects without per-pool omap are found"),
 
+    Option("bluestore_fsck_error_on_no_per_pg_omap", Option::TYPE_BOOL, Option::LEVEL_ADVANCED)
+    .set_default(false)
+    .set_description("Make fsck error (instead of warn) when objects without per-pg omap are found"),
+
     Option("bluestore_warn_on_no_per_pool_omap", Option::TYPE_BOOL, Option::LEVEL_ADVANCED)
     .set_default(true)
     .set_description("Enable health indication on lack of per-pool omap"),
+
+    Option("bluestore_warn_on_no_per_pg_omap", Option::TYPE_BOOL, Option::LEVEL_ADVANCED)
+    .set_default(false)
+    .set_description("Enable health indication on lack of per-pg omap"),
 
     Option("bluestore_log_op_age", Option::TYPE_FLOAT, Option::LEVEL_ADVANCED)
     .set_default(5)
@@ -5594,6 +5630,28 @@ std::vector<Option> get_global_options() {
     .set_description("Size of thread pool for ASIO completions")
     .add_tag("osd"),
 
+    Option("cephsqlite_lock_renewal_interval", Option::TYPE_MILLISECS, Option::LEVEL_ADVANCED)
+    .add_see_also("cephsqlite_lock_renewal_timeout")
+    .add_tag("client")
+    .set_default(2000)
+    .set_description("number of milliseconds before lock is renewed")
+    .set_min(100)
+    ,
+
+    Option("cephsqlite_lock_renewal_timeout", Option::TYPE_MILLISECS, Option::LEVEL_ADVANCED)
+    .add_see_also("cephsqlite_lock_renewal_interval")
+    .add_tag("client")
+    .set_default(30000)
+    .set_description("number of milliseconds before transaction lock times out")
+    .set_long_description("The amount of time before a running libcephsqlite VFS connection has to renew a lock on the database before the lock is automatically lost. If the lock is lost, the VFS will abort the process to prevent database corruption.")
+    .set_min(100),
+
+    Option("cephsqlite_blocklist_dead_locker", Option::TYPE_BOOL, Option::LEVEL_ADVANCED)
+    .add_tag("client")
+    .set_default(true)
+    .set_description("blocklist the last dead owner of the database lock")
+    .set_long_description("Require that the Ceph SQLite VFS blocklist the last dead owner of the database when cleanup was incomplete. DO NOT CHANGE THIS UNLESS YOU UNDERSTAND THE RAMIFICATIONS. CORRUPTION MAY RESULT."),
+
     // ----------------------------
     // Crimson specific options
 
@@ -5609,6 +5667,9 @@ std::vector<Option> get_global_options() {
     .set_default(6)
     .set_flag(Option::FLAG_STARTUP)
     .set_description("The number of threads for serving alienized ObjectStore"),
+
+    Option("crimson_alien_thread_cpu_cores", Option::TYPE_STR, Option::LEVEL_ADVANCED)
+    .set_description("Cpu cores on which alienstore threads will run"),
 
     // ----------------------------
     // blk specific options
@@ -6163,14 +6224,6 @@ std::vector<Option> get_rgw_options() {
         "better concurrency of these messages, at the cost of more resource "
         "utilization."),
 
-    Option("rgw_num_rados_handles", Option::TYPE_UINT, Option::LEVEL_ADVANCED)
-    .set_default(1)
-    .set_description("Number of librados handles that RGW uses.")
-    .set_long_description(
-        "This param affects the number of separate librados handles it uses to "
-        "connect to the RADOS backend, which directly affects the number of connections "
-        "RGW will have to each OSD. A higher number affects resource utilization."),
-
     Option("rgw_verify_ssl", Option::TYPE_BOOL, Option::LEVEL_ADVANCED)
     .set_default(true)
     .set_description("Should RGW verify SSL when connecing to a remote HTTP server")
@@ -6527,6 +6580,12 @@ std::vector<Option> get_rgw_options() {
     .set_long_description(
         "If not zero, this is the HTTP return code that will be returned on a successful S3 "
         "object creation."),
+
+    Option("rgw_s3_client_max_sig_ver", Option::TYPE_INT, Option::LEVEL_ADVANCED)
+    .set_default(-1)
+    .set_description("Max S3 authentication signature version")
+    .set_long_description(
+        "If greater than zero, would force max signature version to use"),
 
     Option("rgw_resolve_cname", Option::TYPE_BOOL, Option::LEVEL_ADVANCED)
     .set_default(false)
@@ -7378,17 +7437,15 @@ std::vector<Option> get_rgw_options() {
     .add_see_also("rgw_dmclock_metadata_res")
     .add_see_also("rgw_dmclock_metadata_wgt"),
 
-   Option("rgw_data_log_backing", Option::TYPE_STR, Option::LEVEL_ADVANCED)
-    .set_default("auto")
-    .set_enum_allowed( { "auto", "fifo", "omap" } )
-    .set_description("Backing store for the RGW data sync log")
+   Option("rgw_default_data_log_backing", Option::TYPE_STR, Option::LEVEL_ADVANCED)
+    .set_default("fifo")
+    .set_enum_allowed( { "fifo", "omap" } )
+    .set_description("Default backing store for the RGW data sync log")
     .set_long_description(
         "Whether to use the older OMAP backing store or the high performance "
-	"FIFO based backing store. Auto uses whatever already exists "
-	"but will default to FIFO if there isn't an existing log. Either of "
-	"the explicit options will cause startup to fail if the other log is "
-	"still around."),
-   
+	"FIFO based backing store by default. This only covers the creation of "
+	"the log on startup if none exists."),
+
    Option("rgw_luarocks_location", Option::TYPE_STR, Option::LEVEL_ADVANCED)
      .set_flag(Option::FLAG_STARTUP)
 #ifdef WITH_RADOSGW_LUA_PACKAGES
@@ -8266,7 +8323,7 @@ std::vector<Option> get_mds_options() {
 
     Option("mds_session_max_caps_throttle_ratio", Option::TYPE_FLOAT, Option::LEVEL_ADVANCED)
     .set_default(1.1)
-    .set_description("ratio of mds_max_maps_per_client that client must exceed before readdir may be throttled by cap acquisition throttle"),
+    .set_description("ratio of mds_max_caps_per_client that client must exceed before readdir may be throttled by cap acquisition throttle"),
 
     Option("mds_cap_acquisition_throttle_retry_request_timeout", Option::TYPE_FLOAT, Option::LEVEL_ADVANCED)
     .set_default(0.5)

@@ -279,6 +279,7 @@ class CephadmServe:
             sd.memory_request = d.get('memory_request')
             sd.memory_limit = d.get('memory_limit')
             sd._service_name = d.get('service_name')
+            sd.deployed_by = d.get('deployed_by')
             sd.version = d.get('version')
             sd.ports = d.get('ports')
             sd.ip = d.get('ip')
@@ -409,15 +410,18 @@ class CephadmServe:
                     daemon_id = s.get('id')
                     assert daemon_id
                     name = '%s.%s' % (s.get('type'), daemon_id)
-                    if s.get('type') == 'rbd-mirror':
+                    if s.get('type') in ['rbd-mirror', 'cephfs-mirror', 'rgw']:
                         metadata = self.mgr.get_metadata(
-                            "rbd-mirror", daemon_id, {})
+                            cast(str, s.get('type')), daemon_id, {})
                         assert metadata is not None
                         try:
                             name = '%s.%s' % (s.get('type'), metadata['id'])
                         except (KeyError, TypeError):
                             self.log.debug(
-                                "Failed to find daemon id for rbd-mirror service %s" % (s.get('id')))
+                                "Failed to find daemon id for %s service %s" % (
+                                    s.get('type'), s.get('id')
+                                )
+                            )
                     elif s.get('type') == 'rgw-nfs':
                         # https://tracker.ceph.com/issues/49573
                         name = daemon_id.split('-rgw')[0]
@@ -554,6 +558,7 @@ class CephadmServe:
             spec=spec,
             hosts=self.mgr._hosts_with_daemon_inventory(),
             daemons=daemons,
+            networks=self.mgr.cache.networks,
             filter_new_host=matches_network if service_type == 'mon'
             else virtual_ip_allowed if service_type == 'ha-rgw' else None,
             allow_colo=svc.allow_colo(),
@@ -587,6 +592,23 @@ class CephadmServe:
 
         for slot in slots_to_add:
             for daemon_type in service_to_daemon_types(service_type):
+                # first remove daemon on conflicting port?
+                if slot.port:
+                    for d in daemons_to_remove:
+                        if d.hostname != slot.hostname or d.ports != [slot.port]:
+                            continue
+                        if d.ip and slot.ip and d.ip != slot.ip:
+                            continue
+                        self.log.info(
+                            f'Removing {d.name()} before deploying to {slot} to avoid a port conflict'
+                        )
+                        # NOTE: we don't check ok-to-stop here to avoid starvation if
+                        # there is only 1 gateway.
+                        self._remove_daemon(d.name(), d.hostname)
+                        daemons_to_remove.remove(d)
+                        break
+
+                # deploy new daemon
                 daemon_id = self.mgr.get_unique_name(
                     daemon_type,
                     slot.hostname,
@@ -600,7 +622,8 @@ class CephadmServe:
 
                 daemon_spec = svc.make_daemon_spec(
                     slot.hostname, daemon_id, slot.network, spec, daemon_type=daemon_type,
-                    ports=[slot.port] if slot.port else None
+                    ports=[slot.port] if slot.port else None,
+                    ip=slot.ip,
                 )
                 self.log.debug('Placing %s.%s on host %s' % (
                     daemon_type, daemon_id, slot.hostname))
@@ -611,7 +634,7 @@ class CephadmServe:
                     r = True
                 except (RuntimeError, OrchestratorError) as e:
                     self.mgr.events.for_service(spec, 'ERROR',
-                                                f"Failed while placing {daemon_type}.{daemon_id}"
+                                                f"Failed while placing {daemon_type}.{daemon_id} "
                                                 f"on {slot.hostname}: {e}")
                     # only return "no change" if no one else has already succeeded.
                     # later successes will also change to True
@@ -640,8 +663,6 @@ class CephadmServe:
             daemons_to_remove.pop()
         for d in daemons_to_remove:
             r = True
-            # NOTE: we are passing the 'force' flag here, which means
-            # we can delete a mon instances data.
             assert d.hostname is not None
             self._remove_daemon(d.name(), d.hostname)
 
@@ -863,6 +884,7 @@ class CephadmServe:
                             'service_name': daemon_spec.service_name,
                             'ports': daemon_spec.ports,
                             'ip': daemon_spec.ip,
+                            'deployed_by': self.mgr.get_active_mgr_digests(),
                         }),
                         '--config-json', '-',
                     ] + daemon_spec.extra_args,
@@ -896,7 +918,8 @@ class CephadmServe:
                         daemon_spec.name(), OrchestratorEvent.ERROR, f'Failed to {what}: {err}')
                 return msg
             except OrchestratorError:
-                if not reconfig:
+                redeploy = daemon_spec.name() in self.mgr.cache.get_daemon_names()
+                if not reconfig and not redeploy:
                     # we have to clean up the daemon. E.g. keyrings.
                     servict_type = daemon_type_to_service(daemon_spec.daemon_type)
                     dd = daemon_spec.to_daemon_description(DaemonDescriptionStatus.error, 'failed')
@@ -917,6 +940,8 @@ class CephadmServe:
 
             self.mgr.cephadm_services[daemon_type_to_service(daemon_type)].pre_remove(daemon)
 
+            # NOTE: we are passing the 'force' flag here, which means
+            # we can delete a mon instances data.
             args = ['--name', name, '--force']
             self.log.info('Removing daemon %s from %s' % (name, host))
             out, err, code = self._run_cephadm(
@@ -1163,13 +1188,13 @@ Please make sure that the host is reachable and accepts connections using the ce
 
 To add the cephadm SSH key to the host:
 > ceph cephadm get-pub-key > ~/ceph.pub
-> ssh-copy-id -f -i ~/ceph.pub {user}@{host}
+> ssh-copy-id -f -i ~/ceph.pub {user}@{addr}
 
 To check that the host is reachable:
 > ceph cephadm get-ssh-config > ssh_config
 > ceph config-key get mgr/cephadm/ssh_identity_key > ~/cephadm_private_key
 > chmod 0600 ~/cephadm_private_key
-> ssh -F ssh_config -i ~/cephadm_private_key {user}@{host}'''
+> ssh -F ssh_config -i ~/cephadm_private_key {user}@{addr}'''
             raise OrchestratorError(msg) from e
         except Exception as ex:
             self.log.exception(ex)

@@ -30,6 +30,10 @@ add_definitions(
   -D__STDC_FORMAT_MACROS
   -D_FILE_OFFSET_BITS=64
   -DBOOST_ASIO_DISABLE_THREAD_KEYWORD_EXTENSION)
+if(Boost_VERSION VERSION_GREATER_EQUAL 1.74)
+  add_definitions(-DBOOST_ASIO_USE_TS_EXECUTOR_AS_DEFAULT)
+endif()
+
 if(LINUX)
   add_definitions("-D_GNU_SOURCE")
 endif()
@@ -459,7 +463,6 @@ set(ceph_common_deps
   Boost::program_options
   Boost::date_time
   Boost::iostreams
-  fmt::fmt
   StdFilesystem::filesystem
   fmt::fmt
   ${BLKID_LIBRARIES}
@@ -504,12 +507,14 @@ endif()
 
 if(WITH_BLUESTORE_PMEM OR WITH_RBD_RWL)
   if(WITH_SYSTEM_PMDK)
+    set(pmem_COMPONENTS)
     if(WITH_BLUESTORE_PMEM)
-      find_package(pmem REQUIRED COMPONENTS pmem)
+      list(APPEND pmem_COMPONENTS pmem)
     endif()
     if(WITH_RBD_RWL)
-      find_package(pmem REQUIRED COMPONENTS pmemobj)
+      list(APPEND pmem_COMPONENTS pmemobj)
     endif()
+    find_package(pmem 1.7 REQUIRED COMPONENTS ${pmem_COMPONENTS})
   else()
     include(Buildpmem)
     build_pmem()
@@ -803,6 +808,20 @@ if(WITH_LIBCEPHFS)
   endif()
 endif(WITH_LIBCEPHFS)
 
+if(WITH_LIBCEPHSQLITE)
+  set(cephsqlite_srcs libcephsqlite.cc SimpleRADOSStriper.cc)
+  add_library(cephsqlite ${CEPH_SHARED} ${cephsqlite_srcs})
+  target_link_libraries(cephsqlite PRIVATE cls_lock_client librados ceph-common SQLite3::SQLite3 ${EXTRALIBS})
+  set_target_properties(cephsqlite PROPERTIES
+    CXX_VISIBILITY_PRESET hidden
+    VISIBILITY_INLINES_HIDDEN ON)
+  if(NOT APPLE AND NOT WIN32)
+    set_property(TARGET cephsqlite APPEND_STRING PROPERTY
+      LINK_FLAGS " -Wl,--exclude-libs,ALL")
+  endif()
+  install(TARGETS cephsqlite DESTINATION ${CMAKE_INSTALL_LIBDIR})
+endif(WITH_LIBCEPHSQLITE)
+
 if(WITH_FUSE)
   set(ceph_fuse_srcs
     ceph_fuse.cc
@@ -937,6 +956,7 @@ add_custom_target(cephfs_testing DEPENDS
     cls_cephfs
     ceph-fuse
     ceph-dencoder
+    ceph-dencoder-modules
     cephfs-journal-tool
     cephfs-meta-injection
     cephfs-data-scan

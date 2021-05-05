@@ -86,6 +86,7 @@ class LogChannel;
 
 class MOSDPGCreate2;
 class MOSDPGNotify;
+class MOSDPGInfo;
 class MOSDPGRemove;
 class MOSDForceRecovery;
 class MMonGetPurgedSnapsReply;
@@ -317,10 +318,7 @@ public:
     std::lock_guard l(sched_scrub_lock);
     if (sched_scrub_pg.empty())
       return false;
-    std::set<ScrubJob>::const_iterator iter = sched_scrub_pg.lower_bound(next);
-    if (iter == sched_scrub_pg.cend())
-      return false;
-    ++iter;
+    std::set<ScrubJob>::const_iterator iter = sched_scrub_pg.upper_bound(next);
     if (iter == sched_scrub_pg.cend())
       return false;
     *out = *iter;
@@ -1420,7 +1418,7 @@ private:
     std::vector<uint32_t> hb_front_min;
     std::vector<uint32_t> hb_front_max;
 
-    bool is_stale(utime_t stale) {
+    bool is_stale(utime_t stale) const {
       if (ping_history.empty()) {
         return false;
       }
@@ -1428,7 +1426,7 @@ private:
       return oldest_deadline <= stale;
     }
 
-    bool is_unhealthy(utime_t now) {
+    bool is_unhealthy(utime_t now) const {
       if (ping_history.empty()) {
         /// we haven't sent a ping yet or we have got all replies,
         /// in either way we are safe and healthy for now
@@ -1439,7 +1437,7 @@ private:
       return now > oldest_deadline;
     }
 
-    bool is_healthy(utime_t now) {
+    bool is_healthy(utime_t now) const {
       if (last_rx_front == utime_t() || last_rx_back == utime_t()) {
         // only declare to be healthy until we have received the first
         // replies from both front/back connections
@@ -1919,6 +1917,7 @@ protected:
   void handle_pg_query_nopg(const MQuery& q);
   void handle_fast_pg_notify(MOSDPGNotify *m);
   void handle_pg_notify_nopg(const MNotifyRec& q);
+  void handle_fast_pg_info(MOSDPGInfo *m);
   void handle_fast_pg_remove(MOSDPGRemove *m);
 
 public:

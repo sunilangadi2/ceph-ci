@@ -120,6 +120,7 @@ PeeringState::PeeringState(
     pg_whoami(pg_whoami),
     info(spgid),
     pg_log(cct),
+    last_require_osd_release(curmap->require_osd_release),
     missing_loc(spgid, this, dpp, cct),
     machine(this, cct, spgid, dpp, pl, &state_history)
 {
@@ -1023,10 +1024,10 @@ unsigned PeeringState::get_backfill_priority()
   if (state & PG_STATE_FORCED_BACKFILL) {
     ret = OSD_BACKFILL_PRIORITY_FORCED;
   } else {
-    if (acting.size() < pool.info.min_size) {
+    if (actingset.size() < pool.info.min_size) {
       base = OSD_BACKFILL_INACTIVE_PRIORITY_BASE;
       // inactive: no. of replicas < min_size, highest priority since it blocks IO
-      ret = base + (pool.info.min_size - acting.size());
+      ret = base + (pool.info.min_size - actingset.size());
 
     } else if (is_undersized()) {
       // undersized: OSD_BACKFILL_DEGRADED_PRIORITY_BASE + num missing replicas
@@ -2116,9 +2117,6 @@ bool PeeringState::recoverable(const vector<int> &want) const
   }
 
   if (num_want_acting < pool.info.min_size) {
-    const bool recovery_ec_pool_below_min_size =
-      HAVE_FEATURE(get_osdmap()->get_up_osd_features(), SERVER_OCTOPUS);
-    assert(recovery_ec_pool_below_min_size);
     if (!cct->_conf.get_val<bool>("osd_allow_recovery_below_min_size")) {
       psdout(10) << __func__ << " failed, recovery below min size not enabled" << dendl;
       return false;
@@ -2923,10 +2921,6 @@ void PeeringState::activate(
 
     state_set(PG_STATE_ACTIVATING);
     pl->on_activate(std::move(to_trim));
-  }
-  if (acting_set_writeable()) {
-    PGLog::LogEntryHandlerRef rollbacker{pl->get_log_handler(t)};
-    pg_log.roll_forward(rollbacker.get());
   }
 }
 

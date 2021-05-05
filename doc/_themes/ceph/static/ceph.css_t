@@ -99,10 +99,6 @@ div.highlight {
   border: 1px solid #F5DBC6;
 }
 
-.rst-content .admonition.important a {
-  color: #E6E8E8;
-}
-
 /* table */
 .rst-content table.docutils {
   border: 0;
@@ -134,7 +130,7 @@ html.writer-html5 .rst-content table.docutils th,
 
 /* lists */
 .rst-content .section dl:not(.docutils) dt {
-  display: table-cell;
+  display: inline-block;
 }
 
 .rst-content table.docutils ul + ul {

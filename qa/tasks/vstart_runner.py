@@ -406,11 +406,12 @@ class LocalRemote(object):
     # vstart_runner.py.
     def _do_run(self, args, check_status=True, wait=True, stdout=None,
                 stderr=None, cwd=None, stdin=None, logger=None, label=None,
-                env=None, timeout=None, omit_sudo=True):
+                env=None, timeout=None, omit_sudo=True, shell=True):
         args = self._perform_checks_and_return_list_of_args(args, omit_sudo)
 
         # We have to use shell=True if any run.Raw was present, e.g. &&
-        shell = any([a for a in args if isinstance(a, Raw)])
+        if not shell:
+            shell = any([a for a in args if isinstance(a, Raw)])
 
         # Filter out helper tools that don't exist in a vstart environment
         args = [a for a in args if a not in ('adjust-ulimits',
@@ -433,6 +434,7 @@ class LocalRemote(object):
                                        stderr=subprocess.PIPE,
                                        stdin=subprocess.PIPE,
                                        cwd=cwd,
+                                       env=env,
                                        shell=True)
         else:
             # Sanity check that we've got a list of strings
@@ -780,7 +782,9 @@ class LocalCephManager(CephManager):
         """
         return LocalRemote()
 
-    def run_ceph_w(self, watch_channel=None):
+    # XXX: For reason behind setting "shell" to False, see
+    # https://tracker.ceph.com/issues/49644.
+    def run_ceph_w(self, watch_channel=None, shell=False):
         """
         :param watch_channel: Specifies the channel to be watched.
                               This can be 'cluster', 'audit', ...
@@ -790,7 +794,8 @@ class LocalCephManager(CephManager):
         if watch_channel is not None:
             args.append("--watch-channel")
             args.append(watch_channel)
-        proc = self.controller.run(args=args, wait=False, stdout=StringIO())
+        proc = self.controller.run(args=args, wait=False, stdout=StringIO(),
+                                   shell=shell)
         return proc
 
     def run_cluster_cmd(self, **kwargs):
@@ -829,14 +834,14 @@ class LocalCephManager(CephManager):
         if stdout is None:
             stdout = StringIO()
 
-        args=[CEPH_CMD, "daemon", f'{daemon_type}', f'{daemon_id}'] + command
+        args=[CEPH_CMD, "daemon", f"{daemon_type}.{daemon_id}"] + command
         return self.controller.run(args=args, check_status=check_status,
                                    timeout=timeout, stdout=stdout)
 
 
 class LocalCephCluster(CephCluster):
     def __init__(self, ctx):
-        # Deliberately skip calling parent constructor
+        # Deliberately skip calling CephCluster constructor
         self._ctx = ctx
         self.mon_manager = LocalCephManager()
         self._conf = defaultdict(dict)
@@ -907,9 +912,19 @@ class LocalCephCluster(CephCluster):
 
 class LocalMDSCluster(LocalCephCluster, MDSCluster):
     def __init__(self, ctx):
-        super(LocalMDSCluster, self).__init__(ctx)
-        self.mds_ids = ctx.daemons.daemons['ceph.mds'].keys()
-        self.mds_daemons = dict([(id_, LocalDaemon("mds", id_)) for id_ in self.mds_ids])
+        LocalCephCluster.__init__(self, ctx)
+        # Deliberately skip calling MDSCluster constructor
+        self._mds_ids = ctx.daemons.daemons['ceph.mds'].keys()
+        log.debug("Discovered MDS IDs: {0}".format(self._mds_ids))
+        self._mds_daemons = dict([(id_, LocalDaemon("mds", id_)) for id_ in self.mds_ids])
+
+    @property
+    def mds_ids(self):
+        return self._mds_ids
+
+    @property
+    def mds_daemons(self):
+        return self._mds_daemons
 
     def clear_firewall(self):
         # FIXME: unimplemented
@@ -934,10 +949,10 @@ class LocalMgrCluster(LocalCephCluster, MgrCluster):
         self.mgr_daemons = dict([(id_, LocalDaemon("mgr", id_)) for id_ in self.mgr_ids])
 
 
-class LocalFilesystem(Filesystem, LocalMDSCluster):
+class LocalFilesystem(LocalMDSCluster, Filesystem):
     def __init__(self, ctx, fs_config={}, fscid=None, name=None, create=False):
-        # Deliberately skip calling parent constructor
-        self._ctx = ctx
+        # Deliberately skip calling Filesystem constructor
+        LocalMDSCluster.__init__(self, ctx)
 
         self.id = None
         self.name = name
@@ -948,23 +963,7 @@ class LocalFilesystem(Filesystem, LocalMDSCluster):
         self.fs_config = fs_config
         self.ec_profile = fs_config.get('ec_profile')
 
-        # Hack: cheeky inspection of ceph.conf to see what MDSs exist
-        self.mds_ids = set()
-        for line in open("ceph.conf").readlines():
-            match = re.match("^\[mds\.(.+)\]$", line)
-            if match:
-                self.mds_ids.add(match.group(1))
-
-        if not self.mds_ids:
-            raise RuntimeError("No MDSs found in ceph.conf!")
-
-        self.mds_ids = list(self.mds_ids)
-
-        log.debug("Discovered MDS IDs: {0}".format(self.mds_ids))
-
         self.mon_manager = LocalCephManager()
-
-        self.mds_daemons = dict([(id_, LocalDaemon("mds", id_)) for id_ in self.mds_ids])
 
         self.client_remote = LocalRemote()
 

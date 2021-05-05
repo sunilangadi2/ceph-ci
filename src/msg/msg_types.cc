@@ -10,6 +10,38 @@
 
 #include "common/Formatter.h"
 
+bool entity_name_t::parse(std::string_view s)
+{
+  const char* start = s.data();
+  if (s.find("mon.") == 0) {
+    _type = TYPE_MON;
+    start += 4;
+  } else if (s.find("osd.") == 0) {
+    _type = TYPE_OSD;
+    start += 4;
+  } else if (s.find("mds.") == 0) {
+    _type = TYPE_MDS;
+    start += 4;
+  } else if (s.find("client.") == 0) {
+    _type = TYPE_CLIENT;
+    start += 7;
+  } else if (s.find("mgr.") == 0) {
+    _type = TYPE_MGR;
+    start += 4;
+  } else {
+    return false;
+  }
+  if (isspace(*start))
+    return false;
+  char *end = nullptr;
+  _num = strtoll(start, &end, 10);
+  if (end == nullptr || end == start) {
+    return false;
+  } else {
+    return end == s.data() + s.size();
+  }
+}
+
 void entity_name_t::dump(ceph::Formatter *f) const
 {
   f->dump_string("type", type_str());
@@ -62,6 +94,14 @@ void entity_inst_t::generate_test_instances(std::list<entity_inst_t*>& o)
   entity_addr_t addr;
   entity_inst_t *a = new entity_inst_t(name, addr);
   o.push_back(a);
+}
+
+bool entity_addr_t::parse(const std::string_view s)
+{
+  const char* start = s.data();
+  const char* end = nullptr;
+  bool got = parse(start, &end);
+  return got && end == start + s.size();
 }
 
 bool entity_addr_t::parse(const char *s, const char **end, int default_type)

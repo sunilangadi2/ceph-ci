@@ -24,7 +24,7 @@ To deploy a set of radosgw daemons, with an arbitrary service name
 
 .. prompt:: bash #
 
-  ceph orch apply rgw *<name>* [--rgw-realm=*<realm-name>*] [--rgw-zone=*<zone-name>*] --placement="*<num-daemons>* [*<host1>* ...]"
+  ceph orch apply rgw *<name>* [--realm=*<realm-name>*] [--zone=*<zone-name>*] --placement="*<num-daemons>* [*<host1>* ...]"
 
 Trivial setup
 -------------
@@ -57,7 +57,7 @@ To deploy RGWs serving the multisite *myorg* realm and the *us-east-1* zone on
 
 .. prompt:: bash #
 
-   ceph orch apply rgw east --rgw-realm=myorg --rgw-zone=us-east-1 --placement="2 myhost1 myhost2"
+   ceph orch apply rgw east --realm=myorg --zone=us-east-1 --placement="2 myhost1 myhost2"
 
 Note that in a multisite situation, cephadm only deploys the daemons.  It does not create
 or update the realm or zone configurations.  To create a new realm and zone, you need to do
@@ -168,7 +168,6 @@ It is a yaml format file with the following properties:
       ha_proxy_stats_password: <string> # ex: true
       ha_proxy_enable_prometheus_exporter: <boolean> # ex: true
       ha_proxy_monitor_uri: <string> # ex: /haproxy_health
-      keepalived_user: <string> # ex: admin
       keepalived_password: <string> # ex: admin
       ha_proxy_frontend_ssl_certificate: <optional string> ex:
         [
@@ -220,8 +219,6 @@ where the properties of this service specification are:
     allow to consume RGW Service metrics from Grafana.
 * ``ha_proxy_monitor_uri``:
     To set the API endpoint where the health of HAProxy daemon is provided
-* ``keepalived_user``
-    User needed to access keepalived daemons
 * ``keepalived_password``:
     The password needed to access keepalived daemons
 * ``ha_proxy_frontend_ssl_certificate``:

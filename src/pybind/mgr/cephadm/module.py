@@ -1757,6 +1757,11 @@ class CephadmOrchestrator(orchestrator.Orchestrator, MgrModule,
     def daemon_is_self(self, daemon_type: str, daemon_id: str) -> bool:
         return daemon_type == 'mgr' and daemon_id == self.get_mgr_id()
 
+    def get_active_mgr_digests(self) -> List[str]:
+        digests = self.mgr_service.get_active_daemon(
+            self.cache.get_daemons_by_type('mgr')).container_image_digests
+        return digests if digests else []
+
     def _schedule_daemon_action(self, daemon_name: str, action: str) -> str:
         dd = self.cache.get_daemon(daemon_name)
         assert dd.daemon_type is not None
@@ -1781,7 +1786,7 @@ class CephadmOrchestrator(orchestrator.Orchestrator, MgrModule,
                     args.append((name, host))
         if not args:
             raise OrchestratorError('Unable to find daemon(s) %s' % (names))
-        self.log.info('Remove daemons %s' % [a[0] for a in args])
+        self.log.info('Remove daemons %s' % ' '.join([a[0] for a in args]))
         return self._remove_daemons(args)
 
     @handle_orch_error
@@ -2082,6 +2087,7 @@ class CephadmOrchestrator(orchestrator.Orchestrator, MgrModule,
         ha = HostAssignment(
             spec=spec,
             hosts=self._hosts_with_daemon_inventory(),
+            networks=self.cache.networks,
             daemons=self.cache.get_daemons_by_service(spec.service_name()),
             allow_colo=self.cephadm_services[spec.service_type].allow_colo(),
         )
@@ -2138,6 +2144,7 @@ class CephadmOrchestrator(orchestrator.Orchestrator, MgrModule,
         HostAssignment(
             spec=spec,
             hosts=self.inventory.all_specs(),  # All hosts, even those without daemon refresh
+            networks=self.cache.networks,
             daemons=self.cache.get_daemons_by_service(spec.service_name()),
             allow_colo=self.cephadm_services[spec.service_type].allow_colo(),
         ).validate()
@@ -2149,9 +2156,18 @@ class CephadmOrchestrator(orchestrator.Orchestrator, MgrModule,
         return "Scheduled %s update..." % spec.service_name()
 
     @handle_orch_error
-    def apply(self, specs: Sequence[GenericSpec]) -> List[str]:
+    def apply(self, specs: Sequence[GenericSpec], no_overwrite: bool = False) -> List[str]:
         results = []
         for spec in specs:
+            if no_overwrite:
+                if spec.service_type == 'host' and cast(HostSpec, spec).hostname in self.inventory:
+                    results.append('Skipped %s host spec. To change %s spec omit --no-overwrite flag'
+                                   % (cast(HostSpec, spec).hostname, spec.service_type))
+                    continue
+                elif cast(ServiceSpec, spec).service_name() in self.spec_store:
+                    results.append('Skipped %s service spec. To change %s spec omit --no-overwrite flag'
+                                   % (cast(ServiceSpec, spec).service_name(), cast(ServiceSpec, spec).service_name()))
+                    continue
             results.append(self._apply(spec))
         return results
 

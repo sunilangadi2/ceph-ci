@@ -432,7 +432,7 @@ class Orchestrator(object):
         raise NotImplementedError()
 
     @handle_orch_error
-    def apply(self, specs: Sequence["GenericSpec"]) -> List[str]:
+    def apply(self, specs: Sequence["GenericSpec"], no_overwrite: bool = False) -> List[str]:
         """
         Applies any spec
         """
@@ -734,6 +734,7 @@ class UpgradeStatusSpec(object):
         self.in_progress = False  # Is an upgrade underway?
         self.target_image: Optional[str] = None
         self.services_complete: List[str] = []  # Which daemon types are fully updated?
+        self.progress: Optional[str] = None  # How many of the daemons have we upgraded
         self.message = ""  # Freeform description
 
 
@@ -792,6 +793,7 @@ class DaemonDescription(object):
                  service_name: Optional[str] = None,
                  ports: Optional[List[int]] = None,
                  ip: Optional[str] = None,
+                 deployed_by: Optional[List[str]] = None,
                  ) -> None:
 
         # Host is at the same granularity as InventoryHost
@@ -846,6 +848,8 @@ class DaemonDescription(object):
 
         self.ports: Optional[List[int]] = ports
         self.ip: Optional[str] = ip
+
+        self.deployed_by = deployed_by
 
         self.is_active = is_active
 

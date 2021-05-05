@@ -45,8 +45,9 @@ from urllib.error import HTTPError
 from urllib.request import urlopen
 
 # Default container images -----------------------------------------------------
-DEFAULT_IMAGE = 'docker.io/ceph/daemon-base:latest-master-devel'
+DEFAULT_IMAGE = 'quay.ceph.io/ceph-ci/ceph:master'
 DEFAULT_IMAGE_IS_MASTER = True
+DEFAULT_IMAGE_RELEASE = 'quincy'
 DEFAULT_PROMETHEUS_IMAGE = 'docker.io/prom/prometheus:v2.18.1'
 DEFAULT_NODE_EXPORTER_IMAGE = 'docker.io/prom/node-exporter:v0.18.1'
 DEFAULT_GRAFANA_IMAGE = 'docker.io/ceph/ceph-grafana:6.7.4'
@@ -62,8 +63,8 @@ UNIT_DIR = '/etc/systemd/system'
 LOG_DIR_MODE = 0o770
 DATA_DIR_MODE = 0o700
 CONTAINER_INIT = True
-CONTAINER_PREFERENCE = ['podman', 'docker']  # prefer podman to docker
 MIN_PODMAN_VERSION = (2, 0, 2)
+CGROUPS_SPLIT_PODMAN_VERSION = (2, 1, 0)
 CUSTOM_PS1 = r'[ceph: \u@\h \W]\$ '
 DEFAULT_TIMEOUT = None  # in seconds
 DEFAULT_RETRY = 15
@@ -115,7 +116,7 @@ class BaseConfig:
         self.memory_limit: Optional[int] = None
 
         self.container_init: bool = CONTAINER_INIT
-        self.container_path: str = ''
+        self.container_engine: Optional[ContainerEngine] = None
 
     def set_from_args(self, args: argparse.Namespace):
         argdict: Dict[str, Any] = vars(args)
@@ -155,6 +156,40 @@ class CephadmContext:
             setattr(self._args, name, value)
         else:
             super().__setattr__(name, value)
+
+
+class ContainerEngine:
+    def __init__(self):
+        self.path = find_program(self.EXE)
+
+    @property
+    def EXE(self) -> str:
+        raise NotImplementedError()
+
+
+class Podman(ContainerEngine):
+    EXE = 'podman'
+
+    def __init__(self):
+        super().__init__()
+        self._version = None
+
+    @property
+    def version(self):
+        if self._version is None:
+            raise RuntimeError('Please call `get_version` first')
+        return self._version
+
+    def get_version(self, ctx: CephadmContext):
+        out, _, _ = call_throws(ctx, [self.path, 'version', '--format', '{{.Client.Version}}'])
+        self._version = _parse_podman_version(out)
+
+
+class Docker(ContainerEngine):
+    EXE = 'docker'
+
+
+CONTAINER_PREFERENCE = (Podman, Docker)  # prefer podman to docker
 
 
 # Log and console output config
@@ -287,16 +322,16 @@ class Monitoring(object):
         if daemon_type == 'alertmanager':
             for cmd in ['alertmanager', 'prometheus-alertmanager']:
                 _, err, code = call(ctx, [
-                    ctx.container_path, 'exec', container_id, cmd,
+                    ctx.container_engine.path, 'exec', container_id, cmd,
                     '--version'
-                ], verbosity=CallVerbosity.SILENT)
+                ], verbosity=CallVerbosity.DEBUG)
                 if code == 0:
                     break
             cmd = 'alertmanager'  # reset cmd for version extraction
         else:
             _, err, code = call(ctx, [
-                ctx.container_path, 'exec', container_id, cmd, '--version'
-            ])
+                ctx.container_engine.path, 'exec', container_id, cmd, '--version'
+            ], verbosity=CallVerbosity.DEBUG)
         if code == 0 and \
                 err.startswith('%s, version ' % cmd):
             version = err.split(' ')[2]
@@ -385,8 +420,9 @@ class NFSGanesha(object):
         # type: (CephadmContext, str) -> Optional[str]
         version = None
         out, err, code = call(ctx,
-                              [ctx.container_path, 'exec', container_id,
-                               NFSGanesha.entrypoint, '-v'])
+                              [ctx.container_engine.path, 'exec', container_id,
+                               NFSGanesha.entrypoint, '-v'],
+                              verbosity=CallVerbosity.DEBUG)
         if code == 0:
             match = re.search(r'NFS-Ganesha Release\s*=\s*[V]*([\d.]+)', out)
             if match:
@@ -546,8 +582,9 @@ class CephIscsi(object):
         # type: (CephadmContext, str) -> Optional[str]
         version = None
         out, err, code = call(ctx,
-                              [ctx.container_path, 'exec', container_id,
-                               '/usr/bin/python3', '-c', "import pkg_resources; print(pkg_resources.require('ceph_iscsi')[0].version)"])
+                              [ctx.container_engine.path, 'exec', container_id,
+                               '/usr/bin/python3', '-c', "import pkg_resources; print(pkg_resources.require('ceph_iscsi')[0].version)"],
+                              verbosity=CallVerbosity.DEBUG)
         if code == 0:
             version = out.strip()
         return version
@@ -766,7 +803,7 @@ class Keepalived(object):
         envs = [
             'KEEPALIVED_AUTOCONF=false',
             'KEEPALIVED_CONF=/etc/keepalived/keepalived.conf',
-            'KEEPALIVED_CMD="/usr/sbin/keepalived -n -l -f /etc/keepalived/keepalived.conf"',
+            'KEEPALIVED_CMD=/usr/sbin/keepalived -n -l -f /etc/keepalived/keepalived.conf',
             'KEEPALIVED_DEBUG=false'
         ]
         return envs
@@ -1521,18 +1558,8 @@ def try_convert_datetime(s):
     return None
 
 
-def get_podman_version(ctx, container_path):
-    # type: (CephadmContext, str) -> Tuple[int, ...]
-    if 'podman' not in container_path:
-        raise ValueError('not using podman')
-    out, _, _ = call_throws(ctx, [container_path, '--version'])
-    return _parse_podman_version(out)
-
-
-def _parse_podman_version(out):
+def _parse_podman_version(version_str):
     # type: (str) -> Tuple[int, ...]
-    _, _, version_str = out.strip().split()
-
     def to_int(val, org_e=None):
         if not val and org_e:
             raise org_e
@@ -1686,7 +1713,7 @@ def infer_image(func):
         if not ctx.image:
             ctx.image = os.environ.get('CEPHADM_IMAGE')
         if not ctx.image:
-            ctx.image = get_last_local_ceph_image(ctx, ctx.container_path)
+            ctx.image = get_last_local_ceph_image(ctx, ctx.container_engine.path)
         if not ctx.image:
             ctx.image = _get_default_image(ctx)
         return func(ctx)
@@ -1919,26 +1946,26 @@ def find_program(filename):
     return name
 
 
-def find_container_engine(ctx):
-    # type: (CephadmContext) -> str
+def find_container_engine(ctx: CephadmContext):
     if ctx.docker:
-        return find_program('docker')
+        return Docker()
     else:
         for i in CONTAINER_PREFERENCE:
             try:
-                return find_program(i)
+                return i()
             except Exception as e:
-                logger.debug('Could not locate %s: %s' % (i, e))
-    return ''
+                logger.debug('Could not locate %s: %s' % (i.EXE, e))
+    return None
 
 
 def check_container_engine(ctx):
     # type: (CephadmContext) -> None
-    engine = os.path.basename(ctx.container_path) if ctx.container_path else None
-    if engine not in CONTAINER_PREFERENCE:
-        raise Error('Unable to locate any of %s' % CONTAINER_PREFERENCE)
-    elif engine == 'podman':
-        if get_podman_version(ctx, ctx.container_path) < MIN_PODMAN_VERSION:
+    engine = ctx.container_engine
+    if not isinstance(engine, CONTAINER_PREFERENCE):
+        raise Error('Unable to locate any of %s' % [i.EXE for i in CONTAINER_PREFERENCE])
+    elif isinstance(engine, Podman):
+        engine.get_version(ctx)
+        if engine.version < MIN_PODMAN_VERSION:
             raise Error('podman version %d.%d.%d or later is required' % MIN_PODMAN_VERSION)
 
 
@@ -2016,7 +2043,7 @@ def check_units(ctx, units, enabler=None):
 
 def is_container_running(ctx: CephadmContext, name: str) -> bool:
     out, err, ret = call_throws(ctx, [
-        ctx.container_path, 'ps',
+        ctx.container_engine.path, 'ps',
         '--format', '{{.Names}}'])
     return name in out
 
@@ -2217,14 +2244,20 @@ def get_config_and_keyring(ctx):
         keyring = d.get('keyring')
 
     if 'config' in ctx and ctx.config:
-        with open(ctx.config, 'r') as f:
-            config = f.read()
+        try:
+            with open(ctx.config, 'r') as f:
+                config = f.read()
+        except FileNotFoundError:
+            raise Error('config file: %s does not exist' % ctx.config)
 
     if 'key' in ctx and ctx.key:
         keyring = '[%s]\n\tkey = %s\n' % (ctx.name, ctx.key)
     elif 'keyring' in ctx and ctx.keyring:
-        with open(ctx.keyring, 'r') as f:
-            keyring = f.read()
+        try:
+            with open(ctx.keyring, 'r') as f:
+                keyring = f.read()
+        except FileNotFoundError:
+            raise Error('keyring file: %s does not exist' % ctx.keyring)
 
     return config, keyring
 
@@ -2372,7 +2405,7 @@ def get_container(ctx: CephadmContext,
         name = 'client.rgw.%s' % daemon_id
     elif daemon_type == 'rbd-mirror':
         entrypoint = '/usr/bin/rbd-mirror'
-        name = 'client.cephfs-mirror.%s' % daemon_id
+        name = 'client.rbd-mirror.%s' % daemon_id
     elif daemon_type == 'cephfs-mirror':
         entrypoint = '/usr/bin/cephfs-mirror'
         name = 'client.cephfs-mirror.%s' % daemon_id
@@ -2393,7 +2426,7 @@ def get_container(ctx: CephadmContext,
     elif daemon_type == Keepalived.daemon_type:
         name = '%s.%s' % (daemon_type, daemon_id)
         envs.extend(Keepalived.get_container_envs())
-        container_args.extend(['--cap-add NET_ADMIN'])
+        container_args.extend(['--cap-add=NET_ADMIN', '--cap-add=NET_RAW'])
     elif daemon_type == CephIscsi.daemon_type:
         entrypoint = CephIscsi.entrypoint
         name = '%s.%s' % (daemon_type, daemon_id)
@@ -2423,7 +2456,7 @@ def get_container(ctx: CephadmContext,
 
     # if using podman, set -d, --conmon-pidfile & --cidfile flags
     # so service can have Type=Forking
-    if 'podman' in ctx.container_path:
+    if isinstance(ctx.container_engine, Podman):
         runtime_dir = '/run'
         container_args.extend([
             '-d', '--log-driver', 'journald',
@@ -2432,6 +2465,8 @@ def get_container(ctx: CephadmContext,
             '--cidfile',
             runtime_dir + '/ceph-%s@%s.%s.service-cid' % (fsid, daemon_type, daemon_id),
         ])
+        if ctx.container_engine.version >= CGROUPS_SPLIT_PODMAN_VERSION:
+            container_args.append('--cgroups=split')
 
     return CephContainer(
         ctx,
@@ -2590,7 +2625,7 @@ def _write_container_cmd_to_bash(ctx, file_obj, container, comment=None, backgro
     # Sometimes, adding `--rm` to a run_cmd doesn't work. Let's remove the container manually
     file_obj.write('! ' + ' '.join(container.rm_cmd()) + ' 2> /dev/null\n')
     # Sometimes, `podman rm` doesn't find the container. Then you'll have to add `--storage`
-    if 'podman' in ctx.container_path:
+    if isinstance(ctx.container_engine, Podman):
         file_obj.write(
             '! '
             + ' '.join([shlex.quote(a) for a in container.rm_cmd(storage=True)])
@@ -2942,13 +2977,15 @@ def install_base_units(ctx, fsid):
 def get_unit_file(ctx, fsid):
     # type: (CephadmContext, str) -> str
     extra_args = ''
-    if 'podman' in ctx.container_path:
+    if isinstance(ctx.container_engine, Podman):
         extra_args = ('ExecStartPre=-/bin/rm -f /%t/%n-pid /%t/%n-cid\n'
                       'ExecStopPost=-/bin/rm -f /%t/%n-pid /%t/%n-cid\n'
                       'Type=forking\n'
                       'PIDFile=/%t/%n-pid\n')
+        if ctx.container_engine.version >= CGROUPS_SPLIT_PODMAN_VERSION:
+            extra_args += 'Delegate=yes\n'
 
-    docker = 'docker' in ctx.container_path
+    docker = isinstance(ctx.container_engine, Docker)
     u = """# generated by cephadm
 [Unit]
 Description=Ceph %i for {fsid}
@@ -2981,7 +3018,7 @@ StartLimitBurst=5
 {extra_args}
 [Install]
 WantedBy=ceph-{fsid}.target
-""".format(container_path=ctx.container_path,
+""".format(container_path=ctx.container_engine.path,
            fsid=fsid,
            data_dir=ctx.data_dir,
            extra_args=extra_args,
@@ -3030,15 +3067,19 @@ class CephContainer:
 
     def run_cmd(self) -> List[str]:
         cmd_args: List[str] = [
-            str(self.ctx.container_path),
+            str(self.ctx.container_engine.path),
             'run',
             '--rm',
             '--ipc=host',
         ]
 
-        if 'podman' in self.ctx.container_path and \
-           os.path.exists('/etc/ceph/podman-auth.json'):
-            cmd_args.append('--authfile=/etc/ceph/podman-auth.json')
+        if isinstance(self.ctx.container_engine, Podman):
+            # podman adds the container *name* to /etc/hosts (for 127.0.1.1)
+            # by default, which makes python's socket.getfqdn() return that
+            # instead of a valid hostname.
+            cmd_args.append('--no-hosts')
+            if os.path.exists('/etc/ceph/podman-auth.json'):
+                cmd_args.append('--authfile=/etc/ceph/podman-auth.json')
 
         envs: List[str] = [
             '-e', 'CONTAINER_IMAGE=%s' % self.image,
@@ -3089,7 +3130,7 @@ class CephContainer:
 
     def shell_cmd(self, cmd: List[str]) -> List[str]:
         cmd_args: List[str] = [
-            str(self.ctx.container_path),
+            str(self.ctx.container_engine.path),
             'run',
             '--rm',
             '--ipc=host',
@@ -3130,7 +3171,7 @@ class CephContainer:
     def exec_cmd(self, cmd):
         # type: (List[str]) -> List[str]
         return [
-            str(self.ctx.container_path),
+            str(self.ctx.container_engine.path),
             'exec',
         ] + self.container_args + [
             self.cname,
@@ -3139,7 +3180,7 @@ class CephContainer:
     def rm_cmd(self, storage=False):
         # type: (bool) -> List[str]
         ret = [
-            str(self.ctx.container_path),
+            str(self.ctx.container_engine.path),
             'rm', '-f',
         ]
         if storage:
@@ -3150,7 +3191,7 @@ class CephContainer:
     def stop_cmd(self):
         # type () -> List[str]
         ret = [
-            str(self.ctx.container_path),
+            str(self.ctx.container_engine.path),
             'stop', self.cname,
         ]
         return ret
@@ -3194,8 +3235,8 @@ def _pull_image(ctx, image):
         'Digest did not match, expected',
     ]
 
-    cmd = [ctx.container_path, 'pull', image]
-    if 'podman' in ctx.container_path and os.path.exists('/etc/ceph/podman-auth.json'):
+    cmd = [ctx.container_engine.path, 'pull', image]
+    if isinstance(ctx.container_engine, Podman) and os.path.exists('/etc/ceph/podman-auth.json'):
         cmd.append('--authfile=/etc/ceph/podman-auth.json')
     cmd_str = ' '.join(cmd)
 
@@ -3219,7 +3260,7 @@ def _pull_image(ctx, image):
 def command_inspect_image(ctx):
     # type: (CephadmContext) -> int
     out, err, ret = call_throws(ctx, [
-        ctx.container_path, 'inspect',
+        ctx.container_engine.path, 'inspect',
         '--format', '{{.ID}},{{.RepoDigests}}',
         ctx.image])
     if ret:
@@ -3620,7 +3661,7 @@ def prepare_ssh(
 
         with open(ctx.output_pub_ssh_key, 'w') as f:
             f.write(ssh_pub)
-        logger.info('Wrote public SSH key to to %s' % ctx.output_pub_ssh_key)
+        logger.info('Wrote public SSH key to %s' % ctx.output_pub_ssh_key)
 
         logger.info('Adding key to %s@localhost authorized_keys...' % ctx.ssh_user)
         try:
@@ -3655,7 +3696,10 @@ def prepare_ssh(
     host = get_hostname()
     logger.info('Adding host %s...' % host)
     try:
-        cli(['orch', 'host', 'add', host])
+        args = ['orch', 'host', 'add', host]
+        if ctx.mon_ip:
+            args.append(ctx.mon_ip)
+        cli(args)
     except RuntimeError as e:
         raise Error('Failed to add host <%s>: %s' % (host, e))
 
@@ -3751,9 +3795,6 @@ def prepare_bootstrap_config(
     if ctx.registry_json or ctx.registry_url:
         command_registry_login(ctx)
 
-    if not ctx.skip_pull:
-        _pull_image(ctx, image)
-
     return config
 
 
@@ -3814,8 +3855,6 @@ def finish_bootstrap_config(
 def command_bootstrap(ctx):
     # type: (CephadmContext) -> int
 
-    host: Optional[str] = None
-
     if not ctx.output_config:
         ctx.output_config = os.path.join(ctx.output_dir, 'ceph.conf')
     if not ctx.output_keyring:
@@ -3862,6 +3901,20 @@ def command_bootstrap(ctx):
     cluster_network, ipv6_cluster_network = prepare_cluster_network(ctx)
 
     config = prepare_bootstrap_config(ctx, fsid, addr_arg, ctx.image)
+
+    if not ctx.skip_pull:
+        _pull_image(ctx, ctx.image)
+
+    image_ver = CephContainer(ctx, ctx.image, 'ceph', ['--version']).run().strip()
+    logger.info(f'Ceph version: {image_ver}')
+    image_release = image_ver.split()[4]
+    if (
+        not ctx.allow_mismatched_release
+        and image_release not in [DEFAULT_IMAGE_RELEASE, LATEST_STABLE_RELEASE]
+    ):
+        raise Error(
+            f'Container release {image_release} != cephadm release {DEFAULT_IMAGE_RELEASE}; please use matching version of cephadm (pass --allow-mismatched-release to continue anyway)'
+        )
 
     logger.info('Extracting ceph user uid/gid from container image...')
     (uid, gid) = extract_uid_gid(ctx)
@@ -3921,16 +3974,24 @@ def command_bootstrap(ctx):
     # create mgr
     create_mgr(ctx, uid, gid, fsid, mgr_id, mgr_key, config, cli)
 
+    def json_loads_retry(cli_func):
+        for sleep_secs in [1, 4, 4]:
+            try:
+                return json.loads(cli_func())
+            except json.JSONDecodeError:
+                logger.debug('Invalid JSON. Retrying in %s seconds...' % sleep_secs)
+                time.sleep(sleep_secs)
+        return json.loads(cli_func())
+
     # wait for mgr to restart (after enabling a module)
     def wait_for_mgr_restart():
         # first get latest mgrmap epoch from the mon.  try newer 'mgr
         # stat' command first, then fall back to 'mgr dump' if
         # necessary
         try:
-            out = cli(['mgr', 'stat'])
+            j = json_loads_retry(lambda: cli(['mgr', 'stat']))
         except Exception:
-            out = cli(['mgr', 'dump'])
-        j = json.loads(out)
+            j = json_loads_retry(lambda: cli(['mgr', 'dump']))
         epoch = j['epoch']
 
         # wait for mgr to have it
@@ -3948,7 +4009,6 @@ def command_bootstrap(ctx):
         is_available(ctx, 'mgr epoch %d' % epoch, mgr_has_latest_epoch)
 
     # ssh
-    host = None
     if not ctx.skip_ssh:
         prepare_ssh(ctx, cli, wait_for_mgr_restart)
 
@@ -3991,13 +4051,13 @@ def command_bootstrap(ctx):
                 if 'hostname:' in line:
                     line = line.replace('\n', '')
                     split = line.split(': ')
-                    if split[1] != host:
+                    if split[1] != hostname:
                         logger.info('Adding ssh key to %s' % split[1])
 
                         ssh_key = '/etc/ceph/ceph.pub'
                         if ctx.ssh_public_key:
                             ssh_key = ctx.ssh_public_key.name
-                        out, err, code = call_throws(ctx, ['ssh-copy-id', '-f', '-i', ssh_key, '%s@%s' % (ctx.ssh_user, split[1])])
+                        out, err, code = call_throws(ctx, ['sudo', '-u', ctx.ssh_user, 'ssh-copy-id', '-f', '-i', ssh_key, '-o StrictHostKeyChecking=no', '%s@%s' % (ctx.ssh_user, split[1])])
 
         mounts = {}
         mounts[pathify(ctx.apply_spec)] = '/tmp/spec.yml:z'
@@ -4050,14 +4110,14 @@ def command_registry_login(ctx: CephadmContext):
 def registry_login(ctx: CephadmContext, url, username, password):
     logger.info('Logging into custom registry.')
     try:
-        container_path = ctx.container_path
-        cmd = [container_path, 'login',
+        engine = ctx.container_engine
+        cmd = [engine.path, 'login',
                '-u', username, '-p', password,
                url]
-        if 'podman' in container_path:
+        if isinstance(engine, Podman):
             cmd.append('--authfile=/etc/ceph/podman-auth.json')
         out, _, _ = call_throws(ctx, cmd)
-        if 'podman' in container_path:
+        if isinstance(engine, Podman):
             os.chmod('/etc/ceph/podman-auth.json', 0o600)
     except Exception:
         raise Error('Failed to login to custom registry @ %s as %s with given password' % (ctx.registry_url, ctx.registry_username))
@@ -4235,11 +4295,25 @@ def command_run(ctx):
 ##################################
 
 
+def fsid_conf_mismatch(ctx):
+    # type: (CephadmContext) -> bool
+    (config, _) = get_config_and_keyring(ctx)
+    if config:
+        for c in config.split('\n'):
+            if 'fsid = ' in c.strip():
+                if 'fsid = ' + ctx.fsid != c.strip():
+                    return True
+    return False
+
+
 @infer_fsid
 @infer_config
 @infer_image
 def command_shell(ctx):
     # type: (CephadmContext) -> int
+    if fsid_conf_mismatch(ctx):
+        raise Error('fsid does not match ceph conf')
+
     if ctx.fsid:
         make_log_dir(ctx, ctx.fsid)
     if ctx.name:
@@ -4544,7 +4618,7 @@ def list_daemons(ctx, detail=True, legacy_dir=None):
     # type: (CephadmContext, bool, Optional[str]) -> List[Dict[str, str]]
     host_version: Optional[str] = None
     ls = []
-    container_path = ctx.container_path
+    container_path = ctx.container_engine.path
 
     data_dir = ctx.data_dir
     if legacy_dir is not None:
@@ -4596,7 +4670,9 @@ def list_daemons(ctx, detail=True, legacy_dir=None):
                             check_unit(ctx, legacy_unit_name)
                         if not host_version:
                             try:
-                                out, err, code = call(ctx, ['ceph', '-v'])
+                                out, err, code = call(ctx,
+                                                      ['ceph', '-v'],
+                                                      verbosity=CallVerbosity.DEBUG)
                                 if not code and out.startswith('ceph version '):
                                     host_version = out.split(' ')[2]
                             except Exception:
@@ -4669,7 +4745,8 @@ def list_daemons(ctx, detail=True, legacy_dir=None):
                                 if daemon_type in Ceph.daemons:
                                     out, err, code = call(ctx,
                                                           [container_path, 'exec', container_id,
-                                                           'ceph', '-v'])
+                                                           'ceph', '-v'],
+                                                          verbosity=CallVerbosity.DEBUG)
                                     if not code and \
                                        out.startswith('ceph version '):
                                         version = out.split(' ')[2]
@@ -4677,7 +4754,8 @@ def list_daemons(ctx, detail=True, legacy_dir=None):
                                 elif daemon_type == 'grafana':
                                     out, err, code = call(ctx,
                                                           [container_path, 'exec', container_id,
-                                                           'grafana-server', '-v'])
+                                                           'grafana-server', '-v'],
+                                                          verbosity=CallVerbosity.DEBUG)
                                     if not code and \
                                        out.startswith('Version '):
                                         version = out.split(' ')[1]
@@ -4690,7 +4768,8 @@ def list_daemons(ctx, detail=True, legacy_dir=None):
                                 elif daemon_type == 'haproxy':
                                     out, err, code = call(ctx,
                                                           [container_path, 'exec', container_id,
-                                                           'haproxy', '-v'])
+                                                           'haproxy', '-v'],
+                                                          verbosity=CallVerbosity.DEBUG)
                                     if not code and \
                                        out.startswith('HA-Proxy version '):
                                         version = out.split(' ')[2]
@@ -4698,10 +4777,13 @@ def list_daemons(ctx, detail=True, legacy_dir=None):
                                 elif daemon_type == 'keepalived':
                                     out, err, code = call(ctx,
                                                           [container_path, 'exec', container_id,
-                                                           'keepalived', '--version'])
+                                                           'keepalived', '--version'],
+                                                          verbosity=CallVerbosity.DEBUG)
                                     if not code and \
                                        err.startswith('Keepalived '):
                                         version = err.split(' ')[1]
+                                        if version[0] == 'v':
+                                            version = version[1:]
                                         seen_versions[image_id] = version
                                 elif daemon_type == CustomContainer.daemon_type:
                                     # Because a custom container can contain
@@ -5275,7 +5357,7 @@ def check_time_sync(ctx, enabler=None):
 
 
 def command_check_host(ctx: CephadmContext) -> None:
-    container_path = ctx.container_path
+    container_path = ctx.container_engine.path
 
     errors = []
     commands = ['systemctl', 'lvcreate']
@@ -6346,6 +6428,8 @@ class HostFacts():
                     security['description'] = 'AppArmor: Enabled'
                     try:
                         profiles = read_file(['/sys/kernel/security/apparmor/profiles'])
+                        if len(profiles) == 0:
+                            return {}
                     except OSError:
                         pass
                     else:
@@ -6988,7 +7072,7 @@ class CephadmDaemon():
 
     @property
     def unit_file(self):
-        docker = 'docker' in self.ctx.container_path
+        docker = isinstance(self.ctx.container_engine, Docker)
         return """#generated by cephadm
 [Unit]
 Description=cephadm exporter service for cluster {fsid}
@@ -7553,6 +7637,10 @@ def _get_parser():
         action='store_true',
         help='allow hostname that is fully-qualified (contains ".")')
     parser_bootstrap.add_argument(
+        '--allow-mismatched-release',
+        action='store_true',
+        help="allow bootstrap of ceph that doesn't match this version of cephadm")
+    parser_bootstrap.add_argument(
         '--skip-prepare-host',
         action='store_true',
         help='Do not prepare host')
@@ -7846,7 +7934,7 @@ def main():
 
     try:
         # podman or docker?
-        ctx.container_path = find_container_engine(ctx)
+        ctx.container_engine = find_container_engine(ctx)
         if ctx.func not in \
                 [command_check_host, command_prepare_host, command_add_repo]:
             check_container_engine(ctx)

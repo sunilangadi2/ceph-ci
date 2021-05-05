@@ -5478,37 +5478,21 @@ int BlueStore::_create_alloc()
 }
 
 //-------------------------------------------------------------------------------------
-int BlueStore::store_allocation_state_on_bluestore()
+int BlueStore::commit_to_null_manager()
 {
-  // GBH -REMOVE-ME
-  //dout(1) << __func__ << "::NCB::SKIPPING store_allocator() **REMOVE-ME**" << dendl;
-  //return 0;
+  dout(1) << __func__ << "::NCB::Set FreelistManager to NULL FM..." << dendl;
+  fm->set_null_manager();
+  freelist_type = "null";
   
-  // store allocation-state in a single file instead of RocksDB
-  int ret = store_allocator(shared_alloc.a);
-  if (ret != 0) {
-    derr << __func__ << "::NCB::store_allocator() failed (continue with bitmapFreelistManager)" << dendl;
-    return ret;
-  }
-  dout(1) << __func__ << "::NCB::store_allocator() completed successfully" << dendl;
-  
-  //if (!fm->is_null_manager())
+  // When allocation-info is stored in a single file we set freelist_type to "null"
+  // This will direct the startup code to read allocation from file and not RocksDB  
+  KeyValueDB::Transaction t = db->get_transaction();
   {
-    dout(1) << __func__ << "::NCB::Set bitmapFreelistManager to NULL FM..." << dendl;
-    fm->set_null_manager();
-    freelist_type = "null";
-    
-    // When allocation-info is stored in a single file we set freelist_type to "null"
-    // This will direct the startup code to read allocation from file and not RocksDB  
-    KeyValueDB::Transaction t = db->get_transaction();
-    {
-      bufferlist bl;
-      bl.append("null");
-      t->set(PREFIX_SUPER, "freelist_type", bl);
-    }
-    db->submit_transaction_sync(t);
+    bufferlist bl;
+    bl.append("null");
+    t->set(PREFIX_SUPER, "freelist_type", bl);
   }
-  return ret;
+  return db->submit_transaction_sync(t);
 }    
 
 int BlueStore::_init_alloc(bool read_only)
@@ -5553,8 +5537,8 @@ int BlueStore::_init_alloc(bool read_only)
     utime_t duration = ceph_clock_now() - start_time; 
     dout(5) << __func__ << "::num_entries=" << num << " free_size=" << bytes << " alloc_size=" <<
       shared_alloc.a->get_capacity() - bytes << " time=" << duration << " seconds" << dendl;
-  }  
-  else {
+  } else {
+    ceph_assert(cct->_conf->bluestore_allocation_from_file);
     // This is the new path reading the allocation map from a flat bluefs file and feeing them into the allocator
     if (restore_allocator(shared_alloc.a) == 0) {
       dout(1) << __func__ << "::NCB:;restore_allocator() completed successfully shared_alloc.a=" << shared_alloc.a << dendl;
@@ -6022,12 +6006,20 @@ int BlueStore::_open_db_and_around(bool read_only, bool to_repair)
   // load allocated extents from bluefs into allocator.
   // And now it's time to do that
   //
+  dout(0) << __func__ << "::NCB::calling _close_db() read_only=" << read_only << dendl;
   _close_db(true);
-
+  dout(0) << __func__ << "::NCB::calling _open_db() read_only=" << read_only << dendl;
   r = _open_db(false, to_repair, read_only);
+  dout(0) << __func__ << "::NCB::after _open_db() ret=" << r << dendl;
   if (r < 0) {
     goto out_alloc;
-  }  
+  }
+
+  if (!read_only && cct->_conf->bluestore_allocation_from_file) {
+    dout(1) << __func__ << "::NCB::Commit to Null-Manager" << dendl;
+    commit_to_null_manager();
+  }
+
   return 0;
 
 out_alloc:
@@ -7370,6 +7362,12 @@ int BlueStore::invalidate_allocation_file_on_bluestore()
     derr << __func__ << "::NCB::allocator_file(" << allocator_file << ") doesn't exist" << dendl;
     return -1;
   }
+
+#if 0
+  bluefs->unlink(allocator_dir, allocator_file);
+  return 0;
+#endif
+
   
   ret = bluefs->open_for_write(allocator_dir, allocator_file, &p_handle, true);
   if (ret != 0) {
@@ -8346,7 +8344,7 @@ int BlueStore::umount()
 {
   dout(0) << __func__ << "::NCB::entered" << dendl;
   ceph_assert(_kv_only || mounted);
-
+  bool was_mounted = mounted;
   _osr_drain_all();
 
   mounted = false;
@@ -8368,10 +8366,14 @@ int BlueStore::umount()
   }
 
   // GBH - Vault the allocation state
-  dout(1) << "UMOUNT::store_allocation_state_on_bluestore() " << dendl;
-  dout(0) << __func__ << "::NCB::calling store_allocation_state_on_bluestore()" << dendl;
-  if (store_allocation_state_on_bluestore() != 0) {
-    return -1;
+  dout(1) << "NCB::BlueStore::umount->store_allocation_state_on_bluestore() " << dendl;
+  if (was_mounted && fm->is_null_manager()) {
+    int ret = store_allocator(shared_alloc.a);
+    if (ret != 0) {
+      derr << __func__ << "::NCB::store_allocator() failed (continue with bitmapFreelistManager)" << dendl;
+      return ret;
+    }
+    dout(1) << __func__ << "::NCB::store_allocator() completed successfully" << dendl;
   }
   
   _close_db_and_around(false);
@@ -9457,7 +9459,7 @@ int BlueStore::_fsck(BlueStore::FSCKDepth depth, bool repair)
     << (depth == FSCK_DEEP ? " (deep)" :
       depth == FSCK_SHALLOW ? " (shallow)" : " (regular)")
     << dendl;
-#if 1
+#if 0
   // force allocation check to exercise recovery code
   dout(1) << __func__ << "::NCB::calling read_allocation_from_drive_for_fsck()" << dendl;
   if (read_allocation_from_drive_for_fsck() != 0) {

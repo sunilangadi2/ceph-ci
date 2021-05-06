@@ -555,14 +555,21 @@ class CephadmOrchestrator(orchestrator.Orchestrator, MgrModule,
         # cephadm
         self._kick_serve_loop()
 
-    def get_unique_name(self, daemon_type, host, existing, prefix=None,
-                        forcename=None):
-        # type: (str, str, List[orchestrator.DaemonDescription], Optional[str], Optional[str]) -> str
+    def get_unique_name(
+            self,
+            daemon_type: str,
+            host: str,
+            existing: List[orchestrator.DaemonDescription],
+            prefix: Optional[str] = None,
+            forcename: Optional[str] = None,
+            rank: Optional[int] = None,
+            rank_generation: Optional[int] = None,
+    ) -> str:
         """
         Generate a unique random service name
         """
         suffix = daemon_type not in [
-            'mon', 'crash', 'nfs',
+            'mon', 'crash',
             'prometheus', 'node-exporter', 'grafana', 'alertmanager',
             'container', 'cephadm-exporter',
         ]
@@ -579,6 +586,8 @@ class CephadmOrchestrator(orchestrator.Orchestrator, MgrModule,
                 name = prefix + '.'
             else:
                 name = ''
+            if rank is not None and rank_generation is not None:
+                name += f'{rank}.{rank_generation}.'
             name += host
             if suffix:
                 name += '.' + ''.join(random.choice(string.ascii_lowercase)
@@ -2212,12 +2221,14 @@ Then run the following:
                     'service_type': spec.service_type,
                     'data': self._preview_osdspecs(osdspecs=[cast(DriveGroupSpec, spec)])}
 
+        svc = self.cephadm_services[spec.service_type]
         ha = HostAssignment(
             spec=spec,
             hosts=self._schedulable_hosts(),
             networks=self.cache.networks,
             daemons=self.cache.get_daemons_by_service(spec.service_name()),
-            allow_colo=self.cephadm_services[spec.service_type].allow_colo(),
+            allow_colo=svc.allow_colo(),
+            rank_map=self.spec_store[spec.service_name()].rank_map if svc.ranked() else None
         )
         ha.validate()
         hosts, to_add, to_remove = ha.place()
@@ -2226,7 +2237,7 @@ Then run the following:
             'service_name': spec.service_name(),
             'service_type': spec.service_type,
             'add': [hs.hostname for hs in to_add],
-            'remove': [d.hostname for d in to_remove]
+            'remove': [d.name() for d in to_remove]
         }
 
     @handle_orch_error

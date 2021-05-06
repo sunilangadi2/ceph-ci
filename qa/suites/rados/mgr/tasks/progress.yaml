@@ -6,6 +6,8 @@ tasks:
         global:
           osd pool default size : 3
           osd pool default min size : 2
+        osd:
+          osd mclock profile: high_recovery_ops
       # tests may leave mgrs broken, so don't try and call into them
       # to invoke e.g. pg dump during teardown.
       wait-for-scrub: false

@@ -228,8 +228,9 @@ class OSDService(CephService):
                 cmd = self.driveselection_to_ceph_volume(ds,
                                                          osd_id_claims.get(host, []),
                                                          preview=True)
+
                 if not cmd:
-                    logger.debug("No data_devices, skipping DriveGroup: {}".format(
+                    self.mgr.log.info("No data_devices, skipping DriveGroup: {}".format(
                         osdspec.service_name()))
                     continue
 
@@ -239,12 +240,20 @@ class OSDService(CephService):
                     try:
                         concat_out: Dict[str, Any] = json.loads(' '.join(out))
                     except ValueError:
-                        logger.exception('Cannot decode JSON: \'%s\'' % ' '.join(out))
+                        self.mgr.log.exception('Cannot decode JSON: \'%s\'' % ' '.join(out))
                         concat_out = {}
 
                     ret_all.append({'data': concat_out,
+                                    'err': '',
                                     'osdspec': osdspec.service_id,
                                     'host': host})
+                elif err:
+                    err_filtered = [line for line in err if ' stderr ' in line]
+                    ret_all.append({'data': {},
+                                    'err': '\n'.join([line[line.find(" stderr ") + 8:] for line in err_filtered]),
+                                    'osdspec': osdspec.service_id,
+                                    'host': host})
+
         return ret_all
 
     def resolve_hosts_for_osdspecs(self,

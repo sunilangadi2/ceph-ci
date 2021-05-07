@@ -243,9 +243,9 @@ class TestNFS(MgrTestCase):
         '''
         Return port and ip for a cluster
         '''
-        #{'test': [{'hostname': 'smithi068', 'ip': ['172.21.15.68'], 'port': 2049}]}
-        info_output = json.loads(self._nfs_cmd('cluster', 'info', self.cluster_id))['test'][0]
-        return info_output["port"], info_output["ip"][0]
+        #{'test': {'backend': [{'hostname': 'smithi068', 'ip': '172.21.15.68', 'port': 2049}]}}
+        info_output = json.loads(self._nfs_cmd('cluster', 'info', self.cluster_id))['test']['backend'][0]
+        return info_output["port"], info_output["ip"]
 
     def _test_mnt(self, pseudo_path, port, ip, check=True):
         '''
@@ -443,11 +443,18 @@ class TestNFS(MgrTestCase):
         '''
         self._test_create_cluster()
         info_output = json.loads(self._nfs_cmd('cluster', 'info', self.cluster_id))
-        info_ip = info_output[self.cluster_id][0].pop("ip")
-        host_details = {self.cluster_id: [{
-            "hostname": self._sys_cmd(['hostname']).decode("utf-8").strip(),
-            "port": 2049
-            }]}
+        info_ip = info_output[self.cluster_id].get('backend', [])[0].pop("ip")
+        host_details = {
+            self.cluster_id: {
+                'backend': [
+                    {
+                        "hostname": self._sys_cmd(['hostname']).decode("utf-8").strip(),
+                        "port": 2049
+                    }
+                ],
+                "virtual_ip": None,
+            }
+        }
         host_ip = self._sys_cmd(['hostname', '-I']).decode("utf-8").split()
         self.assertDictEqual(info_output, host_details)
         self.assertTrue(any([ip in info_ip for ip in host_ip]))

@@ -1,7 +1,9 @@
+import errno
 import logging
 import threading
+from typing import Optional, List
 
-from mgr_module import MgrModule, CLICommand
+from mgr_module import MgrModule, CLICommand, Option
 import orchestrator
 
 from .export import ExportMgr
@@ -11,7 +13,7 @@ log = logging.getLogger(__name__)
 
 
 class Module(orchestrator.OrchestratorClientMixin, MgrModule):
-    MODULE_OPTIONS = []
+    MODULE_OPTIONS: List[Option] = []
 
     def __init__(self, *args, **kwargs):
         self.inited = False
@@ -31,9 +33,14 @@ class Module(orchestrator.OrchestratorClientMixin, MgrModule):
                                              cluster_id=clusterid, pseudo_path=binding,
                                              read_only=readonly, path=path)
 
+    @CLICommand('nfs export rm', perm='rw')
+    def _cmd_nfs_export_rm(self, clusterid: str, binding: str):
+        """Remove a cephfs export"""
+        return self.export_mgr.delete_export(cluster_id=clusterid, pseudo_path=binding)
+
     @CLICommand('nfs export delete', perm='rw')
     def _cmd_nfs_export_delete(self, clusterid: str, binding: str):
-        """Delete a cephfs export"""
+        """Delete a cephfs export (DEPRECATED)"""
         return self.export_mgr.delete_export(cluster_id=clusterid, pseudo_path=binding)
 
     @CLICommand('nfs export ls', perm='r')
@@ -53,18 +60,29 @@ class Module(orchestrator.OrchestratorClientMixin, MgrModule):
         return self.export_mgr.update_export(export_config=inbuf)
 
     @CLICommand('nfs cluster create', perm='rw')
-    def _cmd_nfs_cluster_create(self, clusterid: str, placement: str=None):
+    def _cmd_nfs_cluster_create(self,
+                                clusterid: str,
+                                placement: Optional[str]=None,
+                                ingress: Optional[bool]=None,
+                                virtual_ip: Optional[str]=None):
         """Create an NFS Cluster"""
-        return self.nfs.create_nfs_cluster(cluster_id=clusterid, placement=placement)
+        if virtual_ip and not ingress:
+            return (-errno.EINVAL, '',
+                    '--virtual-ip can only be provided with --ingress')
+        if ingress and not virtual_ip:
+            return (-errno.EINVAL, '',
+                    '--ingress current requires --virtual-ip')
+        return self.nfs.create_nfs_cluster(cluster_id=clusterid, placement=placement,
+                                           virtual_ip=virtual_ip)
 
-    @CLICommand('nfs cluster update', perm='rw')
-    def _cmd_nfs_cluster_update(self, clusterid: str, placement: str):
-        """Updates an NFS Cluster"""
-        return self.nfs.update_nfs_cluster(cluster_id=clusterid, placement=placement)
+    @CLICommand('nfs cluster rm', perm='rw')
+    def _cmd_nfs_cluster_rm(self, clusterid: str):
+        """Removes an NFS Cluster"""
+        return self.nfs.delete_nfs_cluster(cluster_id=clusterid)
 
     @CLICommand('nfs cluster delete', perm='rw')
     def _cmd_nfs_cluster_delete(self, clusterid: str):
-        """Deletes an NFS Cluster"""
+        """Removes an NFS Cluster (DEPRECATED)"""
         return self.nfs.delete_nfs_cluster(cluster_id=clusterid)
 
     @CLICommand('nfs cluster ls', perm='r')
@@ -73,7 +91,7 @@ class Module(orchestrator.OrchestratorClientMixin, MgrModule):
         return self.nfs.list_nfs_cluster()
 
     @CLICommand('nfs cluster info', perm='r')
-    def _cmd_nfs_cluster_info(self, clusterid: str=None):
+    def _cmd_nfs_cluster_info(self, clusterid: Optional[str] = None):
         """Displays NFS Cluster info"""
         return self.nfs.show_nfs_cluster_info(cluster_id=clusterid)
 

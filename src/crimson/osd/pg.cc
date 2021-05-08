@@ -566,15 +566,17 @@ seastar::future<> PG::WaitForActiveBlocker::stop()
   return seastar::now();
 }
 
-PG::interruptible_future<> PG::submit_transaction(const OpInfo& op_info,
-					 ObjectContextRef&& obc,
-					 ceph::os::Transaction&& txn,
-					 osd_op_params_t&& osd_op_p,
-                                         PG::osdop_on_submit_func_t&& callback)
+std::tuple<PG::interruptible_future<>,
+           PG::interruptible_future<>>
+PG::submit_transaction(const OpInfo& op_info,
+                       ObjectContextRef&& obc,
+                       ceph::os::Transaction&& txn,
+                       osd_op_params_t&& osd_op_p)
 {
   if (__builtin_expect(stopping, false)) {
-    return seastar::make_exception_future<>(
-	crimson::common::system_shutdown_exception());
+    return {seastar::make_exception_future<>(
+              crimson::common::system_shutdown_exception()),
+            seastar::now()};
   }
 
   epoch_t map_epoch = get_osdmap_epoch();
@@ -603,14 +605,15 @@ PG::interruptible_future<> PG::submit_transaction(const OpInfo& op_info,
   peering_state.append_log_with_trim_to_updated(std::move(log_entries), osd_op_p.at_version,
 						txn, true, false);
 
-  return backend->mutate_object(peering_state.get_acting_recovery_backfill(),
-				std::move(obc),
-				std::move(txn),
-				std::move(osd_op_p),
-				peering_state.get_last_peering_reset(),
-				map_epoch,
-				std::move(log_entries),
-                                std::move(callback)).then_interruptible(
+  auto [submitted, all_completed] = backend->mutate_object(
+      peering_state.get_acting_recovery_backfill(),
+      std::move(obc),
+      std::move(txn),
+      std::move(osd_op_p),
+      peering_state.get_last_peering_reset(),
+      map_epoch,
+      std::move(log_entries));
+  return std::make_tuple(std::move(submitted), all_completed.then_interruptible(
     [this, last_complete=peering_state.get_info().last_complete,
       at_version=osd_op_p.at_version](auto acked) {
     for (const auto& peer : acked) {
@@ -619,7 +622,7 @@ PG::interruptible_future<> PG::submit_transaction(const OpInfo& op_info,
     }
     peering_state.complete_write(at_version, last_complete);
     return seastar::now();
-  });
+  }));
 }
 
 void PG::fill_op_params_bump_pg_version(
@@ -700,22 +703,20 @@ PG::interruptible_future<> PG::repair_object(
   return std::move(fut);
 }
 
-PG::do_osd_ops_iertr::future<Ref<MOSDOpReply>> 
+PG::do_osd_ops_iertr::future<PG::rep_op_fut_t> 
 PG::do_osd_ops(
   Ref<MOSDOp> m,
   ObjectContextRef obc,
-  const OpInfo &op_info,
-  PG::osdop_on_submit_func_t&& cb)
+  const OpInfo &op_info)
 {
   if (__builtin_expect(stopping, false)) {
     throw crimson::common::system_shutdown_exception();
   }
 
-  using osd_op_ierrorator = OpsExecuter::osd_op_ierrorator;
   using osd_op_errorator = OpsExecuter::osd_op_errorator;
   const auto oid = m->get_snapid() == CEPH_SNAPDIR ? m->get_hobj().get_head()
                                                    : m->get_hobj();
-  auto ox = std::make_unique<OpsExecuter>(
+  auto ox = seastar::make_lw_shared<OpsExecuter>(
     obc, op_info, get_pool().info, get_backend(), *m);
   return interruptor::do_for_each(
     m->ops.begin(), m->ops.end(), [m, ox = ox.get()](OSDOp& osd_op) {
@@ -725,16 +726,14 @@ PG::do_osd_ops(
       ox->get_target(),
       ceph_osd_op_name(osd_op.op.op));
     return ox->execute_op(osd_op);
-  }).safe_then_interruptible([this, m, ox = ox.get(), &op_info,
-                              cb=std::move(cb)]() mutable {
+  }).safe_then_interruptible([this, m, ox = ox.get(), &op_info]() mutable {
     logger().debug(
       "do_osd_ops: {} - object {} all operations successful",
       *m,
       ox->get_target());
     return std::move(*ox).flush_changes(
-      [this, m, &op_info, cb=std::move(cb)]
-      (auto&& txn, auto&& obc, auto&& osd_op_p, bool user_modify) mutable
-      -> osd_op_ierrorator::future<> {
+      [this, m, &op_info]
+      (auto&& txn, auto&& obc, auto&& osd_op_p, bool user_modify) mutable {
 	logger().debug(
 	  "do_osd_ops: {} - object {} submitting txn",
 	  *m,
@@ -744,40 +743,60 @@ PG::do_osd_ops(
           op_info,
           std::move(obc),
           std::move(txn),
-          std::move(osd_op_p),
-          std::move(cb));
+          std::move(osd_op_p));
       });
-  }).safe_then_interruptible_tuple([this, m, obc, rvec = op_info.allows_returnvec()]()
-    -> PG::do_osd_ops_iertr::future<Ref<MOSDOpReply>> {
-    // TODO: should stop at the first op which returns a negative retval,
-    //       cmpext uses it for returning the index of first unmatched byte
-    int result = m->ops.empty() ? 0 : m->ops.back().rval.code;
-    if (result > 0 && !rvec) {
-      result = 0;
-    }
-    auto reply = make_message<MOSDOpReply>(m.get(),
-                                           result,
-                                           get_osdmap_epoch(),
-                                           0,
-                                           false);
-    reply->add_flags(CEPH_OSD_FLAG_ACK | CEPH_OSD_FLAG_ONDISK);
-    logger().debug(
-      "do_osd_ops: {} - object {} sending reply",
-      *m,
-      obc->obs.oi.soid);
-    return PG::do_osd_ops_ertr::make_ready_future<Ref<MOSDOpReply>>(
-      std::move(reply));
+  }).safe_then_unpack_interruptible_tuple(
+    [this, m, obc, rvec = op_info.allows_returnvec(), ox = ox.get()]
+    (auto submitted_fut, auto all_completed_fut)
+    -> PG::do_osd_ops_iertr::future<rep_op_fut_t> {
+    return seastar::make_ready_future<rep_op_fut_t>(
+          std::move(submitted_fut),
+          all_completed_fut.safe_then_interruptible_tuple(
+          [this, m, obc, rvec]()
+          -> PG::do_osd_ops_iertr::future<Ref<MOSDOpReply>> {
+            // TODO: should stop at the first op which returns a negative retval,
+            //       cmpext uses it for returning the index of first unmatched byte
+            int result = m->ops.empty() ? 0 : m->ops.back().rval.code;
+            if (result > 0 && !rvec) {
+              result = 0;
+            }
+            auto reply = make_message<MOSDOpReply>(m.get(),
+                                                   result,
+                                                   get_osdmap_epoch(),
+                                                   0,
+                                                   false);
+            reply->add_flags(CEPH_OSD_FLAG_ACK | CEPH_OSD_FLAG_ONDISK);
+            logger().debug(
+              "do_osd_ops: {} - object {} sending reply",
+              *m,
+              obc->obs.oi.soid);
+            return seastar::make_ready_future<Ref<MOSDOpReply>>(
+                std::move(reply));
+          }, crimson::ct_error::object_corrupted::handle([m, obc, this] {
+            return repair_object(m, obc->obs.oi.soid, obc->obs.oi.version)
+            .then_interruptible([] {
+              return PG::do_osd_ops_ertr::future<Ref<MOSDOpReply>>(
+                      crimson::ct_error::eagain::make());
+            });
+          }), osd_op_errorator::all_same_way([ox,
+                                              m,
+                                              obc,
+                                              this] (const std::error_code& e) {
+            return handle_failed_op(e, std::move(obc), *ox, *m);
+          }))
+        );
   }, crimson::ct_error::object_corrupted::handle([m, obc, this] {
     return repair_object(m, obc->obs.oi.soid, obc->obs.oi.version)
     .then_interruptible([] {
-      return PG::do_osd_ops_ertr::future<Ref<MOSDOpReply>>(
-      crimson::ct_error::eagain::make());
+      return PG::do_osd_ops_ertr::future<rep_op_fut_t>(
+              crimson::ct_error::eagain::make());
     });
   }), osd_op_errorator::all_same_way([ox = std::move(ox),
                                       m,
                                       obc,
                                       this] (const std::error_code& e) {
-    return handle_failed_op(e, std::move(obc), *ox, *m);
+    return PG::do_osd_ops_ertr::make_ready_future<rep_op_fut_t>(std::make_tuple(
+        seastar::now(), handle_failed_op(e, std::move(obc), *ox, *m)));
   }));
 }
 

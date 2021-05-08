@@ -552,24 +552,24 @@ private:
     const MOSDOp& m) const;
   using do_osd_ops_ertr = crimson::errorator<
    crimson::ct_error::eagain>;
-  using osdop_on_submit_func_t =
-    std::function<seastar::future<> (void)>;
   using do_osd_ops_iertr =
     ::crimson::interruptible::interruptible_errorator<
       ::crimson::osd::IOInterruptCondition,
       ::crimson::errorator<crimson::ct_error::eagain>>;
-  do_osd_ops_iertr::future<Ref<MOSDOpReply>> do_osd_ops(
+  using rep_op_fut_t =
+    std::tuple<interruptible_future<>,
+               do_osd_ops_iertr::future<Ref<MOSDOpReply>>>;
+  do_osd_ops_iertr::future<rep_op_fut_t> do_osd_ops(
     Ref<MOSDOp> m,
     ObjectContextRef obc,
-    const OpInfo &op_info,
-    osdop_on_submit_func_t&& onsubmitted);
+    const OpInfo &op_info);
   interruptible_future<Ref<MOSDOpReply>> do_pg_ops(Ref<MOSDOp> m);
-  interruptible_future<> submit_transaction(
+  std::tuple<interruptible_future<>, interruptible_future<>>
+  submit_transaction(
     const OpInfo& op_info,
     ObjectContextRef&& obc,
     ceph::os::Transaction&& txn,
-    osd_op_params_t&& oop,
-    osdop_on_submit_func_t&& onsubmitted);
+    osd_op_params_t&& oop);
   interruptible_future<> repair_object(Ref<MOSDOp> m,
                const hobject_t& oid,
                eversion_t& v);

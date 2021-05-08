@@ -119,7 +119,7 @@ PGBackend::load_metadata(const hobject_t& oid)
       }));
 }
 
-PGBackend::interruptible_future<crimson::osd::acked_peers_t>
+PGBackend::rep_op_fut_t
 PGBackend::mutate_object(
   std::set<pg_shard_t> pg_shards,
   crimson::osd::ObjectContextRef &&obc,
@@ -127,8 +127,7 @@ PGBackend::mutate_object(
   osd_op_params_t&& osd_op_p,
   epoch_t min_epoch,
   epoch_t map_epoch,
-  std::vector<pg_log_entry_t>&& log_entries,
-  osdop_on_submit_func_t&& callback)
+  std::vector<pg_log_entry_t>&& log_entries)
 {
   logger().trace("mutate_object: num_ops={}", txn.get_num_ops());
   if (obc->obs.exists) {
@@ -159,8 +158,7 @@ PGBackend::mutate_object(
   }
   return _submit_transaction(
     std::move(pg_shards), obc->obs.oi.soid, std::move(txn),
-    std::move(osd_op_p), min_epoch, map_epoch, std::move(log_entries),
-    std::move(callback));
+    std::move(osd_op_p), min_epoch, map_epoch, std::move(log_entries));
 }
 
 static inline bool _read_verify_data(

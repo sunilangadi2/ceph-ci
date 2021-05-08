@@ -44,7 +44,6 @@ protected:
       ::crimson::osd::IOInterruptCondition,
       ll_read_errorator>;
 
-  using osdop_on_submit_func_t = std::function<seastar::future<> (void)>;
 public:
   using load_metadata_ertr = crimson::errorator<
     crimson::ct_error::object_corrupted>;
@@ -59,6 +58,9 @@ public:
   using interruptible_future =
     ::crimson::interruptible::interruptible_future<
       ::crimson::osd::IOInterruptCondition, T>;
+  using rep_op_fut_t =
+    std::tuple<interruptible_future<>,
+	       interruptible_future<crimson::osd::acked_peers_t>>;
   PGBackend(shard_id_t shard, CollectionRef coll, crimson::os::FuturizedStore* store);
   virtual ~PGBackend() = default;
   static std::unique_ptr<PGBackend> create(pg_t pgid,
@@ -159,15 +161,14 @@ public:
     const OSDOp& osd_op,
     ceph::os::Transaction& trans,
     osd_op_params_t& osd_op_params);
-  interruptible_future<crimson::osd::acked_peers_t> mutate_object(
+  rep_op_fut_t mutate_object(
     std::set<pg_shard_t> pg_shards,
     crimson::osd::ObjectContextRef &&obc,
     ceph::os::Transaction&& txn,
     osd_op_params_t&& osd_op_p,
     epoch_t min_epoch,
     epoch_t map_epoch,
-    std::vector<pg_log_entry_t>&& log_entries,
-    osdop_on_submit_func_t&& callback);
+    std::vector<pg_log_entry_t>&& log_entries);
   interruptible_future<std::tuple<std::vector<hobject_t>, hobject_t>> list_objects(
     const hobject_t& start,
     uint64_t limit) const;
@@ -281,14 +282,13 @@ private:
     uint32_t flags) = 0;
 
   bool maybe_create_new_object(ObjectState& os, ceph::os::Transaction& txn);
-  virtual interruptible_future<crimson::osd::acked_peers_t>
+  virtual rep_op_fut_t
   _submit_transaction(std::set<pg_shard_t>&& pg_shards,
 		      const hobject_t& hoid,
 		      ceph::os::Transaction&& txn,
 		      osd_op_params_t&& osd_op_p,
 		      epoch_t min_epoch, epoch_t max_epoch,
-		      std::vector<pg_log_entry_t>&& log_entries,
-		      osdop_on_submit_func_t&& callback) = 0;
+		      std::vector<pg_log_entry_t>&& log_entries) = 0;
   friend class ReplicatedRecoveryBackend;
   friend class ::crimson::osd::PG;
 };

@@ -109,6 +109,7 @@ void mClockScheduler::set_max_osd_capacity()
   // Set per op-shard iops limit
   max_osd_capacity /= num_shards;
   dout(1) << __func__ << " #op shards: " << num_shards
+          << std::fixed << std::setprecision(2)
           << " max osd capacity(iops) per shard: " << max_osd_capacity << dendl;
 }
 
@@ -371,6 +372,14 @@ int mClockScheduler::calc_scaled_cost(int item_cost)
   int scaled_cost =
     std::round(osd_mclock_cost_per_io + (osd_mclock_cost_per_byte * item_cost));
   return std::max(scaled_cost, 1);
+}
+
+void mClockScheduler::update_configuration()
+{
+  // Apply configuration change. The expectation is that
+  // at least one of the tracked mclock config option keys
+  // is modified before calling this method.
+  cct->_conf.apply_changes(nullptr);
 }
 
 void mClockScheduler::dump(ceph::Formatter &f) const

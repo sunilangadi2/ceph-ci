@@ -226,7 +226,7 @@ int D3nRGWDataCache<T>::flush_read_list(const DoutPrefixProvider *dpp, struct ge
       break;
     }
     if (bl.length() <= g_conf()->rgw_get_obj_max_req_size) {
-      ldpp_dout(dpp, 20) << "D3nDataCache: " << __func__ << "(): Write To Cache: bl.length <= rgw_get_obj_max_req_size (default 4MB), bl.length=" << bl.length() << dendl;
+      ldpp_dout(dpp, 20) << "D3nDataCache: " << __func__ << "(): bl.length <= rgw_get_obj_max_req_size (default 4MB), bl.length=" << bl.length() << dendl;
       d3n_data_cache.put(bl, bl.length(), oid);
     } else {
       ldpp_dout(dpp, 20) << "D3nDataCache: " << __func__ << "(): bl.length > rgw_get_obj_max_req_size (default 4MB), bl.length()=" << bl.length() << dendl;
@@ -323,7 +323,7 @@ int D3nRGWDataCache<T>::get_obj_iterate_cb(const DoutPrefixProvider *dpp, const 
     if (d3n_data_cache.get(oid, len)) {
       // Read From Cache
       ldpp_dout(dpp, 20) << "D3nDataCache: " << __func__ << "(): READ FROM CACHE, oid=" << read_obj.oid << ", obj-ofs=" << obj_ofs << ", read_ofs=" << read_ofs << ", len=" << len << dendl;
-      auto completed = d->aio->get(obj, rgw::Aio::cache_op(std::move(op), d->yield, obj_ofs, read_ofs, len, g_conf()->rgw_d3n_l1_datacache_persistent_path), cost, id);
+      auto completed = d->aio->get(obj, rgw::Aio::d3n_cache_op(std::move(op), d->yield, obj_ofs, read_ofs, len, g_conf()->rgw_d3n_l1_datacache_persistent_path), cost, id);
       r = d->flush(std::move(completed));
       if (r < 0) {
         lsubdout(g_ceph_context, rgw, 0) << "D3nDataCache: Error: failed to drain/flush, r= " << r << dendl;

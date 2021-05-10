@@ -14,8 +14,7 @@
 #define dout_subsys ceph_subsys_rgw
 
 
-class RGWGetObj_CB;
-
+std::mutex D3nL1CacheRequest::d3n_libaio_cb_lock;
 
 int D3nCacheAioWriteRequest::create_io(bufferlist& bl, unsigned int len, string oid, string cache_location)
 {
@@ -167,7 +166,7 @@ void D3nDataCache::put(bufferlist& bl, unsigned int len, std::string& oid)
   map<string, D3nChunkDataInfo*>::iterator iter = cache_map.find(oid);
   if (iter != cache_map.end()) {
     cache_lock.unlock();
-    ldout(cct, 10) << "D3nDataCache: Info: data already cached, no rewrite" << dendl;
+    ldout(cct, 10) << "D3nDataCache::" << __func__ << "(): data already cached, no rewrite" << dendl;
     return;
   }
   std::list<std::string>::iterator it = std::find(outstanding_write_list.begin(), outstanding_write_list.end(),oid);

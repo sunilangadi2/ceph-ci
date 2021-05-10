@@ -29,10 +29,10 @@ class D3nCacheRequest {
     rgw::Aio* aio = nullptr;
     D3nCacheRequest() : sequence(0), pbl(nullptr), ofs(0), len(0), read_ofs(0) {};
     virtual ~D3nCacheRequest() {};
-    virtual void release()=0;
-    virtual void cancel_io()=0;
-    virtual int status()=0;
-    virtual void finish()=0;
+    virtual void d3n_libaio_release()=0;
+    virtual void d3n_libaio_cancel_io()=0;
+    virtual int d3n_libaio_status()=0;
+    virtual void d3n_libaio_finish()=0;
 };
 
 struct D3nL1CacheRequest : public D3nCacheRequest {
@@ -40,6 +40,7 @@ struct D3nL1CacheRequest : public D3nCacheRequest {
   int stat;
   int ret;
   struct aiocb* paiocb;
+  static std::mutex d3n_libaio_cb_lock;
 
   D3nL1CacheRequest() :  D3nCacheRequest(), stat(-1), paiocb(nullptr) {}
   ~D3nL1CacheRequest() {
@@ -57,7 +58,7 @@ struct D3nL1CacheRequest : public D3nCacheRequest {
     lsubdout(g_ceph_context, rgw_datacache, 30) << "D3nDataCache: " << __func__ << "(): Read From Cache, comlete" << dendl;
   }
 
-  int execute_io_op(std::string obj_key, bufferlist* bl, int read_len, int ofs, int read_ofs, std::string& cache_location,
+  int d3n_execute_io_op(std::string obj_key, bufferlist* bl, int read_len, int ofs, int read_ofs, std::string& cache_location,
                     sigval_cb f, rgw::Aio* aio, rgw::AioResult* r) {
     std::string location = cache_location + "/" + obj_key;
     lsubdout(g_ceph_context, rgw_datacache, 20) << "D3nDataCache: " << __func__ << "(): Read From Cache, location='" << location << "', ofs=" << ofs << ", read_ofs=" << read_ofs << " read_len=" << read_len << dendl;
@@ -98,8 +99,8 @@ struct D3nL1CacheRequest : public D3nCacheRequest {
     return 0;
   }
 
-  int prepare_libaio_op(std::string obj_key, bufferlist* bl, int read_len, int ofs, int read_ofs, std::string& cache_location,
-                        sigval_cb f, rgw::Aio* aio, rgw::AioResult* r) {
+  int d3n_prepare_libaio_op(std::string obj_key, bufferlist* bl, int read_len, int ofs, int read_ofs, std::string& cache_location,
+                        sigval_cb cbf, rgw::Aio* aio, rgw::AioResult* r) {
     std::string location = cache_location + "/" + obj_key;
     lsubdout(g_ceph_context, rgw_datacache, 20) << "D3nDataCache: " << __func__ << "(): Read From Cache, location='" << location << "', ofs=" << ofs << ", read_ofs=" << read_ofs << " read_len=" << read_len << dendl;
     this->r = r;
@@ -118,28 +119,28 @@ struct D3nL1CacheRequest : public D3nCacheRequest {
     }
     posix_fadvise(cb->aio_fildes, 0, 0, g_conf()->rgw_d3n_l1_fadvise);
 
-    cb->aio_buf = malloc(read_len);
+    cb->aio_buf = (volatile void*)malloc(read_len);
     cb->aio_nbytes = read_len;
     cb->aio_offset = read_ofs;
     cb->aio_sigevent.sigev_notify = SIGEV_THREAD;
-    cb->aio_sigevent.sigev_notify_function = f;
+    cb->aio_sigevent.sigev_notify_function = cbf;
     cb->aio_sigevent.sigev_notify_attributes = NULL;
     cb->aio_sigevent.sigev_value.sival_ptr = this;
     this->paiocb = cb;
     return 0;
   }
 
-  void release () {}
+  void d3n_libaio_release () {}
 
-  void cancel_io() {
+  void d3n_libaio_cancel_io() {
     lock.lock();
     stat = ECANCELED;
     lock.unlock();
   }
 
-  int status() {
-    lsubdout(g_ceph_context, rgw_datacache, 30) << "D3nDataCache: " << __func__ << "()"<< dendl;
+  int d3n_libaio_status() {
     lock.lock();
+    lsubdout(g_ceph_context, rgw_datacache, 30) << "D3nDataCache: " << __func__ << "(): key=" << key << ", stat=" << stat << dendl;
     if (stat != EINPROGRESS) {
       lock.unlock();
       if (stat == ECANCELED) {
@@ -152,8 +153,8 @@ struct D3nL1CacheRequest : public D3nCacheRequest {
     return stat;
   }
 
-  void finish() {
-    lsubdout(g_ceph_context, rgw_datacache, 20) << "D3nDataCache: " << __func__ << "(): Read From Cache, libaio callback - returning data, aio_nbytes=" << paiocb->aio_nbytes << dendl;
+  void d3n_libaio_finish() {
+    lsubdout(g_ceph_context, rgw_datacache, 20) << "D3nDataCache: " << __func__ << "(): Read From Cache, libaio callback - returning data: key=" << key << ", aio_nbytes=" << paiocb->aio_nbytes << dendl;
     pbl->append((char*)paiocb->aio_buf, paiocb->aio_nbytes);
   }
 };

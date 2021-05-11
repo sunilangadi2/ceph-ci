@@ -452,13 +452,12 @@ int RadosBucket::put_instance_info(const DoutPrefixProvider* dpp, bool exclusive
 
 int RadosBucket::remove_entrypoint(const DoutPrefixProvider* dpp, RGWObjVersionTracker* objv, optional_yield y)
 {
-  return store->ctl()->bucket->remove_bucket_entrypoint_info(get_key(), y, dpp,
+  int r = store->ctl()->bucket->remove_bucket_entrypoint_info(get_key(), y, dpp,
                                            RGWBucketCtl::Bucket::RemoveParams()
                                            .set_objv_tracker(objv));
-}
+  if (r < 0)
+    return r;
 
-int RadosBucket::remove_instance_info(const DoutPrefixProvider* dpp, RGWObjVersionTracker* objv, optional_yield y)
-{
   return store->ctl()->bucket->remove_bucket_instance_info(get_key(), info, y, dpp,
                                            RGWBucketCtl::BucketInstance::RemoveParams()
                                            .set_objv_tracker(objv));

@@ -5315,6 +5315,7 @@ int BlueStore::_open_fm(KeyValueDB::Transaction t, bool read_only)
   // When allocation-info is stored in a single file we set freelist_type to "null"
   bool set_null_freemap = false;
   if (freelist_type == "null") {
+    dout(1) << __func__ << "::NCB::NULL Freelist_Type, cct->_conf->bluestore_debug_prefill=" << cct->_conf->bluestore_debug_prefill << dendl;
     // use BitmapFreelistManager with the null option to stop allocations from going to RocksDB
     // we will store the allocation info in a single file during umount()
     freelist_type = "bitmap";
@@ -5327,7 +5328,7 @@ int BlueStore::_open_fm(KeyValueDB::Transaction t, bool read_only)
   }
   if (t) {
     // create mode. initialize freespace
-    dout(20) << __func__ << " initializing freespace" << dendl;
+    dout(1) << __func__ << "::NCB:: initializing freespace" << dendl;
     {
       bufferlist bl;
       bl.append(freelist_type);
@@ -5538,18 +5539,14 @@ int BlueStore::_init_alloc(bool read_only)
     dout(5) << __func__ << "::num_entries=" << num << " free_size=" << bytes << " alloc_size=" <<
       shared_alloc.a->get_capacity() - bytes << " time=" << duration << " seconds" << dendl;
   } else {
-    ceph_assert(cct->_conf->bluestore_allocation_from_file);
+    if (cct->_conf->bluestore_allocation_from_file == false) {
+      derr << __func__ << "::NCB::cct->_conf->bluestore_allocation_from_file is set to FALSE with a NULL-FM" << dendl;
+      derr << __func__ << "::NCB::Please change the value of bluestore_allocation_from_file to TRUE in your ceph.conf file" << dendl;
+      exit(0);
+    }
     // This is the new path reading the allocation map from a flat bluefs file and feeing them into the allocator
-    if (restore_allocator(shared_alloc.a) == 0) {
+    if (restore_allocator(shared_alloc.a, &num, &bytes) == 0) {
       dout(1) << __func__ << "::NCB:;restore_allocator() completed successfully shared_alloc.a=" << shared_alloc.a << dendl;
-      // Now that we load the allocation map we need to invalidate the file as new allocation won't be reflected
-      // Changes to the allocation map (alloc/release) are not updated inline and will only be stored on umount()
-      // This means that we should not use the existing file on failure case (unplanned shutdown) and must resort
-      //  to recovery from RocksDB::ONodes 
-      if (!read_only && invalidate_allocation_file_on_bluestore() != 0) {
-	derr << __func__ << "::NCB::invalidate_allocation_file_on_bluestore() failed!" << dendl;
-	return -1;
-      }
     }
     else {
       // This must mean that we had an unplanned shutdown and didn't manage to destage the allocator
@@ -5981,6 +5978,9 @@ int BlueStore::_open_db_and_around(bool read_only, bool to_repair)
   if (r < 0)
     goto out_fsid;
 
+  // GBH: can probably skip open_db step in REad-Only mode when operating in NULL-FM mode
+  // (might need to open if failed to restore from file)
+
   // open in read-only first to read FM list and init allocator
   // as they might be needed for some BlueFS procedures
   r = _open_db(false, false, true);
@@ -6013,6 +6013,18 @@ int BlueStore::_open_db_and_around(bool read_only, bool to_repair)
   dout(0) << __func__ << "::NCB::after _open_db() ret=" << r << dendl;
   if (r < 0) {
     goto out_alloc;
+  }
+
+  if (fm->is_null_manager() && !read_only) {
+    // Now that we load the allocation map we need to invalidate the file as new allocation won't be reflected
+    // Changes to the allocation map (alloc/release) are not updated inline and will only be stored on umount()
+    // This means that we should not use the existing file on failure case (unplanned shutdown) and must resort
+    //  to recovery from RocksDB::ONodes
+    r = invalidate_allocation_file_on_bluestore();
+    if (r != 0) {
+      derr << __func__ << "::NCB::invalidate_allocation_file_on_bluestore() failed!" << dendl;
+      goto out_alloc;
+    }
   }
 
   if (!read_only && cct->_conf->bluestore_allocation_from_file) {
@@ -7779,7 +7791,7 @@ int BlueStore::allocator_add_restored_entries(Allocator          *allocator,
 }
 
 //-----------------------------------------------------------------------------------
-int BlueStore::restore_allocator(Allocator* allocator) {
+int BlueStore::restore_allocator(Allocator* allocator, uint64_t *num, uint64_t *bytes) {
   extent_t buffer[MAX_EXTENTS_IN_BUFFER]; // 192KB
   
   utime_t start_time = ceph_clock_now();
@@ -7855,14 +7867,15 @@ int BlueStore::restore_allocator(Allocator* allocator) {
     delete p_handle; return -1;
   }
 
-  utime_t duration = ceph_clock_now() - start_time;
-  dout(1) << __func__ << "::NCB::READ--extent_count=" << extent_count << ", read_alloc_size=  "
-	    << read_alloc_size << ", file_size=" << file_size << dendl;
-  dout(1) << __func__ << "::NCB::READ duration=" << duration << " seconds" << dendl;
-
   // increment version for next store
   s_serial = header.serial++;
 
+  utime_t duration = ceph_clock_now() - start_time;
+  dout(1) << __func__ << "::NCB::READ--extent_count=" << extent_count << ", read_alloc_size=  "
+	    << read_alloc_size << ", file_size=" << file_size << dendl;
+  dout(1) << __func__ << "::NCB::READ duration=" << duration << " seconds, s_serial=" << s_serial << dendl;
+  *num   = extent_count;
+  *bytes = read_alloc_size;
   delete p_handle;
   return 0;
 }
@@ -8095,10 +8108,6 @@ int BlueStore::read_allocation_from_drive_on_startup()
   utime_t duration = ceph_clock_now() - start;
   dout(1) << __func__ << "::NCB:: <<<FINISH>>> in " << duration << " seconds, num_entries=" << num_entries << dendl;
   dout(1) << "NCB::num_entries=" << num_entries << ", extent_count=" << stats.extent_count << dendl;  
-  //dout(1) << __func__ << "::NCB calling store_allocator(shared_alloc.a)" << dendl;  
-  //store_allocator(shared_alloc.a);
-  //dout(5) << stats << dendl;
-
   dout(1) << __func__ << "::NCB::Allocation Recovery was completed" << dendl;
   return ret;
 }
@@ -8305,7 +8314,8 @@ int BlueStore::read_allocation_from_drive_for_bluestore_tool(bool test_store_and
     if (alloc2) {
       dout(1) << __func__ << "::NCB::bitmap-allocator=" << alloc2 << dendl;
       dout(1) << __func__ << "::NCB::calling restore_allocator()" << dendl;
-      int ret = restore_allocator(alloc2);
+      uint64_t num, bytes;
+      int ret = restore_allocator(alloc2, &num, &bytes);
       if (ret == 0) {
 	// verify that we can store and restore allocator to/from drive
 	ret = compare_allocators(alloc2, shared_alloc.a, stats.insert_count, memory_target);

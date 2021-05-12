@@ -305,14 +305,15 @@ int D3nRGWDataCache<T>::get_obj_iterate_cb(const DoutPrefixProvider *dpp, const 
     const bool is_compressed = (astate->attrset.find(RGW_ATTR_COMPRESSION) != astate->attrset.end());
     const bool is_encrypted = (astate->attrset.find(RGW_ATTR_CRYPT_MODE) != astate->attrset.end());
     bool is_versioned = false;
-    RGWBucketInfo bucket_info;
-    RGWSysObjectCtx obj_sys_ctx = d->rgwrados->svc.sysobj->init_obj_ctx();
-    r = d->rgwrados->get_bucket_instance_info(obj_sys_ctx, astate->obj.bucket, bucket_info, NULL, NULL, null_yield, dpp);
-    if (r < 0) {
-      lsubdout(g_ceph_context, rgw, 0) << "D3nDataCache: Warning: " << __func__ << "(): failed to initialize Bucket Info, obj=" << obj << " r=" << r << dendl;
-    } else {
-      is_versioned = bucket_info.versioned();
-    }
+    // RGWBucketInfo bucket_info;
+    // RGWSysObjectCtx obj_sys_ctx = d->rgwrados->svc.sysobj->init_obj_ctx();
+    //r = d->rgwrados->get_bucket_instance_info(obj_sys_ctx, astate->obj.bucket, bucket_info, NULL, NULL, null_yield, dpp);
+    // r = d->rgwrados->get_bucket_instance_info(obj_sys_ctx, astate->obj.bucket, bucket_info, NULL, NULL, d->yield, dpp);
+    // if (r < 0) {
+    //   lsubdout(g_ceph_context, rgw, 0) << "D3nDataCache: Warning: " << __func__ << "(): failed to initialize Bucket Info, obj=" << obj << " r=" << r << dendl;
+    // } else {
+    //   is_versioned = bucket_info.versioned();
+    // }
     if (read_ofs != 0 || astate->size != astate->accounted_size || is_compressed || is_encrypted || is_versioned) {
       lsubdout(g_ceph_context, rgw, 5) << "D3nDataCache: " << __func__ << "(): bypassing read from cache: oid=" << read_obj.oid << ", read_ofs!=0 = " << read_ofs << ", size=" << astate->size << " != accounted_size=" << astate->accounted_size << ", is_compressed=" << is_compressed << ", is_encrypted=" << is_encrypted  << ", is_versioned=" << is_versioned << dendl;
       auto completed = d->aio->get(obj, rgw::Aio::librados_op(std::move(op), d->yield), cost, id);

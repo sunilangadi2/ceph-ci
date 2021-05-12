@@ -7,11 +7,12 @@
 Mclock profiles mask the low level details from users, making it
 easier for them to configure mclock.
 
-To use mclock, you must provide the following input parameters:
+The following input parameters are required for a mclock profile to configure
+the QoS related parameters:
 
-* total capacity of each OSD
+* total capacity (IOPS) of each OSD (determined automatically)
 
-* an mclock profile to enable
+* an mclock profile type to enable
 
 Using the settings in the specified profile, the OSD determines and applies the
 lower-level mclock and Ceph parameters. The parameters applied by the mclock
@@ -31,11 +32,11 @@ Ceph cluster enables the throttling of the operations(IOPS) belonging to
 different client classes (background recovery, scrub, snaptrim, client op,
 osd subop)”*.
 
-The mclock profile uses the capacity limits and the mclock profile selected by
-the user to determine the low-level mclock resource control parameters.
+The mclock profile uses the capacity limits and the mclock profile type selected
+by the user to determine the low-level mclock resource control parameters.
 
-Depending on the profile, lower-level mclock resource-control parameters and
-some Ceph-configuration parameters are transparently applied.
+Depending on the profile type, lower-level mclock resource-control parameters
+and some Ceph-configuration parameters are transparently applied.
 
 The low-level mclock resource control parameters are the *reservation*,
 *limit*, and *weight* that provide control of the resource shares, as
@@ -56,7 +57,7 @@ mclock profiles can be broadly classified into two types,
     as compared to background recoveries and other internal clients within
     Ceph. This profile is enabled by default.
   - **high_recovery_ops**:
-    This profile allocates more reservation to background recoveries as 
+    This profile allocates more reservation to background recoveries as
     compared to external clients and other internal clients within Ceph. For
     example, an admin may enable this profile temporarily to speed-up background
     recoveries during non-peak hours.
@@ -109,7 +110,8 @@ chunk of the bandwidth allocation goes to client ops. Background recovery ops
 are given lower allocation (and therefore take a longer time to complete). But
 there might be instances that necessitate giving higher allocations to either
 client ops or recovery ops. In order to deal with such a situation, you can
-enable one of the alternate built-in profiles mentioned above.
+enable one of the alternate built-in profiles by following the steps mentioned
+in the next section.
 
 If any mClock profile (including "custom") is active, the following Ceph config
 sleep options will be disabled,
@@ -139,16 +141,61 @@ all its clients.
 Steps to Enable mClock Profile
 ==============================
 
-The following sections outline the steps required to enable a mclock profile.
+As already mentioned, the default mclock profile is set to *high_client_ops*.
+The other values for the built-in profiles include *balanced* and
+*high_recovery_ops*.
 
-Determining OSD Capacity Using Benchmark Tests
-----------------------------------------------
+If there is a requirement to change the default profile, then the option
+:confval:`osd_mclock_profile` may be set in the **[global]** or **[osd]** section of
+your Ceph configuration file before bringing up your cluster.
 
-To allow mclock to fulfill its QoS goals across its clients, it is most
-important to have a good understanding of each OSD's capacity in terms of its
-baseline throughputs (IOPS) across the Ceph nodes. To determine this capacity,
-you must perform appropriate benchmarking tests. The steps for performing these
-benchmarking tests are broadly outlined below.
+Alternatively, to change the profile during runtime, use the following command:
+
+  .. prompt:: bash #
+
+    ceph config set [global,osd] osd_mclock_profile <value>
+
+For example, to change the profile to allow faster recoveries, the following
+command can be used to switch to the *high_recovery_ops* profile:
+
+  .. prompt:: bash #
+
+    ceph config set osd osd_mclock_profile high_recovery_ops
+
+.. note:: The *custom* profile is not recommended unless you are an advanced user.
+
+And that's it! You are ready to run workloads on the cluster and check if the
+QoS requirements are being met.
+
+
+OSD Capacity Determination (Automated)
+======================================
+
+The OSD capacity in terms of total IOPS is determined automatically during OSD
+initialization. This is achieved by running the OSD bench tool and overriding
+the default value of ``osd_mclock_max_capacity_iops_[hdd, ssd]`` option
+depending on the device type. No other action/input is expected from the user
+to set the OSD capacity. You may verify the capacity of an OSD after the
+cluster is brought up by using the following command:
+
+  .. prompt:: bash #
+
+    ceph config show osd.x osd_mclock_max_capacity_iops_[hdd, ssd]
+
+For example, the following command shows the max capacity for osd.0 on a Ceph
+node whose underlying device type is SSD:
+
+  .. prompt:: bash #
+
+    ceph config show osd.0 osd_mclock_max_capacity_iops_ssd
+
+
+Steps to Manually Benchmark an OSD (Optional)
+=============================================
+
+.. note:: These steps are only necessary if you want to override the OSD
+          capacity already determined automatically during OSD initialization.
+          Otherwise, you may skip this section entirely.
 
 Any existing benchmarking tool can be used for this purpose. The following
 steps use the *Ceph Benchmarking Tool* (cbt_). Regardless of the tool
@@ -176,8 +223,6 @@ Benchmarking Test Steps Using CBT
 
 The steps below use the default shards and detail the steps used to determine the
 correct bluestore throttle values.
-
-.. note:: These steps, although manual in April 2021, will be automated in the future.
 
 1. On the Ceph node hosting the OSDs, download cbt_ from git.
 2. Install cbt and all the dependencies mentioned on the cbt github page.
@@ -243,36 +288,6 @@ device type is HDD, use a command like this:
   .. prompt:: bash #
 
     ceph config set osd.0 osd_mclock_max_capacity_iops_hdd 350
-
-
-Specifying Which mClock Profile to Enable
------------------------------------------
-
-As already mentioned, the default mclock profile is set to *high_client_ops*.
-The other values for the built-in profiles include *balanced* and
-*high_recovery_ops*.
-
-If there is a requirement to change the default profile, then the option
-:confval:`osd_mclock_profile` may be set in the **[global]** or **[osd]** section of
-your Ceph configuration file before bringing up your cluster.
-
-Alternatively, to change the profile during runtime, use the following command:
-
-  .. prompt:: bash #
-
-    ceph config set [global,osd] osd_mclock_profile <value>
-
-For example, to change the profile to allow faster recoveries, the following
-command can be used to switch to the *high_recovery_ops* profile:
-
-  .. prompt:: bash #
-
-    ceph config set osd osd_mclock_profile high_recovery_ops
-
-.. note:: The *custom* profile is not recommended unless you are an advanced user.
-
-And that's it! You are ready to run workloads on the cluster and check if the
-QoS requirements are being met.
 
 
 .. index:: mclock; config settings

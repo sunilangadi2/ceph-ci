@@ -62,25 +62,29 @@ void cb(librados::completion_t, void* arg) {
   s->aio->put(r);
 }
 
-void d3n_cache_libaio_cb(sigval_t sigval) {
-  D3nL1CacheRequest* c = static_cast<D3nL1CacheRequest*>(sigval.sival_ptr);
-  lsubdout(g_ceph_context, rgw_datacache, 30) << "D3nDataCache: " << __func__ << "(): Read From Cache, key=" << c->key << ", thread id=0x" << std::hex << std::this_thread::get_id() << dendl;
-  int status = c->d3n_libaio_status();
-  if (status == 0) {
-    const std::lock_guard l(D3nL1CacheRequest::d3n_libaio_cb_lock);
-    c->d3n_libaio_finish();
-    c->r->result = 0;
-    c->aio->put(*(c->r));
-  } else {
-    c->r->result = -EINVAL;
-    const std::lock_guard l(D3nL1CacheRequest::d3n_libaio_cb_lock);
-    c->aio->put(*(c->r));
-    if (status != ECANCELED) {
-      lsubdout(g_ceph_context, rgw, 1) << "D3nDataCache: " << __func__ << "(): Error status=" << status << dendl;
+
+void d3n_cache_libaio_cbs(int signo, siginfo_t *info, void *text) {
+  lsubdout(g_ceph_context, rgw_datacache, 30) << "D3nDataCache: " << __func__ << "(): Read From Cache" << dendl;
+  if (info->si_signo == SIGIO) {
+    D3nL1CacheRequest* c = static_cast<D3nL1CacheRequest*>(info->si_value.sival_ptr);
+    lsubdout(g_ceph_context, rgw_datacache, 30) << "D3nDataCache: " << __func__ << "(): Read From Cache, key=" << c->key << ", thread id=0x" << std::hex << std::this_thread::get_id() << dendl;
+    int status = c->d3n_libaio_status();
+    if (status == 0) {
+      c->d3n_libaio_finish();
+      c->r->result = 0;
+      c->aio->put(*(c->r));
+    } else {
+      c->r->result = -EINVAL;
+      c->aio->put(*(c->r));
+      if (status != ECANCELED) {
+        lsubdout(g_ceph_context, rgw, 1) << "D3nDataCache: " << __func__ << "(): Error status=" << status << dendl;
+      }
     }
+    delete c;
+    c = nullptr;
+  } else {
+    lsubdout(g_ceph_context, rgw, 0) << "D3nDataCache: " << __func__ << "(): ERROR: signal is not SIGIO, si_signo=" << info->si_signo << dendl;
   }
-  delete c;
-  c = nullptr;
 }
 
 template <typename Op>
@@ -141,7 +145,7 @@ Aio::OpFunc d3n_cache_aio_abstract(Op&& op, off_t obj_ofs, off_t read_ofs, off_t
     cs->c = new D3nL1CacheRequest();
 
     lsubdout(g_ceph_context, rgw_datacache, 20) << "D3nDataCache: d3n_cache_aio_abstract(): libaio Read From Cache, oid=" << ref.obj.oid << dendl;
-    cs->c->d3n_prepare_libaio_op(ref.obj.oid, &r.data, read_len, obj_ofs, read_ofs, location, d3n_cache_libaio_cb, aio, &r);
+    cs->c->d3n_prepare_libaio_op(ref.obj.oid, &r.data, read_len, obj_ofs, read_ofs, location, d3n_cache_libaio_cbs, aio, &r);
     int ret = cs->submit_libaio_op(cs->c);
     if(ret < 0) {
       lsubdout(g_ceph_context, rgw, 1) << "D3nDataCache: d3n_cache_aio_abstract(): ERROR: submit_libaio_op, ret=" << ret << dendl;

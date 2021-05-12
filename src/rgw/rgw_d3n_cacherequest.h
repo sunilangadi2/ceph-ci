@@ -36,7 +36,7 @@ class D3nCacheRequest {
 };
 
 struct D3nL1CacheRequest : public D3nCacheRequest {
-  using sigval_cb = void (*) (sigval_t);
+  using sigval_cb = void (*) (int, siginfo_t*, void*);
   int stat;
   int ret;
   struct aiocb* paiocb;
@@ -122,10 +122,15 @@ struct D3nL1CacheRequest : public D3nCacheRequest {
     cb->aio_buf = (volatile void*)malloc(read_len);
     cb->aio_nbytes = read_len;
     cb->aio_offset = read_ofs;
-    cb->aio_sigevent.sigev_notify = SIGEV_THREAD;
-    cb->aio_sigevent.sigev_notify_function = cbf;
-    cb->aio_sigevent.sigev_notify_attributes = NULL;
+    struct sigaction sig_act;
+    sigemptyset(&sig_act.sa_mask);
+    sig_act.sa_flags = SA_SIGINFO;
+    sig_act.sa_sigaction = cbf;
+    cb->aio_sigevent.sigev_notify = SIGEV_SIGNAL;
+    cb->aio_sigevent.sigev_signo = SIGIO;
     cb->aio_sigevent.sigev_value.sival_ptr = this;
+    sigaction(SIGIO, &sig_act, NULL);
+
     this->paiocb = cb;
     return 0;
   }
@@ -154,8 +159,10 @@ struct D3nL1CacheRequest : public D3nCacheRequest {
   }
 
   void d3n_libaio_finish() {
+    lock.lock();
     lsubdout(g_ceph_context, rgw_datacache, 20) << "D3nDataCache: " << __func__ << "(): Read From Cache, libaio callback - returning data: key=" << key << ", aio_nbytes=" << paiocb->aio_nbytes << dendl;
     pbl->append((char*)paiocb->aio_buf, paiocb->aio_nbytes);
+    lock.unlock();
   }
 };
 

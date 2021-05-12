@@ -210,11 +210,9 @@ logging_config = {
         },
         'log_file': {
             'level': 'DEBUG',
-            'class': 'logging.handlers.RotatingFileHandler',
+            'class': 'logging.handlers.WatchedFileHandler',
             'formatter': 'cephadm',
             'filename': '%s/cephadm.log' % LOG_DIR,
-            'maxBytes': 1024000,
-            'backupCount': 1,
         }
     },
     'loggers': {
@@ -3001,6 +2999,14 @@ def install_base_units(ctx, fsid):
     missingok
     notifempty
     su root root
+}
+
+/var/log/ceph/cephadm.log {
+    rotate 7
+    daily
+    compress
+    missingok
+    notifempty
 }
 """ % fsid)
 

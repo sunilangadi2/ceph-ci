@@ -4890,12 +4890,20 @@ next:
 	  results->raw_stats.error_str
 	    << "freshly-calculated rstats don't match existing ones";
 	}
-        if (in->is_dirty()) {
+        
+        ceph_assert(in->dirfrags.size() == 1);
+        CDir *dir = in->dirfrags[0];
+
+        if (in->is_dirty() || (!dir->is_complete() and !dir->is_auth())) {
           MDCache *mdcache = in->mdcache; // for dout()
           auto ino = [this]() { return in->ino(); }; // for dout()
           dout(20) << "raw stats most likely wont match since inode is dirty; "
                       "please rerun scrub when system is stable; "
-                      "assuming passed for now;" << dendl;
+                      "assuming passed for now; "
+                      "is_dirty:" << in->is_dirty()
+                   << "; is_complete:" << dir->is_complete()
+                   << "; is_auth:" << dir->is_auth()
+                   << dendl;
           results->raw_stats.passed = true;
         }
 	goto next;

@@ -208,7 +208,7 @@ class CephadmOrchestrator(orchestrator.Orchestrator, MgrModule,
         ),
         Option(
             'container_image_haproxy',
-            default='haproxy',
+            default='docker.io/library/haproxy:2.3',
             desc='HAproxy container image',
         ),
         Option(

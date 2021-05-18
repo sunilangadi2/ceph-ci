@@ -63,8 +63,11 @@ void AioCompletion::finalize() {
 
 void AioCompletion::complete() {
   ceph_assert(ictx != nullptr);
+  
+  CephContext *cct = ictx->cct;
 
   ssize_t r = rval;
+  ldout(cct, 20) << __func__ << " r=" << r << dendl;
   if ((aio_type == AIO_TYPE_CLOSE) || (aio_type == AIO_TYPE_OPEN && r < 0)) {
     ictx = nullptr;
     external_callback = false;

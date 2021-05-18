@@ -137,6 +137,7 @@ template <typename I>
 void ImageWatcher<I>::schedule_async_complete(const AsyncRequestId &request,
                                               int r) {
   m_async_op_tracker.start_op();
+  ldout(m_image_ctx.cct, 20) << " remote " << __func__ << request << dendl;
   auto ctx = new LambdaContext([this, request, ret_val=r](int r) {
     if (r != -ECANCELED) {
       notify_async_complete(request, ret_val);
@@ -148,7 +149,7 @@ void ImageWatcher<I>::schedule_async_complete(const AsyncRequestId &request,
 template <typename I>
 void ImageWatcher<I>::notify_async_complete(const AsyncRequestId &request,
                                             int r) {
-  ldout(m_image_ctx.cct, 20) << this << " remote async request finished: "
+  ldout(m_image_ctx.cct, 20) << this << " remote async request queued for complete: "
 			     << request << " = " << r << dendl;
 
   send_notify(new AsyncCompletePayload(request, r),
@@ -316,6 +317,10 @@ void ImageWatcher<I>::notify_rename(uint64_t request_id,
 
   AsyncRequestId async_request_id(get_client_id(), request_id);
 
+  ldout(m_image_ctx.cct, 10) << this << ": " << __func__
+    << " async schedule notify_async_request with id "
+    << async_request_id << dendl;
+
   notify_async_request(async_request_id,
                        new RenamePayload(async_request_id, image_name),
                        m_no_op_prog_ctx, on_finish);
@@ -330,6 +335,9 @@ void ImageWatcher<I>::notify_update_features(uint64_t request_id,
               !m_image_ctx.exclusive_lock->is_lock_owner());
 
   AsyncRequestId async_request_id(get_client_id(), request_id);
+
+  ldout(m_image_ctx.cct, 10) << this << ": " << __func__
+    << " async schedule notify_async_request with id " << async_request_id << dendl;
 
   notify_async_request(async_request_id,
       new UpdateFeaturesPayload(async_request_id, features, enabled),
@@ -661,10 +669,12 @@ void ImageWatcher<I>::notify_lock_owner(Payload *payload, Context *on_finish) {
 
   bufferlist bl;
   encode(NotifyMessage(payload), bl);
+  ldout(m_image_ctx.cct, 20) << __func__  << dendl;
 
   NotifyLockOwner *notify_lock_owner = NotifyLockOwner::create(
     m_image_ctx, this->m_notifier, std::move(bl), on_finish);
   notify_lock_owner->send();
+  ldout(m_image_ctx.cct, 20) << __func__ << " sent notify " << dendl;
 }
 
 template <typename I>
@@ -677,6 +687,7 @@ bool ImageWatcher<I>::is_new_request(const AsyncRequestId &id) const {
 template <typename I>
 bool ImageWatcher<I>::mark_async_request_complete(const AsyncRequestId &id,
                                                   int r) {
+  ldout(m_image_ctx.cct, 20) << __func__ << id << dendl;
   ceph_assert(ceph_mutex_is_locked(m_async_request_lock));
 
   bool found = m_async_pending.erase(id);
@@ -716,6 +727,8 @@ template <typename I>
 Context *ImageWatcher<I>::remove_async_request(const AsyncRequestId &id,
                                                ceph::shared_mutex &lock) {
   ceph_assert(ceph_mutex_is_locked(lock));
+
+  ldout(m_image_ctx.cct, 20) << __func__ << ": " << id << dendl;
 
   auto it = m_async_requests.find(id);
   if (it != m_async_requests.end()) {
@@ -778,6 +791,8 @@ void ImageWatcher<I>::notify_async_request(
     [this, async_request_id, on_finish](int r) {
       m_task_finisher->cancel(Task(TASK_CODE_ASYNC_REQUEST, async_request_id));
       on_finish->complete(r);
+      ldout(m_image_ctx.cct, 10) << this << " async request: " << async_request_id
+	<< " completed" << dendl;
     });
 
   {
@@ -800,6 +815,7 @@ int ImageWatcher<I>::prepare_async_request(const AsyncRequestId& async_request_i
     if (is_new_request(async_request_id)) {
       m_async_pending.insert(async_request_id);
       *new_request = true;
+      ldout(m_image_ctx.cct, 10) << __func__ << " new req" << dendl;
       *prog_ctx = new RemoteProgressContext(*this, async_request_id);
       *ctx = new RemoteContext(*this, async_request_id, *prog_ctx);
     } else {
@@ -807,6 +823,7 @@ int ImageWatcher<I>::prepare_async_request(const AsyncRequestId& async_request_i
       auto it = m_async_complete.find(async_request_id);
       if (it != m_async_complete.end()) {
         int r = it->second;
+        ldout(m_image_ctx.cct, 10) << __func__ << " marking req complete" << dendl;
         // reset complete request expiration time
         mark_async_request_complete(async_request_id, r);
         return r;
@@ -822,6 +839,8 @@ Context *ImageWatcher<I>::prepare_quiesce_request(
   std::unique_lock locker{m_async_request_lock};
 
   auto timeout = 2 * watcher::Notifier::NOTIFY_TIMEOUT / 1000;
+  ldout(m_image_ctx.cct, 10) << this << request << dendl;
+
 
   if (!is_new_request(request)) {
     auto it = m_async_requests.find(request);
@@ -860,6 +879,8 @@ Context *ImageWatcher<I>::prepare_quiesce_request(
               m_async_op_tracker.finish_op();
             });
 
+            ldout(m_image_ctx.cct, 10) << this << " quiesce request "
+                                       << request << " finished" << dendl;
           m_image_ctx.state->notify_unquiesce(on_finish);
         });
 
@@ -925,12 +946,16 @@ bool ImageWatcher<I>::handle_operation_request(
 
   if (m_image_ctx.exclusive_lock != nullptr) {
     int r = 0;
+
+    CephContext *cct = m_image_ctx.cct;
+
     if (m_image_ctx.exclusive_lock->accept_request(request_type, &r)) {
       bool new_request;
       Context *ctx;
       ProgressContext *prog_ctx;
       bool complete;
       if (async_request_id) {
+        ldout(cct, 10) << __func__ << " r=" << r << dendl;
         r = prepare_async_request(async_request_id, &new_request, &ctx,
                                   &prog_ctx);
         encode(ResponseMessage(r), ack_ctx->out);
@@ -1095,6 +1120,9 @@ bool ImageWatcher<I>::handle_payload(const AsyncProgressPayload &payload,
 template <typename I>
 bool ImageWatcher<I>::handle_payload(const AsyncCompletePayload &payload,
                                      C_NotifyAck *ack_ctx) {
+  ldout(m_image_ctx.cct, 10) << "async complete payload " 
+  << payload.async_request_id << " r=" << payload.result << dendl;
+
   Context *on_complete = remove_async_request(payload.async_request_id);
   if (on_complete != nullptr) {
     ldout(m_image_ctx.cct, 10) << this << " request finished: "
@@ -1380,8 +1408,8 @@ template <typename I>
 void ImageWatcher<I>::process_payload(uint64_t notify_id, uint64_t handle,
                                       Payload *payload) {
   auto ctx = new Watcher::C_NotifyAck(this, notify_id, handle);
+  ldout(m_image_ctx.cct, 10) << this << " " << __func__ << " "  << dendl;
   bool complete;
-
   switch (payload->get_notify_op()) {
   case NOTIFY_OP_ACQUIRED_LOCK:
     complete = handle_payload(*(static_cast<AcquiredLockPayload *>(payload)),
@@ -1490,11 +1518,12 @@ void ImageWatcher<I>::handle_notify(uint64_t notify_id, uint64_t handle,
   // if an image refresh is required, refresh before processing the request
   if (notify_message.check_for_refresh() &&
       m_image_ctx.state->is_refresh_required()) {
-
     m_image_ctx.state->refresh(
       new C_ProcessPayload(this, notify_id, handle,
                            std::move(notify_message.payload)));
+      ldout(m_image_ctx.cct, 10) << this << " " << __func__ << "C_ProcessPayload " << dendl;
   } else {
+    ldout(m_image_ctx.cct, 10) << __func__ << " processing payload " << " " << dendl;
     process_payload(notify_id, handle, notify_message.payload.get());
   }
 }
@@ -1539,6 +1568,8 @@ void ImageWatcher<I>::send_notify(Payload *payload, Context *ctx) {
 
 template <typename I>
 void ImageWatcher<I>::RemoteContext::finish(int r) {
+  CephContext *cct = m_image_watcher.m_image_ctx.cct;
+  ldout(cct, 10) << this << __func__ << " scheduling async complete " << dendl;
   m_image_watcher.schedule_async_complete(m_async_request_id, r);
 }
 

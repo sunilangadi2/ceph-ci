@@ -28,11 +28,11 @@ bool is_librados_test_stub(librados::Rados &rados);
 
 bool is_rbd_pwl_enabled(ceph::common::CephContext *ctx);
 
-#define REQUIRE(x) {			  \
-  if (!(x)) {				  \
-    std::cout << "SKIPPING" << std::endl; \
-    return SUCCEED(); 			  \
-  } 					  \
+#define REQUIRE(x) {							     \
+  if (!(x)) {								     \
+    std::cout << "SKIPPING TEST(REQUIRED FEATURE NOT ENABLED)" << std::endl; \
+    return SUCCEED();							     \
+  }									     \
 }
 
 #define REQUIRE_FEATURE(feature) REQUIRE(is_feature_enabled(feature))

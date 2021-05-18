@@ -2,7 +2,7 @@ import logging
 import socket
 import json
 import re
-from typing import cast, Dict, List, Any, Union
+from typing import cast, Dict, List, Any, Union, Optional
 
 from ceph.deployment.service_spec import NFSServiceSpec, PlacementSpec, IngressSpec
 from cephadm.utils import resolve_ip
@@ -89,7 +89,15 @@ class NFSCluster:
                  f"{self.pool_ns}")
 
     @cluster_setter
-    def create_nfs_cluster(self, cluster_id, placement, virtual_ip):
+    def create_nfs_cluster(self,
+                           cluster_id: str,
+                           placement: Optional[str],
+                           virtual_ip: Optional[str],
+                           ingress: Optional[bool] = None):
+        if virtual_ip and not ingress:
+            raise orchestrator.OrchestratorError('virtual_ip can only be provided with ingress enabled')
+        if not virtual_ip and ingress:
+            raise orchestrator.OrchestratorError('ingress currently requires a virtual_ip')
         try:
             invalid_str = re.search('[^A-Za-z0-9-_.]', cluster_id)
             if invalid_str:
@@ -143,7 +151,7 @@ class NFSCluster:
                             "ip": cluster.ip or resolve_ip(cluster.hostname),
                             "port": cluster.ports[0]
                             })
-                except OrchestratorError:
+                except orchestrator.OrchestratorError:
                     continue
 
         r: Dict[str, Any] = {

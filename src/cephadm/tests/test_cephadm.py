@@ -1027,5 +1027,5 @@ class TestMonitoring(object):
             call('{}/etc/prometheus/prometheus.yml'.format(prefix), 'w'),
             call('{}/etc/prometheus/alerting/ceph_alerts.yml'.format(prefix), 'w'),
         ]
-        assert call().__enter__().write('foo') in _open.mock_calls
-        assert call().__enter__().write('bar') in _open.mock_calls
+        assert call().__enter__().write(b'foo') in _open.mock_calls
+        assert call().__enter__().write(b'bar') in _open.mock_calls

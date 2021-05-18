@@ -353,7 +353,7 @@ def populate_files(config_dir, config_files, uid, gid):
         with open(config_file, 'w') as f:
             os.fchown(f.fileno(), uid, gid)
             os.fchmod(f.fileno(), 0o600)
-            f.write(config_content)
+            f.write(config_content.encode('utf-8'))
 
 
 class NFSGanesha(object):
@@ -2224,7 +2224,7 @@ def create_daemon_dirs(ctx, fsid, daemon_type, daemon_id, uid, gid,
                 with open(fpath, 'w') as f:
                     os.fchown(f.fileno(), uid, gid)
                     os.fchmod(f.fileno(), 0o600)
-                    f.write(content)
+                    f.write(content.encode('utf-8'))
 
     elif daemon_type == NFSGanesha.daemon_type:
         nfs_ganesha = NFSGanesha.init(ctx, fsid, daemon_id)

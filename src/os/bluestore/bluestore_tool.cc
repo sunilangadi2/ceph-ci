@@ -512,7 +512,7 @@ int main(int argc, char **argv)
 #ifndef CEPH_BLUESTORE_TOOL_RESTORE_ALLOCATION
     cerr << action << " bluestore.allocmap is not supported!!! " << std::endl;
     exit(EXIT_FAILURE);
-#endif
+#else
     cout << action << " bluestore.allocmap" << std::endl;
     validate_path(cct.get(), path, false);
     BlueStore bluestore(cct.get(), path);
@@ -523,12 +523,13 @@ int main(int argc, char **argv)
     } else {
       cout << action << " success" << std::endl;
     }
+#endif
   }
   else  if( action == "qfsck" ) {
 #ifndef CEPH_BLUESTORE_TOOL_RESTORE_ALLOCATION
     cerr << action << " bluestore.qfsck is not supported!!! " << std::endl;
     exit(EXIT_FAILURE);
-#endif
+#else
     cout << action << " bluestore.quick-fsck" << std::endl;
     validate_path(cct.get(), path, false);
     BlueStore bluestore(cct.get(), path);
@@ -539,6 +540,7 @@ int main(int argc, char **argv)
     } else {
       cout << action << " success" << std::endl;
     }
+#endif
   }
   else if (action == "fsck" ||
       action == "repair" ||

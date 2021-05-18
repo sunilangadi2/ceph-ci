@@ -29,7 +29,9 @@ using crimson::common::local_conf;
 
 namespace crimson::os::seastore {
 
-SeaStore::~SeaStore() {}
+SeaStore::~SeaStore() {
+  perf_service->remove_from_collection();
+}
 
 struct SeastoreCollection final : public FuturizedCollection {
   template <typename... T>
@@ -39,13 +41,7 @@ struct SeastoreCollection final : public FuturizedCollection {
 
 seastar::future<> SeaStore::stop()
 {
-  return transaction_manager->close(
-  ).handle_error(
-    crimson::ct_error::assert_all{
-      "Invalid error in SeaStore::stop"
-    }
-  );
-
+  return seastar::now();
 }
 
 seastar::future<> SeaStore::mount()
@@ -62,7 +58,12 @@ seastar::future<> SeaStore::mount()
 
 seastar::future<> SeaStore::umount()
 {
-  return seastar::now();
+  return transaction_manager->close(
+  ).handle_error(
+    crimson::ct_error::assert_all{
+      "Invalid error in SeaStore::umount"
+    }
+  );
 }
 
 seastar::future<> SeaStore::mkfs(uuid_d new_osd_fsid)
@@ -91,7 +92,7 @@ seastar::future<> SeaStore::mkfs(uuid_d new_osd_fsid)
 	});
       });
   }).safe_then([this] {
-    return stop();
+    return umount();
   }).handle_error(
     crimson::ct_error::assert_all{
       "Invalid error in SeaStore::mkfs"
@@ -114,8 +115,27 @@ SeaStore::list_objects(CollectionRef ch,
                         const ghobject_t& end,
                         uint64_t limit) const
 {
-  return seastar::make_ready_future<std::tuple<std::vector<ghobject_t>, ghobject_t>>(
-    std::make_tuple(std::vector<ghobject_t>(), end));
+  using RetType = typename OnodeManager::list_onodes_bare_ret;
+  return seastar::do_with(
+      RetType(),
+      [this, start, end, limit] (auto& ret) {
+    return repeat_eagain([this, start, end, limit, &ret] {
+      return seastar::do_with(
+          transaction_manager->create_transaction(),
+          [this, start, end, limit, &ret] (auto& t) {
+        return onode_manager->list_onodes(*t, start, end, limit
+        ).safe_then([&ret] (auto&& _ret) {
+          ret = std::move(_ret);
+        });
+      });
+    }).safe_then([&ret] {
+      return std::move(ret);
+    });
+  }).handle_error(
+    crimson::ct_error::assert_all{
+      "Invalid error in SeaStore::list_objects"
+    }
+  );
 }
 
 seastar::future<CollectionRef> SeaStore::create_new_collection(const coll_t& cid)
@@ -722,7 +742,7 @@ SeaStore::tm_ret SeaStore::_remove(
 {
   LOG_PREFIX(SeaStore::_remove);
   DEBUGT("onode={}", *ctx.transaction, *onode);
-  return tm_ertr::now();
+  return onode_manager->erase_onode(*ctx.transaction, onode);
 }
 
 SeaStore::tm_ret SeaStore::_touch(
@@ -1067,9 +1087,11 @@ std::unique_ptr<SeaStore> make_seastore(
     segment_manager::block::BlockSegmentManager
     >(device + "/block");
 
+  PerfServiceRef perf_service = PerfServiceRef(new PerfService());
+
   auto segment_cleaner = std::make_unique<SegmentCleaner>(
     SegmentCleaner::config_t::get_default(),
-    false /* detailed */);
+    perf_service->get_counters(), false /* detailed */);
 
   auto journal = std::make_unique<Journal>(*sm);
   auto cache = std::make_unique<Cache>(*sm);
@@ -1082,14 +1104,16 @@ std::unique_ptr<SeaStore> make_seastore(
     std::move(segment_cleaner),
     std::move(journal),
     std::move(cache),
-    std::move(lba_manager));
+    std::move(lba_manager),
+    perf_service->get_counters());
 
   auto cm = std::make_unique<collection_manager::FlatCollectionManager>(*tm);
   return std::make_unique<SeaStore>(
     std::move(sm),
     std::move(tm),
     std::move(cm),
-    std::make_unique<crimson::os::seastore::onode::FLTreeOnodeManager>(*tm));
+    std::make_unique<crimson::os::seastore::onode::FLTreeOnodeManager>(*tm),
+    std::move(perf_service));
 }
 
 }

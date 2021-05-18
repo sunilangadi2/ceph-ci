@@ -5,7 +5,7 @@ import pytest
 
 from ceph.deployment.drive_group import DriveGroupSpec, DeviceSelection
 from cephadm.serve import CephadmServe
-from cephadm.services.osd import OSD, OSDRemovalQueue
+from cephadm.services.osd import OSD, OSDRemovalQueue, OsdIdClaims
 
 try:
     from typing import List
@@ -382,8 +382,10 @@ class TestCephadm(object):
         }
         json_out = json.dumps(dict_out)
         _mon_cmd.return_value = (0, json_out, '')
-        out = cephadm_module.osd_service.find_destroyed_osds()
-        assert out == {'host1': ['0']}
+        osd_claims = OsdIdClaims(cephadm_module)
+        assert osd_claims.get() == {'host1': ['0']}
+        assert osd_claims.filtered_by_host('host1') == ['0']
+        assert osd_claims.filtered_by_host('host1.domain.com') == ['0']
 
     @ pytest.mark.parametrize(
         "ceph_services, cephadm_daemons, strays_expected, metadata",
@@ -481,7 +483,7 @@ class TestCephadm(object):
     def test_find_destroyed_osds_cmd_failure(self, _mon_cmd, cephadm_module):
         _mon_cmd.return_value = (1, "", "fail_msg")
         with pytest.raises(OrchestratorError):
-            cephadm_module.osd_service.find_destroyed_osds()
+            OsdIdClaims(cephadm_module)
 
     @mock.patch("cephadm.serve.CephadmServe._run_cephadm")
     def test_apply_osd_save(self, _run_cephadm, cephadm_module: CephadmOrchestrator):
@@ -770,6 +772,7 @@ class TestCephadm(object):
                 assert_rm_daemon(cephadm_module, 'nfs.name.test', 'test')
 
     @mock.patch("cephadm.serve.CephadmServe._run_cephadm", _run_cephadm('{}'))
+    @mock.patch("subprocess.run", None)
     @mock.patch("cephadm.module.CephadmOrchestrator.rados", mock.MagicMock())
     def test_iscsi(self, cephadm_module):
         with with_host(cephadm_module, 'test'):
@@ -909,6 +912,7 @@ class TestCephadm(object):
         ]
     )
     @mock.patch("cephadm.serve.CephadmServe._deploy_cephadm_binary", _deploy_cephadm_binary('test'))
+    @mock.patch("subprocess.run", None)
     @mock.patch("cephadm.serve.CephadmServe._run_cephadm", _run_cephadm('{}'))
     def test_apply_save(self, spec: ServiceSpec, meth, cephadm_module: CephadmOrchestrator):
         with with_host(cephadm_module, 'test'):
@@ -1093,10 +1097,12 @@ class TestCephadm(object):
             assert '/etc/ceph/ceph.conf' in cephadm_module.cache.get_host_client_files('test')
 
             # Make sure, _check_daemons does a redeploy due to monmap change:
-            before_digest = cephadm_module.cache.get_host_client_files('test')['/etc/ceph/ceph.conf'][0]
+            before_digest = cephadm_module.cache.get_host_client_files('test')[
+                '/etc/ceph/ceph.conf'][0]
             cephadm_module._set_extra_ceph_conf('[mon]\nk2=v2')
             CephadmServe(cephadm_module)._refresh_hosts_and_daemons()
-            after_digest = cephadm_module.cache.get_host_client_files('test')['/etc/ceph/ceph.conf'][0]
+            after_digest = cephadm_module.cache.get_host_client_files('test')[
+                '/etc/ceph/ceph.conf'][0]
             assert before_digest != after_digest
 
     def test_etc_ceph_init(self):

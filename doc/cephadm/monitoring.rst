@@ -108,26 +108,25 @@ completed, you should see something like this from ``ceph orch ls``
 Configuring SSL/TLS for Grafana
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-``cephadm`` will deploy Grafana using the certificate defined in the ceph
-key/value store. If a certificate is not specified, ``cephadm`` will generate a
-self-signed certificate during deployment of the Grafana service.
+``cephadm`` deploys Grafana using the certificate defined in the ceph
+key/value store. If no certificate is specified, ``cephadm`` generates a
+self-signed certificate during the deployment of the Grafana service.
 
-A custom certificate can be configured using the following commands.
+A custom certificate can be configured using the following commands:
 
-.. code-block:: bash
+.. prompt:: bash #
 
   ceph config-key set mgr/cephadm/grafana_key -i $PWD/key.pem
   ceph config-key set mgr/cephadm/grafana_crt -i $PWD/certificate.pem
 
-If you already deployed Grafana, you need to ``reconfig`` the service for the
-configuration to be updated.
+If you have already deployed Grafana, run ``reconfig`` on the service to
+update its configuration:
 
-.. code-block:: bash
+.. prompt:: bash #
 
   ceph orch reconfig grafana
 
-The ``reconfig`` command also takes care of setting the right URL for Ceph
-Dashboard.
+The ``reconfig`` command also sets the proper URL for Ceph Dashboard.
 
 Using custom images
 ~~~~~~~~~~~~~~~~~~~
@@ -256,16 +255,15 @@ Example
 Disabling monitoring
 --------------------
 
-If you have deployed monitoring and would like to remove it, you can do
-so with
+To disable monitoring and remove the software that supports it, run the following commands:
 
-.. code-block:: bash
+.. code-block:: console
 
-  ceph orch rm grafana
-  ceph orch rm prometheus --force   # this will delete metrics data collected so far
-  ceph orch rm node-exporter
-  ceph orch rm alertmanager
-  ceph mgr module disable prometheus
+  $ ceph orch rm grafana
+  $ ceph orch rm prometheus --force   # this will delete metrics data collected so far
+  $ ceph orch rm node-exporter
+  $ ceph orch rm alertmanager
+  $ ceph mgr module disable prometheus
 
 
 Deploying monitoring manually

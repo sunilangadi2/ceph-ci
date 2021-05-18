@@ -122,28 +122,12 @@ seastar::future<> ClientRequest::start()
             sequencer.finish_op(get_id());
             return seastar::stop_iteration::yes;
           });
-	}, [this, pgref](std::exception_ptr eptr) mutable {
-	  if (*eptr.__cxa_exception_type() ==
-	      typeid(::crimson::common::actingset_changed)) {
-	    try {
-	      std::rethrow_exception(eptr);
-	    } catch(::crimson::common::actingset_changed& e) {
-	      if (e.is_primary()) {
-		logger().debug("{} operation restart, acting set changed", *this);
-                sequencer.maybe_reset(get_id());
-		return seastar::stop_iteration::no;
-	      } else {
-		logger().debug("{} operation abort, up primary changed", *this);
-                sequencer.abort();
-		return seastar::stop_iteration::yes;
-	      }
-	    }
-	  }
-	  assert(*eptr.__cxa_exception_type() ==
-	  typeid(crimson::common::system_shutdown_exception));
-	  crimson::get_logger(ceph_subsys_osd).debug(
-	      "{} operation skipped, system shutdown", *this);
-	  return seastar::stop_iteration::yes;
+	}, [this, pgref](std::exception_ptr eptr) {
+          if (should_abort_request(std::move(eptr))) {
+            return seastar::stop_iteration::yes;
+          } else {
+            return seastar::stop_iteration::no;
+          }
 	}, pgref);
       });
     });
@@ -166,7 +150,7 @@ ClientRequest::process_op(Ref<PG> &pg)
       handle.enter(pp(*pg).recover_missing))
   .then_interruptible(
     [this, pg]() mutable {
-    return do_recover_missing(pg);
+    return do_recover_missing(pg, m->get_hobj());
   }).then_interruptible([this, pg]() mutable {
     return pg->already_complete(m->get_reqid()).then_unpack_interruptible(
       [this, pg](bool completed, int ret) mutable
@@ -182,7 +166,8 @@ ClientRequest::process_op(Ref<PG> &pg)
           [this, pg]() mutable -> PG::load_obc_iertr::future<> {
           logger().debug("{}: got obc lock", *this);
           op_info.set_from_op(&*m, *pg->get_osdmap());
-          return pg->with_locked_obc(m, op_info, [this, pg](auto obc) mutable {
+          return pg->with_locked_obc(m->get_hobj(), op_info,
+                                     [this, pg](auto obc) mutable {
             return with_blocking_future_interruptible<IOInterruptCondition>(
               handle.enter(pp(*pg).process)
             ).then_interruptible([this, pg, obc]() mutable {
@@ -198,27 +183,6 @@ ClientRequest::process_op(Ref<PG> &pg)
     logger().error("ClientRequest saw error code {}", code);
     return seastar::now();
   }));
-}
-
-ClientRequest::interruptible_future<>
-ClientRequest::do_recover_missing(Ref<PG>& pg)
-{
-  eversion_t ver;
-  const hobject_t& soid = m->get_hobj();
-  logger().debug("{} check for recovery, {}", *this, soid);
-  if (!pg->is_unreadable_object(soid, &ver) &&
-      !pg->is_degraded_or_backfilling_object(soid)) {
-    return seastar::now();
-  }
-  logger().debug("{} need to wait for recovery, {}", *this, soid);
-  if (pg->get_recovery_backend()->is_recovering(soid)) {
-    return pg->get_recovery_backend()->get_recovering(soid).wait_for_recovered();
-  } else {
-    auto [op, fut] =
-      osd.get_shard_services().start_operation<UrgentRecovery>(
-        soid, ver, pg, osd.get_shard_services(), pg->get_osdmap_epoch());
-    return std::move(fut);
-  }
 }
 
 ClientRequest::interruptible_future<>
@@ -238,9 +202,25 @@ ClientRequest::do_process(Ref<PG>& pg, crimson::osd::ObjectContextRef obc)
       return conn->send(std::move(reply));
     }
   }
-  return pg->do_osd_ops(m, obc, op_info).safe_then_interruptible(
-      [this](Ref<MOSDOpReply> reply) -> interruptible_future<> {
-    return conn->send(std::move(reply));
+  return pg->do_osd_ops(m, obc, op_info).safe_then_unpack_interruptible(
+    [this, pg](auto submitted, auto all_completed) mutable {
+    return submitted.then_interruptible(
+      [this, pg] {
+        return with_blocking_future_interruptible<IOInterruptCondition>(
+            handle.enter(pp(*pg).wait_repop));
+    }).then_interruptible(
+      [this, pg, all_completed=std::move(all_completed)]() mutable {
+      return all_completed.safe_then_interruptible(
+        [this, pg](Ref<MOSDOpReply> reply) {
+        return with_blocking_future_interruptible<IOInterruptCondition>(
+            handle.enter(pp(*pg).send_reply)).then_interruptible(
+              [this, reply=std::move(reply)] {
+              return conn->send(std::move(reply));
+            });
+      }, crimson::ct_error::eagain::handle([this, pg]() mutable {
+        return process_op(pg);
+      }));
+    });
   }, crimson::ct_error::eagain::handle([this, pg]() mutable {
     return process_op(pg);
   }));

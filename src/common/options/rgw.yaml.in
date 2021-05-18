@@ -262,35 +262,6 @@ options:
   see_also:
   - rgw_cache_enabled
   with_legacy: true
-- name: rgw_socket_path
-  type: str
-  level: advanced
-  desc: RGW FastCGI socket path (for FastCGI over Unix domain sockets).
-  services:
-  - rgw
-  see_also:
-  - rgw_fcgi_socket_backlog
-  with_legacy: true
-- name: rgw_host
-  type: str
-  level: advanced
-  desc: RGW FastCGI host name (for FastCGI over TCP)
-  services:
-  - rgw
-  see_also:
-  - rgw_port
-  - rgw_fcgi_socket_backlog
-  with_legacy: true
-- name: rgw_port
-  type: str
-  level: basic
-  desc: RGW FastCGI port number (for FastCGI over TCP)
-  services:
-  - rgw
-  see_also:
-  - rgw_host
-  - rgw_fcgi_socket_backlog
-  with_legacy: true
 - name: rgw_dns_name
   type: str
   level: advanced
@@ -1332,20 +1303,6 @@ options:
   - rgw_enable_ops_log
   - rgw_ops_log_socket_path
   with_legacy: true
-# socket  backlog for fcgi
-- name: rgw_fcgi_socket_backlog
-  type: int
-  level: advanced
-  desc: FastCGI socket connection backlog
-  long_desc: 'Size of FastCGI connection backlog. This reflects the maximum number
-    of new connection requests that RGW can handle concurrently without dropping any. '
-  default: 1024
-  services:
-  - rgw
-  see_also:
-  - rgw_host
-  - rgw_socket_path
-  with_legacy: true
 - name: rgw_usage_log_flush_threshold
   type: int
   level: advanced
@@ -1840,6 +1797,19 @@ options:
   default: beast ssl_certificate=config://rgw/cert/$realm/$zone.crt ssl_private_key=config://rgw/cert/$realm/$zone.key
   services:
   - rgw
+- name: rgw_beast_enable_async
+  type: bool
+  level: dev
+  desc: Enable async request processing under beast using coroutines
+  long_desc: When enabled, the beast frontend will process requests using
+    coroutines, allowing the concurrent processing of several requests on the
+    same thread. When disabled, the number of concurrent requests will be
+    limited by the thread count, but debugging and tracing the synchronous
+    calls can be easier.
+  default: true
+  services:
+  - rgw
+  with_legacy: true
 - name: rgw_user_quota_bucket_sync_interval
   type: int
   level: advanced

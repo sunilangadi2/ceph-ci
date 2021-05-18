@@ -116,6 +116,7 @@ class BaseConfig:
         self.env: List[str] = []
         self.memory_request: Optional[int] = None
         self.memory_limit: Optional[int] = None
+        self.log_to_journald: Optional[bool] = None
 
         self.container_init: bool = CONTAINER_INIT
         self.container_engine: Optional[ContainerEngine] = None
@@ -1190,7 +1191,7 @@ class FileLock(object):
                         lock_id, lock_filename, poll_intervall
                     )
                     time.sleep(poll_intervall)
-        except:  # noqa
+        except Exception:
             # Something did go wrong, so decrement the counter.
             self._lock_counter = max(0, self._lock_counter - 1)
 
@@ -2101,6 +2102,13 @@ def get_legacy_daemon_fsid(ctx, cluster,
     return fsid
 
 
+def should_log_to_journald(ctx):
+    if ctx.log_to_journald is not None:
+        return ctx.log_to_journald
+    return isinstance(ctx.container_engine, Podman) and \
+        ctx.container_engine.version >= CGROUPS_SPLIT_PODMAN_VERSION
+
+
 def get_daemon_args(ctx, fsid, daemon_type, daemon_id):
     # type: (CephadmContext, str, str, Union[int, str]) -> List[str]
     r = list()  # type: List[str]
@@ -2110,14 +2118,29 @@ def get_daemon_args(ctx, fsid, daemon_type, daemon_id):
             '--setuser', 'ceph',
             '--setgroup', 'ceph',
             '--default-log-to-file=false',
-            '--default-log-to-stderr=true',
-            '--default-log-stderr-prefix=debug ',
         ]
+        log_to_journald = should_log_to_journald(ctx)
+        if log_to_journald:
+            r += [
+                '--default-log-to-journald=true',
+                '--default-log-to-stderr=false',
+            ]
+        else:
+            r += [
+                '--default-log-to-stderr=true',
+                '--default-log-stderr-prefix=debug ',
+            ]
         if daemon_type == 'mon':
             r += [
                 '--default-mon-cluster-log-to-file=false',
-                '--default-mon-cluster-log-to-stderr=true',
             ]
+            if log_to_journald:
+                r += [
+                    '--default-mon-cluster-log-to-journald=true',
+                    '--default-mon-cluster-log-to-stderr=false',
+                ]
+            else:
+                r += ['--default-mon-cluster-log-to-stderr=true']
     elif daemon_type in Monitoring.components:
         metadata = Monitoring.components[daemon_type]
         r += metadata.get('args', list())
@@ -2163,7 +2186,6 @@ def create_daemon_dirs(ctx, fsid, daemon_type, daemon_id, uid, gid,
 
     if daemon_type in Monitoring.components.keys():
         config_json: Dict[str, Any] = get_parm(ctx.config_json)
-        required_files = Monitoring.components[daemon_type].get('config-json-files', list())
 
         # Set up directories specific to the monitoring component
         config_dir = ''
@@ -2192,10 +2214,14 @@ def create_daemon_dirs(ctx, fsid, daemon_type, daemon_id, uid, gid,
             makedirs(os.path.join(data_dir_root, config_dir, 'data'), uid, gid, 0o755)
 
         # populate the config directory for the component from the config-json
-        for fname in required_files:
-            if 'files' in config_json:  # type: ignore
+        if 'files' in config_json:
+            for fname in config_json['files']:
                 content = dict_get_join(config_json['files'], fname)
-                with open(os.path.join(data_dir_root, config_dir, fname), 'w') as f:
+                if os.path.isabs(fname):
+                    fpath = os.path.join(data_dir_root, fname.lstrip(os.path.sep))
+                else:
+                    fpath = os.path.join(data_dir_root, config_dir, fname)
+                with open(fpath, 'w') as f:
                     os.fchown(f.fileno(), uid, gid)
                     os.fchmod(f.fileno(), 0o600)
                     f.write(content)
@@ -2312,6 +2338,9 @@ def get_container_mounts(ctx, fsid, daemon_type, daemon_id,
             crash_dir = '/var/lib/ceph/%s/crash' % fsid
             if os.path.exists(crash_dir):
                 mounts[crash_dir] = '/var/lib/ceph/crash:z'
+            if daemon_type != 'crash' and should_log_to_journald(ctx):
+                journald_sock_dir = '/run/systemd/journal'
+                mounts[journald_sock_dir] = journald_sock_dir
 
     if daemon_type in Ceph.daemons and daemon_id:
         data_dir = get_data_dir(fsid, ctx.data_dir, daemon_type, daemon_id)
@@ -2682,7 +2711,7 @@ def deploy_daemon_units(
     # cmd
     data_dir = get_data_dir(fsid, ctx.data_dir, daemon_type, daemon_id)
     with open(data_dir + '/unit.run.new', 'w') as f, \
-         open(data_dir + '/unit.meta.new', 'w') as metaf:
+            open(data_dir + '/unit.meta.new', 'w') as metaf:
         f.write('set -e\n')
 
         if daemon_type in Ceph.daemons:
@@ -5507,10 +5536,10 @@ def command_rm_cluster(ctx):
         _zap_osds(ctx)
 
     # rm units
-    call_throws(ctx, ['rm', '-f', ctx.unit_dir +  # noqa: W504
-                      '/ceph-%s@.service' % ctx.fsid])
-    call_throws(ctx, ['rm', '-f', ctx.unit_dir +  # noqa: W504
-                      '/ceph-%s.target' % ctx.fsid])
+    call_throws(ctx, ['rm', '-f', ctx.unit_dir
+                      + '/ceph-%s@.service' % ctx.fsid])
+    call_throws(ctx, ['rm', '-f', ctx.unit_dir
+                      + '/ceph-%s.target' % ctx.fsid])
     call_throws(ctx, ['rm', '-rf',
                       ctx.unit_dir + '/ceph-%s.target.wants' % ctx.fsid])
     # rm data
@@ -5519,8 +5548,8 @@ def command_rm_cluster(ctx):
     if not ctx.keep_logs:
         # rm logs
         call_throws(ctx, ['rm', '-rf', ctx.log_dir + '/' + ctx.fsid])
-        call_throws(ctx, ['rm', '-rf', ctx.log_dir +  # noqa: W504
-                          '/*.wants/ceph-%s@*' % ctx.fsid])
+        call_throws(ctx, ['rm', '-rf', ctx.log_dir
+                          + '/*.wants/ceph-%s@*' % ctx.fsid])
 
     # rm logrotate config
     call_throws(ctx, ['rm', '-f', ctx.logrotate_dir + '/ceph-%s' % ctx.fsid])
@@ -6803,12 +6832,14 @@ class CephadmDaemonHandler(BaseHTTPRequestHandler):
             The token is installed at deployment time and must be provided to
             ensure we only respond to callers who know our token i.e. mgr
             """
+
             def wrapper(self, *args, **kwargs):
                 auth = self.headers.get('Authorization', None)
                 if auth != 'Bearer ' + self.server.token:
                     self.send_error(401)
                     return
                 f(self, *args, **kwargs)
+
             return wrapper
 
     def _help_page(self):

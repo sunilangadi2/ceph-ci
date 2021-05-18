@@ -16,12 +16,14 @@ TransactionManager::TransactionManager(
   SegmentCleanerRef _segment_cleaner,
   JournalRef _journal,
   CacheRef _cache,
-  LBAManagerRef _lba_manager)
+  LBAManagerRef _lba_manager,
+  PerfCounters &perf)
   : segment_manager(_segment_manager),
     segment_cleaner(std::move(_segment_cleaner)),
     cache(std::move(_cache)),
     lba_manager(std::move(_lba_manager)),
-    journal(std::move(_journal))
+    journal(std::move(_journal)),
+    tm_perf(perf)
 {
   segment_cleaner->set_extent_callback(this);
   journal->set_write_pipeline(&write_pipeline);
@@ -32,7 +34,7 @@ TransactionManager::mkfs_ertr::future<> TransactionManager::mkfs()
   LOG_PREFIX(TransactionManager::mkfs);
   segment_cleaner->mount(segment_manager);
   return journal->open_for_write().safe_then([this, FNAME](auto addr) {
-    DEBUG("TransactionManager::mkfs: about to do_with");
+    DEBUG("about to do_with");
     segment_cleaner->init_mkfs(addr);
     return seastar::do_with(
       create_transaction(),
@@ -107,11 +109,17 @@ TransactionManager::mount_ertr::future<> TransactionManager::mount()
 }
 
 TransactionManager::close_ertr::future<> TransactionManager::close() {
+  LOG_PREFIX(TransactionManager::close);
+  DEBUG("enter");
   return segment_cleaner->stop(
   ).then([this] {
     return cache->close();
   }).safe_then([this] {
+    cache->dump_contents();
     return journal->close();
+  }).safe_then([FNAME] {
+    DEBUG("completed");
+    return seastar::now();
   });
 }
 
@@ -150,6 +158,8 @@ TransactionManager::ref_ret TransactionManager::dec_ref(
 	t,
 	*ref);
       cache->retire_extent(t, ref);
+      tm_perf.inc(ss_tm_extents_retired_total);
+      tm_perf.inc(ss_tm_extents_retired_bytes, ref->get_length());
     }
     return ret.refcount;
   });
@@ -166,7 +176,9 @@ TransactionManager::ref_ret TransactionManager::dec_ref(
       DEBUGT("offset {} refcount 0", t, offset);
       return cache->retire_extent(
 	t, result.addr, result.length
-      ).safe_then([] {
+      ).safe_then([result, this] {
+        tm_perf.inc(ss_tm_extents_retired_total);
+        tm_perf.inc(ss_tm_extents_retired_bytes, result.length);
 	return ref_ret(
 	  ref_ertr::ready_future_marker{},
 	  0);

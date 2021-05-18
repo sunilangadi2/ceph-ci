@@ -524,6 +524,26 @@ docker.io/ceph/daemon-base:octopus
         image = cd._filter_last_local_ceph_image(out)
         assert image == 'docker.io/ceph/ceph:v15.2.5'
 
+    def test_should_log_to_journald(self):
+        ctx = mock.Mock()
+        # explicit
+        ctx.log_to_journald = True
+        assert cd.should_log_to_journald(ctx)
+
+        ctx.log_to_journald = None
+        # enable if podman support --cgroup=split
+        ctx.container_engine = self.mock_podman()
+        ctx.container_engine.version = (2, 1, 0)
+        assert cd.should_log_to_journald(ctx)
+
+        # disable on old podman
+        ctx.container_engine.version = (2, 0, 0)
+        assert not cd.should_log_to_journald(ctx)
+
+        # disable on docker
+        ctx.container_engine = self.mock_docker()
+        assert not cd.should_log_to_journald(ctx)
+
 
 class TestCustomContainer(unittest.TestCase):
     cc: cd.CustomContainer
@@ -959,3 +979,53 @@ class TestMonitoring(object):
         _call.return_value = '', '{}, version 0.16.1'.format(daemon_type.replace('-', '_')), 0
         version = cd.Monitoring.get_version(ctx, 'container_id', daemon_type)
         assert version == '0.16.1'
+
+    @mock.patch('cephadm.os.fchown')
+    @mock.patch('cephadm.get_parm')
+    @mock.patch('cephadm.makedirs')
+    @mock.patch('cephadm.open')
+    @mock.patch('cephadm.make_log_dir')
+    @mock.patch('cephadm.make_data_dir')
+    def test_create_daemon_dirs_prometheus(self, make_data_dir, make_log_dir, _open, makedirs,
+                                           get_parm, fchown):
+        """
+        Ensures the required and optional files given in the configuration are
+        created and mapped correctly inside the container. Tests absolute and
+        relative file paths given in the configuration.
+        """
+
+        fsid = 'aaf5a720-13fe-4a3b-82b9-2d99b7fd9704'
+        daemon_type = 'prometheus'
+        uid, gid = 50, 50
+        daemon_id = 'home'
+        ctx = mock.Mock()
+        ctx.data_dir = '/somedir'
+        files = {
+            'files': {
+                'prometheus.yml': 'foo',
+                '/etc/prometheus/alerting/ceph_alerts.yml': 'bar'
+            }
+        }
+        get_parm.return_value = files
+
+        cd.create_daemon_dirs(ctx,
+                              fsid,
+                              daemon_type,
+                              daemon_id,
+                              uid,
+                              gid,
+                              config=None,
+                              keyring=None)
+
+        prefix = '{data_dir}/{fsid}/{daemon_type}.{daemon_id}'.format(
+            data_dir=ctx.data_dir,
+            fsid=fsid,
+            daemon_type=daemon_type,
+            daemon_id=daemon_id
+        )
+        assert _open.call_args_list == [
+            call('{}/etc/prometheus/prometheus.yml'.format(prefix), 'w'),
+            call('{}/etc/prometheus/alerting/ceph_alerts.yml'.format(prefix), 'w'),
+        ]
+        assert call().__enter__().write('foo') in _open.mock_calls
+        assert call().__enter__().write('bar') in _open.mock_calls

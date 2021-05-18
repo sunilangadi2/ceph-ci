@@ -331,6 +331,18 @@ class CephadmOrchestrator(orchestrator.Orchestrator, MgrModule,
             default=10,
             desc='max number of daemons per service per host',
         ),
+        Option(
+            'autotune_memory_target_ratio',
+            type='float',
+            default=.7,
+            desc='ratio of total system memory to divide amongst autotuned daemons'
+        ),
+        Option(
+            'autotune_interval',
+            type='secs',
+            default=10 * 60,
+            desc='how frequently to autotune daemon memory'
+        ),
     ]
 
     def __init__(self, *args: Any, **kwargs: Any):
@@ -378,6 +390,8 @@ class CephadmOrchestrator(orchestrator.Orchestrator, MgrModule,
             self.registry_password: Optional[str] = None
             self.use_repo_digest = True
             self.default_registry = ''
+            self.autotune_memory_target_ratio = 0.0
+            self.autotune_interval = 0
 
         self._cons: Dict[str, Tuple[remoto.backends.BaseConnection,
                                     remoto.backends.LegacyModuleExecute]] = {}
@@ -1777,6 +1791,11 @@ Then run the following:
                     continue
                 if service_name is not None and service_name != dd.service_name():
                     continue
+                if not dd.memory_request and dd.daemon_type in ['osd', 'mon']:
+                    dd.memory_request = cast(Optional[int], self.get_foreign_ceph_option(
+                        dd.name(),
+                        f"{dd.daemon_type}_memory_target"
+                    ))
                 result.append(dd)
         return result
 
@@ -2389,6 +2408,16 @@ Then run the following:
             raise OrchestratorError('must specify either image or version')
 
         image_info = CephadmServe(self)._get_container_image_info(target_name)
+
+        ceph_image_version = image_info.ceph_version
+        if not ceph_image_version:
+            return f'Unable to extract ceph version from {target_name}.'
+        if ceph_image_version.startswith('ceph version '):
+            ceph_image_version = ceph_image_version.split(' ')[2]
+        version_error = self.upgrade._check_target_version(ceph_image_version)
+        if version_error:
+            return f'Incompatible upgrade: {version_error}'
+
         self.log.debug(f'image info {image} -> {image_info}')
         r: dict = {
             'target_name': target_name,

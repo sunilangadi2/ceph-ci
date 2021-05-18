@@ -6020,9 +6020,9 @@ int BlueStore::_open_db_and_around(bool read_only, bool to_repair)
     // Changes to the allocation map (alloc/release) are not updated inline and will only be stored on umount()
     // This means that we should not use the existing file on failure case (unplanned shutdown) and must resort
     //  to recovery from RocksDB::ONodes
-    r = invalidate_allocation_file_on_bluestore();
+    r = invalidate_allocation_file_on_bluefs();
     if (r != 0) {
-      derr << __func__ << "::NCB::invalidate_allocation_file_on_bluestore() failed!" << dendl;
+      derr << __func__ << "::NCB::invalidate_allocation_file_on_bluefs() failed!" << dendl;
       goto out_alloc;
     }
   }
@@ -7361,18 +7361,22 @@ struct allocator_image_trailer {
 };
 
 //-------------------------------------------------------------------------------------
-int BlueStore::invalidate_allocation_file_on_bluestore()
+// invalidate old allocation file if exists so will go directly to recovery after failure
+// we can safely ignore non-existing file
+int BlueStore::invalidate_allocation_file_on_bluefs()
 {
   BlueFS::FileWriter *p_handle = nullptr;
   if (!bluefs->dir_exists(allocator_dir)) {
-    derr << __func__ << "::NCB::allocator_dir(" << allocator_dir << ") doesn't exist" << dendl;
-    return -1;
+    dout(1) << __func__ << "::NCB::allocator_dir(" << allocator_dir << ") doesn't exist" << dendl;
+    // nothing to do -> return
+    return 0;
   }
 
   int ret = bluefs->stat(allocator_dir, allocator_file, nullptr, nullptr);
   if (ret != 0) {
-    derr << __func__ << "::NCB::allocator_file(" << allocator_file << ") doesn't exist" << dendl;
-    return -1;
+    dout(1) << __func__ << "::NCB::allocator_file(" << allocator_file << ") doesn't exist" << dendl;
+    // nothing to do -> return
+    return 0;
   }
 
 #if 0
@@ -7394,7 +7398,11 @@ int BlueStore::invalidate_allocation_file_on_bluestore()
   p_handle->append(buffer, sizeof(buffer));
 #else
   dout(1) << __func__ << "::NCB::invalidate using bluefs->truncate(p_handle, 0)" << dendl;
-  bluefs->truncate(p_handle, 0);
+  ret = bluefs->truncate(p_handle, 0);
+  if (ret != 0) {
+    derr << __func__ << "::NCB::Failed truncate with error-code " << ret << dendl;
+    return -1;
+  }
 #endif
   bluefs->fsync(p_handle);
   bluefs->close_writer(p_handle);
@@ -7596,7 +7604,7 @@ int BlueStore::store_allocator(Allocator* src_allocator)
   p_handle->append((byte*)buffer, length);
   bluefs->fsync(p_handle);  
   file_offset += length;
-  std::cout << __func__ << "::file_offset="<<file_offset<<" p_handle->pos="<<p_handle->pos<< std::endl;
+  //std::cout << __func__ << "::file_offset="<<file_offset<<" p_handle->pos="<<p_handle->pos<< std::endl;
   bluefs->truncate(p_handle, file_offset);  
 
   delete allocator;

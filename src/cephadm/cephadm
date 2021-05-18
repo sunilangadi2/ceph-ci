@@ -2198,6 +2198,7 @@ def create_daemon_dirs(ctx, fsid, daemon_type, daemon_id, uid, gid,
                 with open(os.path.join(data_dir_root, config_dir, fname), 'w') as f:
                     os.fchown(f.fileno(), uid, gid)
                     os.fchmod(f.fileno(), 0o600)
+                    logger.warning(f'content for {fname} is "{content}"')
                     f.write(content)
 
     elif daemon_type == NFSGanesha.daemon_type:

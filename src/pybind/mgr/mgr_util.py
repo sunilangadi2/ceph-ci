@@ -22,6 +22,25 @@ UNDERLINE_SEQ = "\033[4m"
 
 logger = logging.getLogger(__name__)
 
+@contextlib.contextmanager
+def lock_timeout_log(lock, timeout = 5):
+    start = time.time()
+    WARN_AFTER = 30
+    warned = False
+    locked = False
+    while True:
+        logger.debug("locking {} with {} timeout".format(lock, timeout))
+        locked = lock.acquire(timeout=timeout)
+        if locked:
+            logger.debug("locked {}".format(lock))
+            break
+        now = time.time()
+        if not warned and now - start > WARN_AFTER:
+            logger.info("possible deadlock acquiring {}".format(lock))
+            warned = True
+    yield
+    if locked:
+        lock.release()
 
 def colorize(msg, color, dark=False):
     """

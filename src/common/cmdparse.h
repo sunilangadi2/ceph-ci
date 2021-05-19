@@ -5,6 +5,7 @@
 
 #include <vector>
 #include <stdexcept>
+#include <optional>
 #include <ostream>
 #include <boost/variant.hpp>
 #include <fmt/format.h>
@@ -76,6 +77,18 @@ bool cmd_getval(const cmdmap_t& cmdmap,
   }
 }
 
+template <typename T>
+std::optional<T> cmd_getval(const cmdmap_t& cmdmap,
+			    std::string_view k)
+{
+  T ret;
+  if (const bool found = cmd_getval(cmdmap, k, ret); found) {
+    return std::make_optional(std::move(ret));
+  } else {
+    return std::nullopt;
+  }
+}
+
 // with default
 
 template <typename T, typename V>
@@ -90,6 +103,19 @@ T cmd_getval(const cmdmap_t& cmdmap, std::string_view k,
     return boost::get<T>(cmdmap.find(k)->second);
   } catch (boost::bad_get&) {
     throw bad_cmd_get(k, cmdmap);
+  }
+}
+
+template <typename T>
+std::optional<T> cmd_getval(const cmdmap_t& cmdmap,
+			    std::string_view k,
+			    const T& defval)
+{
+  T ret;
+  if (const bool found = cmd_getval(cmdmap, k, ret, defval); found) {
+    return std::make_optional(std::move(ret));
+  } else {
+    return std::nullopt;
   }
 }
 

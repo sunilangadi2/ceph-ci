@@ -20,6 +20,13 @@
 using crimson::osd::OSD;
 using namespace crimson::common;
 
+namespace {
+seastar::logger& logger()
+{
+  return crimson::get_logger(ceph_subsys_osd);
+}
+}  // namespace
+
 namespace crimson::admin {
 
 using crimson::common::local_conf;
@@ -264,5 +271,97 @@ private:
   }
 };
 template std::unique_ptr<AdminSocketHook> make_asok_hook<SeastarMetricsHook>();
+
+
+static ghobject_t test_ops_get_object_name(
+  const OSDMap& osdmap,
+  const cmdmap_t& cmdmap)
+{
+  int64_t pool;
+  if (auto poolarg = cmd_getval<std::string>(cmdmap, "pool"); poolarg) {
+    pool = osdmap.lookup_pg_pool_name(*poolarg);
+    if (pool < 0 && std::isdigit((*poolarg)[0])) {
+      pool = std::atoll(poolarg->c_str());
+    }
+    if (pool < 0) {
+      // the return type of `fmt::format` is `std::string`
+      throw fmt::format("Invalid pool '{}'", *poolarg);
+    }
+  } else {
+    throw std::string{"No 'pool' specified"};
+  }
+
+  std::string objname, nspace;
+  pg_t rawpg;
+  if (auto objarg = cmd_getval<std::string>(cmdmap, "objname"); objarg) {
+    if (std::size_t sep_pos = objname.find_first_of('/');
+        sep_pos != std::string::npos) {
+      nspace = objname.substr(0, sep_pos);
+      objname = objname.substr(sep_pos+1);
+    }
+    if (object_locator_t oloc(pool, nspace);
+        osdmap.object_locator_to_pg(object_t(objname), oloc,  rawpg) < 0) {
+      throw std::string{"Invalid namespace/objname"};
+    }
+  } else {
+    throw std::string{"No 'objname' specified"};
+  }
+
+  int64_t shardid;
+  if (auto shardidarg = cmd_getval<int64_t>(cmdmap,
+                                            "shardid",
+                                            int64_t(shard_id_t::NO_SHARD));
+      !shardidarg) {
+    throw std::string{"No 'shardid' specified"};
+  }
+  return ghobject_t{
+    hobject_t{
+      object_t{objname}, std::string{}, CEPH_NOSNAP, rawpg.ps(), pool, nspace
+    },
+    ghobject_t::NO_GEN,
+    shard_id_t{static_cast<int8_t>(shardid)}
+  };
+}
+
+// Usage:
+//   injectdataerr <pool> [namespace/]<obj-name> [shardid]
+class InjectDataErrorHook : public AdminSocketHook {
+public:
+  InjectDataErrorHook(crimson::osd::ShardServices& shard_services)  :
+   AdminSocketHook("injectdataerr",
+    "name=pool,type=CephString " \
+    "name=objname,type=CephObjectname " \
+    "name=shardid,type=CephInt,req=false,range=0|255",
+    "inject data error to an object"),
+   shard_services(shard_services) {
+  }
+
+  seastar::future<tell_result_t> call(const cmdmap_t& cmdmap,
+				      std::string_view format,
+				      ceph::bufferlist&& input) const final
+  {
+    ghobject_t obj;
+    try {
+      obj = test_ops_get_object_name(*shard_services.get_osdmap(), cmdmap);
+    } catch (std::string err) {
+      logger().info("error during data error injection: {}", err);
+      return seastar::make_ready_future<tell_result_t>(-EINVAL,
+	                                               std::move(err));
+    }
+    return shard_services.get_store().inject_data_error(obj).then([=] {
+      logger().info("successfully injected data error for obj={}", obj);
+      ceph::bufferlist bl;
+      bl.append("ok"sv);
+      return seastar::make_ready_future<tell_result_t>(0,
+						       std::string{}, // no err
+						       std::move(bl));
+    });
+  }
+
+private:
+  crimson::osd::ShardServices& shard_services;
+};
+template std::unique_ptr<AdminSocketHook> make_asok_hook<InjectDataErrorHook>(
+  crimson::osd::ShardServices&);
 
 } // namespace crimson::admin

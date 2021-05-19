@@ -5488,11 +5488,18 @@ int BlueStore::commit_to_null_manager()
   // When allocation-info is stored in a single file we set freelist_type to "null"
   // This will direct the startup code to read allocation from file and not RocksDB  
   KeyValueDB::Transaction t = db->get_transaction();
+  if (t == nullptr) {
+    derr << __func__ << "::NCB::db->get_transaction() failed!!!" << dendl;
+    return -1;
+  }
+  
   {
     bufferlist bl;
     bl.append("null");
+    ceph_assert(t);
     t->set(PREFIX_SUPER, "freelist_type", bl);
   }
+  ceph_assert(t);
   return db->submit_transaction_sync(t);
 }    
 
@@ -6015,7 +6022,9 @@ int BlueStore::_open_db_and_around(bool read_only, bool to_repair)
     goto out_alloc;
   }
 
-  if (fm->is_null_manager() && !read_only) {
+  // when function is called in repair mode (to_repair=true) we skip db->open()/create()
+  // we can't change bluestore allocation so no need to invlidate allocation-file
+  if (fm->is_null_manager() && !read_only &&!to_repair) {
     // Now that we load the allocation map we need to invalidate the file as new allocation won't be reflected
     // Changes to the allocation map (alloc/release) are not updated inline and will only be stored on umount()
     // This means that we should not use the existing file on failure case (unplanned shutdown) and must resort
@@ -6027,7 +6036,8 @@ int BlueStore::_open_db_and_around(bool read_only, bool to_repair)
     }
   }
 
-  if (!read_only && cct->_conf->bluestore_allocation_from_file) {
+  // when function is called in repair mode (to_repair=true) we skip db->open()/create()
+  if (!read_only &&!to_repair && cct->_conf->bluestore_allocation_from_file) {
     dout(1) << __func__ << "::NCB::Commit to Null-Manager" << dendl;
     commit_to_null_manager();
   }
@@ -8354,6 +8364,69 @@ int BlueStore::read_allocation_from_drive_for_bluestore_tool(bool test_store_and
   return ret;
 }
 #endif // CEPH_BLUESTORE_TOOL_RESTORE_ALLOCATION
+
+#if 0
+//---------------------------------------------------------
+int BlueStore::push_allocation_to_rocksdb()
+{  
+  dout(0) << __func__ << "::NCB::calling open_db_and_around() in read/write mode" << dendl;
+  ret = _open_db_and_around(false);
+  if (ret < 0) {
+    return ret;
+  }
+
+  if (!fm->is_null_manager()) {
+    derr << __func__ << "::NCB This is not a NULL-MANAGER -> nothing to do..." << dendl;
+    return 0;
+  }
+
+  if (coll_map.empty()) {
+    dout(1) << __func__ << "::NCB calling open_collection()" << dendl;
+    ret = _open_collections();
+    if (ret < 0) {
+      _close_db_and_around(false); return ret;
+    }
+  }
+  else {
+    dout(1) << __func__ << "::NCB collection already open" << dendl;
+  }
+
+  // First remove all objects of PREFIX_ALLOC_BITMAP from RocksDB
+  {
+    KeyValueDB::Transaction t = db->get_transaction();
+    t->rmkeys_by_prefix(PREFIX_ALLOC_BITMAP)
+    db->submit_transaction(t);
+  }
+  
+  ;
+  // create real fm with zero free-space
+  FreelistManager *real_fm = FreelistManager::create(cct, "bitmap", PREFIX_ALLOC);
+
+
+  uint64_t idx = 0, size = 0;
+  KeyValueDB::Transaction txn = db->get_transaction();
+  auto iterated_insert = [&](uint64_t offset, uint64_t length) {
+    //std::cout << "[" << idx2 << "]<" << offset << "," << length << ">" << std::endl;
+    size2 += length;
+    real_fm->release(offset, length, txn);
+    if ((++idx % 64) == 0) {
+      db->submit_transaction_sync(txn);
+      txn = db->get_transaction();
+    }
+  };
+  shared_alloc.a->dump(iterated_insert);
+  db->submit_transaction_sync(txn);
+
+  // commit to non-null-fm!!!
+  ...;
+
+  
+  //out_db:
+  _shutdown_cache();
+  _close_db_and_around(false);
+  return ret;
+}
+#endif
 
 //================================================================================================================
 //================================================================================================================

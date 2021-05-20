@@ -7,6 +7,7 @@
 #include <stdexcept>
 #include <ostream>
 #include <boost/variant.hpp>
+#include <fmt/format.h>
 #include "include/ceph_assert.h"	// boost clobbers this
 #include "include/common_fwd.h"
 #include "common/Formatter.h"
@@ -47,21 +48,21 @@ void handle_bad_get(CephContext *cct, const std::string& k, const char *name);
 std::string cmd_vartype_stringify(const cmd_vartype& v);
 
 struct bad_cmd_get : public std::exception {
-  std::string desc;
-  bad_cmd_get(const std::string& f, const cmdmap_t& cmdmap) {
-    desc = "bad or missing field '" + f + "'";
-  }
+  const std::string desc;
+  bad_cmd_get(std::string_view f, const cmdmap_t& cmdmap)
+    : desc{fmt::format("bad or missing field '{}'", f)}
+  {}
   const char *what() const throw() override {
     return desc.c_str();
   }
 };
 
 bool cmd_getval(const cmdmap_t& cmdmap,
-		const std::string& k, bool& val);
+		std::string_view k, bool& val);
 
 template <typename T>
 bool cmd_getval(const cmdmap_t& cmdmap,
-		const std::string& k, T& val)
+		std::string_view k, T& val)
 {
   if (cmdmap.count(k)) {
     try {
@@ -78,7 +79,7 @@ bool cmd_getval(const cmdmap_t& cmdmap,
 
 template <typename T>
 bool cmd_getval(
-  const cmdmap_t& cmdmap, const std::string& k,
+  const cmdmap_t& cmdmap, std::string_view k,
   T& val, const T& defval)
 {
   if (cmdmap.count(k)) {
@@ -96,9 +97,9 @@ bool cmd_getval(
 
 template <typename T>
 void
-cmd_putval(CephContext *cct, cmdmap_t& cmdmap, const std::string& k, const T& val)
+cmd_putval(CephContext *cct, cmdmap_t& cmdmap, std::string_view k, const T& val)
 {
-  cmdmap[k] = val;
+  cmdmap.insert_or_assign(std::string{k}, val);
 }
 
 bool validate_cmd(CephContext* cct,

@@ -78,19 +78,16 @@ bool cmd_getval(const cmdmap_t& cmdmap,
 
 // with default
 
-template <typename T>
-bool cmd_getval(
-  const cmdmap_t& cmdmap, std::string_view k,
-  T& val, const T& defval)
+template <typename T, typename V>
+T cmd_getval(const cmdmap_t& cmdmap, std::string_view k,
+	     V&& defval)
 {
   auto found = cmdmap.find(k);
   if (found == cmdmap.end()) {
-    val = defval;
-    return true;
+    return std::forward<V>(defval);
   }
   try {
-    val = boost::get<T>(cmdmap.find(k)->second);
-    return true;
+    return boost::get<T>(cmdmap.find(k)->second);
   } catch (boost::bad_get&) {
     throw bad_cmd_get(k, cmdmap);
   }

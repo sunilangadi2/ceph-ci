@@ -87,7 +87,7 @@ class IngressService(CephService):
                 'servers': [
                     {
                         'name': d.name(),
-                        'ip': d.ip or resolve_ip(str(d.hostname)),
+                        'ip': d.ip or resolve_ip(self.mgr.inventory.get_addr(str(d.hostname))),
                         'port': d.ports[0],
                     } for d in daemons if d.ports
                 ],
@@ -152,7 +152,7 @@ class IngressService(CephService):
         deps = sorted([d.name() for d in daemons if d.daemon_type == 'haproxy'])
 
         host = daemon_spec.host
-        hosts = sorted(list(set([str(d.hostname) for d in daemons])))
+        hosts = sorted(list(set([host] + [str(d.hostname) for d in daemons])))
 
         # interface
         bare_ip = str(spec.virtual_ip).split('/')[0]
@@ -195,7 +195,8 @@ class IngressService(CephService):
         # remove host, daemon is being deployed on from hosts list for
         # other_ips in conf file and converter to ips
         hosts.remove(host)
-        other_ips = [resolve_ip(h) for h in hosts]
+
+        other_ips = [resolve_ip(self.mgr.inventory.get_addr(h)) for h in hosts]
 
         keepalived_conf = self.mgr.template.render(
             'services/ingress/keepalived.conf.j2',
@@ -206,7 +207,7 @@ class IngressService(CephService):
                 'interface': interface,
                 'state': state,
                 'other_ips': other_ips,
-                'host_ip': resolve_ip(host),
+                'host_ip': resolve_ip(self.mgr.inventory.get_addr(host)),
             }
         )
 

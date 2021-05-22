@@ -117,7 +117,8 @@ struct D3nL1CacheRequest : public D3nCacheRequest {
       lsubdout(g_ceph_context, rgw, 0) << "Error: " << __func__ << " ::open(" << cache_location << ")" << dendl;
       return -errno;
     }
-    posix_fadvise(cb->aio_fildes, 0, 0, g_conf()->rgw_d3n_l1_fadvise);
+    if (g_conf()->rgw_d3n_l1_fadvise != 0)
+      posix_fadvise(cb->aio_fildes, 0, 0, g_conf()->rgw_d3n_l1_fadvise);
 
     cb->aio_buf = (volatile void*)malloc(read_len);
     cb->aio_nbytes = read_len;

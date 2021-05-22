@@ -189,8 +189,9 @@ int D3nRGWDataCache<T>::flush_read_list(const DoutPrefixProvider *dpp, struct ge
       r = -ENOENT;
       break;
     }
-    if (bl.length() <= g_conf()->rgw_get_obj_max_req_size) {
-      ldpp_dout(dpp, 20) << "D3nDataCache: " << __func__ << "(): bl.length <= rgw_get_obj_max_req_size (default 4MB), bl.length=" << bl.length() << dendl;
+    ldpp_dout(dpp, 20) << "D3nDataCache: " << __func__ << "():  bypass write to datacache : " << d->d3n_bypass_cache << dendl;
+    if (bl.length() <= g_conf()->rgw_get_obj_max_req_size && !d->d3n_bypass_cache) {
+      ldpp_dout(dpp, 20) << "D3nDataCache: " << __func__ << "(): bl.length <= rgw_get_obj_max_req_size (default 4MB) - write to datacache, bl.length=" << bl.length() << dendl;
       d3n_data_cache.put(bl, bl.length(), oid);
     } else {
       ldpp_dout(dpp, 20) << "D3nDataCache: " << __func__ << "(): bl.length > rgw_get_obj_max_req_size (default 4MB), bl.length()=" << bl.length() << dendl;

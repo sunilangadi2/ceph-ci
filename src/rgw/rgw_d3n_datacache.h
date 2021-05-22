@@ -171,26 +171,26 @@ public:
 template<typename T>
 int D3nRGWDataCache<T>::flush_read_list(const DoutPrefixProvider *dpp, struct get_obj_data* d) {
   ldpp_dout(dpp, 20) << "D3nDataCache: D3nRGWDataCache<T>::" << __func__ << "()" << dendl;
-  d->d3n_datacache_lock.lock();
-  std::list<bufferlist> l;
-  l.swap(d->d3n_read_list);
+  const std::lock_guard<std::mutex> l(d->d3n_datacache_lock);
+  std::list<bufferlist> lbl;
+  lbl.swap(d->d3n_read_list);
   d->d3n_read_list.clear();
-  d->d3n_datacache_lock.unlock();
 
   int r = 0;
 
   std::string oid;
   std::list<bufferlist>::iterator iter;
-  for (iter = l.begin(); iter != l.end(); ++iter) {
+  for (iter = lbl.begin(); iter != lbl.end(); ++iter) {
     bufferlist& bl = *iter;
-    oid = d->d3n_get_pending_oid();
-    if(oid.empty()) {
+    oid = d->d3n_get_pending_oid(dpp);
+    if (oid.empty()) {
       lsubdout(g_ceph_context, rgw, 0) << "ERROR: D3nDataCache: flush_read_list(): d3n_get_pending_oid() returned empty oid" << dendl;
       r = -ENOENT;
       break;
     }
-    if (bl.length() <= g_conf()->rgw_get_obj_max_req_size) {
-      ldpp_dout(dpp, 20) << "D3nDataCache: " << __func__ << "(): bl.length <= rgw_get_obj_max_req_size (default 4MB), bl.length=" << bl.length() << dendl;
+    ldpp_dout(dpp, 20) << "D3nDataCache: " << __func__ << "():  bypass write to datacache : " << d->d3n_bypass_cache << dendl;
+    if (bl.length() <= g_conf()->rgw_get_obj_max_req_size && !d->d3n_bypass_cache) {
+      ldpp_dout(dpp, 20) << "D3nDataCache: " << __func__ << "(): bl.length <= rgw_get_obj_max_req_size (default 4MB) - write to datacache, bl.length=" << bl.length() << dendl;
       d3n_data_cache.put(bl, bl.length(), oid);
     } else {
       ldpp_dout(dpp, 20) << "D3nDataCache: " << __func__ << "(): bl.length > rgw_get_obj_max_req_size (default 4MB), bl.length()=" << bl.length() << dendl;
@@ -269,20 +269,25 @@ int D3nRGWDataCache<T>::get_obj_iterate_cb(const DoutPrefixProvider *dpp, const 
     const bool is_compressed = (astate->attrset.find(RGW_ATTR_COMPRESSION) != astate->attrset.end());
     const bool is_encrypted = (astate->attrset.find(RGW_ATTR_CRYPT_MODE) != astate->attrset.end());
     if (read_ofs != 0 || astate->size != astate->accounted_size || is_compressed || is_encrypted) {
-      lsubdout(g_ceph_context, rgw, 5) << "D3nDataCache: " << __func__ << "(): bypassing read from cache: oid=" << read_obj.oid << ", read_ofs!=0 = " << read_ofs << ", size=" << astate->size << " != accounted_size=" << astate->accounted_size << ", is_compressed=" << is_compressed << ", is_encrypted=" << is_encrypted  << dendl;
+      lsubdout(g_ceph_context, rgw, 5) << "D3nDataCache: " << __func__ << "(): bypassing datacache: oid=" << read_obj.oid << ", read_ofs!=0 = " << read_ofs << ", size=" << astate->size << " != accounted_size=" << astate->accounted_size << ", is_compressed=" << is_compressed << ", is_encrypted=" << is_encrypted  << dendl;
+      d->d3n_bypass_cache = true;
       auto completed = d->aio->get(obj, rgw::Aio::librados_op(std::move(op), d->yield), cost, id);
       r = d->flush(std::move(completed));
       return r;
+    } else {
+      d->d3n_bypass_cache = false;
     }
 
     if (d3n_data_cache.get(oid, len)) {
       // Read From Cache
       ldpp_dout(dpp, 20) << "D3nDataCache: " << __func__ << "(): READ FROM CACHE, oid=" << read_obj.oid << ", obj-ofs=" << obj_ofs << ", read_ofs=" << read_ofs << ", len=" << len << dendl;
-      auto completed = d->aio->get(obj, rgw::Aio::d3n_cache_op(std::move(op), d->yield, obj_ofs, read_ofs, len, g_conf()->rgw_d3n_l1_datacache_persistent_path), cost, id);
+      auto completed = d->aio->get(obj, rgw::Aio::d3n_cache_op(std::move(op), d->yield, obj_ofs, read_ofs, len, g_conf()->rgw_d3n_l1_datacache_persistent_path, &d->d3n_datacache_lock), cost, id);
       r = d->drain();
       if (r < 0) {
         lsubdout(g_ceph_context, rgw, 0) << "D3nDataCache: Error: failed to drain/flush, r= " << r << dendl;
+        d->cancel();
       }
+      const std::lock_guard<std::mutex> l(d->d3n_datacache_lock);
       return r;
     } else {
       // Write To Cache

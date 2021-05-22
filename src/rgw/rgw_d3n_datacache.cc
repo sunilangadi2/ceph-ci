@@ -37,7 +37,8 @@ int D3nCacheAioWriteRequest::create_io(bufferlist& bl, unsigned int len, string 
     ldout(cct, 0) << "ERROR: D3nCacheAioWriteRequest::create_io: open file failed, errno=" << errno << ", location='" << location.c_str() << "'" << dendl;
     goto done;
   }
-  posix_fadvise(fd, 0, 0, g_conf()->rgw_d3n_l1_fadvise);
+  if (g_conf()->rgw_d3n_l1_fadvise != 0)
+    posix_fadvise(fd, 0, 0, g_conf()->rgw_d3n_l1_fadvise);
   cb->aio_fildes = fd;
 
   data = malloc(len);

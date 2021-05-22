@@ -2955,7 +2955,9 @@ options:
   type: int
   level: advanced
   desc: posix_fadvise() flag for access pattern of cache files
-  default: 4  # #define POSIX_FADV_DONTNEED 4   /* [MC1] don't need these pages */
+  long_desc: for example to bypass the page-cache -
+    POSIX_FADV_DONTNEED=4
+  default: 0
   services:
   - rgw
   with_legacy: true

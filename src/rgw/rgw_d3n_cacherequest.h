@@ -44,7 +44,7 @@ struct D3nL1CacheRequest : public D3nCacheRequest {
 
   D3nL1CacheRequest() :  D3nCacheRequest(), stat(-1), paiocb(nullptr) {}
   ~D3nL1CacheRequest() {
-    lock.lock();
+    const std::lock_guard<std::mutex> l(lock);
     if (paiocb != nullptr) {
       if (paiocb->aio_buf != nullptr) {
         free((void*)paiocb->aio_buf);
@@ -53,7 +53,6 @@ struct D3nL1CacheRequest : public D3nCacheRequest {
       ::close(paiocb->aio_fildes);
       delete(paiocb);
     }
-    lock.unlock();
 
     lsubdout(g_ceph_context, rgw_datacache, 30) << "D3nDataCache: " << __func__ << "(): Read From Cache, comlete" << dendl;
   }
@@ -117,7 +116,8 @@ struct D3nL1CacheRequest : public D3nCacheRequest {
       lsubdout(g_ceph_context, rgw, 0) << "Error: " << __func__ << " ::open(" << cache_location << ")" << dendl;
       return -errno;
     }
-    posix_fadvise(cb->aio_fildes, 0, 0, g_conf()->rgw_d3n_l1_fadvise);
+    if (g_conf()->rgw_d3n_l1_fadvise != 0)
+      posix_fadvise(cb->aio_fildes, 0, 0, g_conf()->rgw_d3n_l1_fadvise);
 
     cb->aio_buf = (volatile void*)malloc(read_len);
     cb->aio_nbytes = read_len;
@@ -134,31 +134,27 @@ struct D3nL1CacheRequest : public D3nCacheRequest {
   void d3n_libaio_release () {}
 
   void d3n_libaio_cancel_io() {
-    lock.lock();
+    const std::lock_guard<std::mutex> l(lock);
     stat = ECANCELED;
-    lock.unlock();
   }
 
   int d3n_libaio_status() {
-    lock.lock();
+    const std::lock_guard<std::mutex> l(lock);
     lsubdout(g_ceph_context, rgw_datacache, 30) << "D3nDataCache: " << __func__ << "(): key=" << key << ", stat=" << stat << dendl;
     if (stat != EINPROGRESS) {
-      lock.unlock();
       if (stat == ECANCELED) {
         lsubdout(g_ceph_context, rgw, 2) << "D3nDataCache: " << __func__ << "(): stat == ECANCELED" << dendl;
         return ECANCELED;
       }
     }
     stat = aio_error(paiocb);
-    lock.unlock();
     return stat;
   }
 
   void d3n_libaio_finish() {
-    lock.lock();
+    const std::lock_guard<std::mutex> l(lock);
     lsubdout(g_ceph_context, rgw_datacache, 20) << "D3nDataCache: " << __func__ << "(): Read From Cache, libaio callback - returning data: key=" << key << ", aio_nbytes=" << paiocb->aio_nbytes << dendl;
     pbl->append((char*)paiocb->aio_buf, paiocb->aio_nbytes);
-    lock.unlock();
   }
 };
 

@@ -6350,8 +6350,9 @@ void get_obj_data::d3n_add_pending_oid(std::string oid)
   d3n_pending_oid_list.push_back(oid);
 }
 
-string get_obj_data::d3n_get_pending_oid()
+string get_obj_data::d3n_get_pending_oid(const DoutPrefixProvider *dpp)
 {
+  ldpp_dout(dpp, 20) << "D3nDataCache: RGWRados::" << __func__ << "()" << dendl;
   string str;
   str.clear();
   if (!d3n_pending_oid_list.empty()) {
@@ -6374,16 +6375,15 @@ static int _get_obj_iterate_cb(const DoutPrefixProvider *dpp,
 int RGWRados::flush_read_list(const DoutPrefixProvider *dpp, struct get_obj_data* d)
 {
   ldpp_dout(dpp, 20) << "D3nDataCache: RGWRados::" << __func__ << "()" << dendl;
-  d->d3n_datacache_lock.lock();
-  list<bufferlist> l;
-  l.swap(d->d3n_read_list);
+  const std::lock_guard<std::mutex> l(d->d3n_datacache_lock);
+  list<bufferlist> lbl;
+  lbl.swap(d->d3n_read_list);
   d->d3n_read_list.clear();
-  d->d3n_datacache_lock.unlock();
 
   int r = 0;
 
   list<bufferlist>::iterator iter;
-  for (iter = l.begin(); iter != l.end(); ++iter) {
+  for (iter = lbl.begin(); iter != lbl.end(); ++iter) {
     bufferlist& bl = *iter;
     r = d->client_cb->handle_data(bl, 0, bl.length());
     if (r < 0) {

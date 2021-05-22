@@ -1588,7 +1588,8 @@ struct get_obj_data {
   std::list<bufferlist> d3n_read_list;
   std::list<string> d3n_pending_oid_list;
   void d3n_add_pending_oid(std::string oid);
-  std::string d3n_get_pending_oid();
+  std::string d3n_get_pending_oid(const DoutPrefixProvider *dpp);
+  bool d3n_bypass_cache{false};
 
   int flush(rgw::AioResultList&& results) {
     int r = rgw::check_for_errors(results);

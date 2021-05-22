@@ -63,6 +63,7 @@ void cb(librados::completion_t, void* arg) {
 }
 
 void d3n_cache_libaio_cbt(sigval_t sigval) {
+  const std::lock_guard<std::mutex> l(D3nL1CacheRequest::d3n_libaio_cb_lock);
   D3nL1CacheRequest* c = static_cast<D3nL1CacheRequest*>(sigval.sival_ptr);
   lsubdout(g_ceph_context, rgw_datacache, 30) << "D3nDataCache: " << __func__ << "(): Read From Cache, key=" << c->key << ", thread id=0x" << std::hex << std::this_thread::get_id() << dendl;
   int status = c->d3n_libaio_status();

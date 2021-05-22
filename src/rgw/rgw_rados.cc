@@ -1125,7 +1125,7 @@ int RGWRados::init_rados()
   }
   cr_registry = crs.release();
 
-  if(use_datacache) {
+  if (use_datacache) {
     d3n_datacache = new D3nDataCache();
     d3n_datacache->init(cct);
   }
@@ -6350,8 +6350,9 @@ void get_obj_data::d3n_add_pending_oid(std::string oid)
   d3n_pending_oid_list.push_back(oid);
 }
 
-string get_obj_data::d3n_get_pending_oid()
+string get_obj_data::d3n_get_pending_oid(const DoutPrefixProvider *dpp)
 {
+  ldpp_dout(dpp, 20) << "D3nDataCache: RGWRados::" << __func__ << "()" << dendl;
   string str;
   str.clear();
   if (!d3n_pending_oid_list.empty()) {
@@ -6374,16 +6375,15 @@ static int _get_obj_iterate_cb(const DoutPrefixProvider *dpp,
 int RGWRados::flush_read_list(const DoutPrefixProvider *dpp, struct get_obj_data* d)
 {
   ldpp_dout(dpp, 20) << "D3nDataCache: RGWRados::" << __func__ << "()" << dendl;
-  d->d3n_datacache_lock.lock();
-  list<bufferlist> l;
-  l.swap(d->d3n_read_list);
+  const std::lock_guard<std::mutex> l(d->d3n_datacache_lock);
+  list<bufferlist> lbl;
+  lbl.swap(d->d3n_read_list);
   d->d3n_read_list.clear();
-  d->d3n_datacache_lock.unlock();
 
   int r = 0;
 
   list<bufferlist>::iterator iter;
-  for (iter = l.begin(); iter != l.end(); ++iter) {
+  for (iter = lbl.begin(); iter != lbl.end(); ++iter) {
     bufferlist& bl = *iter;
     r = d->client_cb->handle_data(bl, 0, bl.length());
     if (r < 0) {
@@ -6467,12 +6467,17 @@ int RGWRados::Object::Read::iterate(const DoutPrefixProvider *dpp, int64_t ofs, 
   }
 
   r = data.drain();
-  if( store->get_use_datacache() ) {
-    ldpp_dout(dpp, 20) << "D3nDataCache: " << __func__ << "(): flush read list" << dendl;
-    r = store->flush_read_list(dpp, &data);
-    if (r < 0)
+  if (store->get_use_datacache()) {
+    if (r < 0) {
+      ldpp_dout(dpp, 0) << "D3nDataCache: " << __func__ << "(): Error: data drain returned: " << r << dendl;
       return r;
-    return 0;
+    }
+    ldpp_dout(dpp, 20) << "D3nDataCache: " << __func__ << "(): flush read list" << dendl;
+    int rf = store->flush_read_list(dpp, &data);
+    if (rf < 0) {
+      ldpp_dout(dpp, 0) << "D3nDataCache: " << __func__ << "(): Error: flush read list returned: " << rf << dendl;
+    }
+    return rf;
   } else {
     return r;
   }

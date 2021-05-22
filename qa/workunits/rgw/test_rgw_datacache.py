@@ -180,7 +180,7 @@ def main():
     chk_cache_dir = int(get_cmd_output(out))
     log.debug("Check cache dir content: %s", chk_cache_dir)
     if chk_cache_dir == 0:
-        log.info("NOTICE: datacache directory is empty, presuming cache is disabled.")
+        log.info("NOTICE: datacache test object not found, check if cache was bypassed or disabled for this test instance.")
         return
 
     # list the files in the cache dir for troubleshooting

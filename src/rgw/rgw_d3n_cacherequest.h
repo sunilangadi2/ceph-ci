@@ -41,10 +41,11 @@ struct D3nL1CacheRequest : public D3nCacheRequest {
   int ret;
   struct aiocb* paiocb;
   static std::mutex d3n_libaio_cb_lock;
+  std::mutex* d3n_d_lock;
 
   D3nL1CacheRequest() :  D3nCacheRequest(), stat(-1), paiocb(nullptr) {}
   ~D3nL1CacheRequest() {
-    lock.lock();
+    const std::lock_guard<std::mutex> l(lock);
     if (paiocb != nullptr) {
       if (paiocb->aio_buf != nullptr) {
         free((void*)paiocb->aio_buf);
@@ -53,13 +54,12 @@ struct D3nL1CacheRequest : public D3nCacheRequest {
       ::close(paiocb->aio_fildes);
       delete(paiocb);
     }
-    lock.unlock();
 
     lsubdout(g_ceph_context, rgw_datacache, 30) << "D3nDataCache: " << __func__ << "(): Read From Cache, comlete" << dendl;
   }
 
   int d3n_execute_io_op(std::string obj_key, bufferlist* bl, int read_len, int ofs, int read_ofs, std::string& cache_location,
-                    sigval_cb f, rgw::Aio* aio, rgw::AioResult* r) {
+                        sigval_cb f, rgw::Aio* aio, rgw::AioResult* r) {
     std::string location = cache_location + "/" + obj_key;
     lsubdout(g_ceph_context, rgw_datacache, 20) << "D3nDataCache: " << __func__ << "(): Read From Cache, location='" << location << "', ofs=" << ofs << ", read_ofs=" << read_ofs << " read_len=" << read_len << dendl;
     int rfd;
@@ -99,17 +99,19 @@ struct D3nL1CacheRequest : public D3nCacheRequest {
     return 0;
   }
 
-  int d3n_prepare_libaio_op(std::string obj_key, bufferlist* bl, int read_len, int ofs, int read_ofs, std::string& cache_location,
-                        sigval_cb cbf, rgw::Aio* aio, rgw::AioResult* r) {
+  int d3n_prepare_libaio_op(std::string obj_key, bufferlist* _bl, int read_len, int _ofs, int _read_ofs, std::string& cache_location,
+                        sigval_cb cbf, rgw::Aio* _aio, rgw::AioResult* _r, std::mutex* d_lock) {
     std::string location = cache_location + "/" + obj_key;
     lsubdout(g_ceph_context, rgw_datacache, 20) << "D3nDataCache: " << __func__ << "(): Read From Cache, location='" << location << "', ofs=" << ofs << ", read_ofs=" << read_ofs << " read_len=" << read_len << dendl;
-    this->r = r;
-    this->aio = aio;
-    this->pbl = bl;
-    this->ofs = ofs;
-    this->key = obj_key;
-    this->len = read_len;
-    this->stat = EINPROGRESS;
+    r = _r;
+    aio = _aio;
+    pbl = _bl;
+    ofs = _ofs;
+    key = obj_key;
+    len = read_len;
+    stat = EINPROGRESS;
+    d3n_d_lock = d_lock;
+
     struct aiocb* cb = new struct aiocb;
     memset(cb, 0, sizeof(aiocb));
     cb->aio_fildes = ::open(location.c_str(), O_RDONLY);
@@ -117,7 +119,8 @@ struct D3nL1CacheRequest : public D3nCacheRequest {
       lsubdout(g_ceph_context, rgw, 0) << "Error: " << __func__ << " ::open(" << cache_location << ")" << dendl;
       return -errno;
     }
-    posix_fadvise(cb->aio_fildes, 0, 0, g_conf()->rgw_d3n_l1_fadvise);
+    if (g_conf()->rgw_d3n_l1_fadvise != 0)
+      posix_fadvise(cb->aio_fildes, 0, 0, g_conf()->rgw_d3n_l1_fadvise);
 
     cb->aio_buf = (volatile void*)malloc(read_len);
     cb->aio_nbytes = read_len;
@@ -134,31 +137,27 @@ struct D3nL1CacheRequest : public D3nCacheRequest {
   void d3n_libaio_release () {}
 
   void d3n_libaio_cancel_io() {
-    lock.lock();
+    const std::lock_guard<std::mutex> l(lock);
     stat = ECANCELED;
-    lock.unlock();
   }
 
   int d3n_libaio_status() {
-    lock.lock();
+    const std::lock_guard<std::mutex> l(lock);
     lsubdout(g_ceph_context, rgw_datacache, 30) << "D3nDataCache: " << __func__ << "(): key=" << key << ", stat=" << stat << dendl;
     if (stat != EINPROGRESS) {
-      lock.unlock();
       if (stat == ECANCELED) {
         lsubdout(g_ceph_context, rgw, 2) << "D3nDataCache: " << __func__ << "(): stat == ECANCELED" << dendl;
         return ECANCELED;
       }
     }
     stat = aio_error(paiocb);
-    lock.unlock();
     return stat;
   }
 
   void d3n_libaio_finish() {
-    lock.lock();
+    const std::lock_guard<std::mutex> l(lock);
     lsubdout(g_ceph_context, rgw_datacache, 20) << "D3nDataCache: " << __func__ << "(): Read From Cache, libaio callback - returning data: key=" << key << ", aio_nbytes=" << paiocb->aio_nbytes << dendl;
     pbl->append((char*)paiocb->aio_buf, paiocb->aio_nbytes);
-    lock.unlock();
   }
 };
 

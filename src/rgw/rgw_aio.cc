@@ -63,11 +63,14 @@ void cb(librados::completion_t, void* arg) {
 }
 
 void d3n_cache_libaio_cbt(sigval_t sigval) {
+  const std::lock_guard<std::mutex> l1(D3nL1CacheRequest::d3n_libaio_cb_lock);
   D3nL1CacheRequest* c = static_cast<D3nL1CacheRequest*>(sigval.sival_ptr);
+  const std::lock_guard<std::mutex> l2(*c->d3n_d_lock);
   lsubdout(g_ceph_context, rgw_datacache, 30) << "D3nDataCache: " << __func__ << "(): Read From Cache, key=" << c->key << ", thread id=0x" << std::hex << std::this_thread::get_id() << dendl;
   int status = c->d3n_libaio_status();
   if (status == 0) {
     c->d3n_libaio_finish();
+    const std::lock_guard<std::mutex> l3(c->lock);
     c->r->result = 0;
     c->aio->put(*(c->r));
   } else {
@@ -156,14 +159,14 @@ Aio::OpFunc aio_abstract(Op&& op, boost::asio::io_context& context,
 
 
 template <typename Op>
-Aio::OpFunc d3n_cache_aio_abstract(Op&& op, off_t obj_ofs, off_t read_ofs, off_t read_len, std::string& location) {
-  return [op = std::move(op), obj_ofs, read_ofs, read_len, location] (Aio* aio, AioResult& r) mutable{
+Aio::OpFunc d3n_cache_aio_abstract(Op&& op, off_t obj_ofs, off_t read_ofs, off_t read_len, std::string& location, std::mutex* d_lock) {
+  return [op = std::move(op), obj_ofs, read_ofs, read_len, location, d_lock] (Aio* aio, AioResult& r) mutable {
     auto& ref = r.obj.get_ref();
     auto cs = new(&r.user_data) cache_state(aio);
     cs->c = new D3nL1CacheRequest();
 
     lsubdout(g_ceph_context, rgw_datacache, 20) << "D3nDataCache: d3n_cache_aio_abstract(): libaio Read From Cache, oid=" << ref.obj.oid << dendl;
-    cs->c->d3n_prepare_libaio_op(ref.obj.oid, &r.data, read_len, obj_ofs, read_ofs, location, d3n_cache_libaio_cbt, aio, &r);
+    cs->c->d3n_prepare_libaio_op(ref.obj.oid, &r.data, read_len, obj_ofs, read_ofs, location, d3n_cache_libaio_cbt, aio, &r, d_lock);
     int ret = cs->submit_libaio_op(cs->c);
     if(ret < 0) {
       lsubdout(g_ceph_context, rgw, 1) << "D3nDataCache: d3n_cache_aio_abstract(): ERROR: submit_libaio_op, ret=" << ret << dendl;
@@ -190,11 +193,11 @@ Aio::OpFunc aio_abstract(Op&& op, optional_yield y) {
 
 template <typename Op>
 Aio::OpFunc d3n_cache_aio_abstract(Op&& op, optional_yield y, off_t obj_ofs,
-                                   off_t read_ofs, off_t read_len, std::string& location) {
+                                   off_t read_ofs, off_t read_len, std::string& location, std::mutex* d_lock) {
   static_assert(std::is_base_of_v<librados::ObjectOperation, std::decay_t<Op>>);
   static_assert(!std::is_lvalue_reference_v<Op>);
   static_assert(!std::is_const_v<Op>);
-  return d3n_cache_aio_abstract(std::forward<Op>(op), obj_ofs, read_ofs, read_len, location);
+  return d3n_cache_aio_abstract(std::forward<Op>(op), obj_ofs, read_ofs, read_len, location, d_lock);
 }
 
 } // anonymous namespace
@@ -209,8 +212,8 @@ Aio::OpFunc Aio::librados_op(librados::ObjectWriteOperation&& op,
 }
 
 Aio::OpFunc Aio::d3n_cache_op(librados::ObjectReadOperation&& op, optional_yield y,
-                              off_t obj_ofs, off_t read_ofs, off_t read_len, std::string& location) {
-  return d3n_cache_aio_abstract(std::move(op), y, obj_ofs, read_ofs, read_len, location);
+                              off_t obj_ofs, off_t read_ofs, off_t read_len, std::string& location, std::mutex* d_lock) {
+  return d3n_cache_aio_abstract(std::move(op), y, obj_ofs, read_ofs, read_len, location, d_lock);
 }
 
 } // namespace rgw

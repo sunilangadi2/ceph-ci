@@ -41,7 +41,7 @@ struct D3nL1CacheRequest : public D3nCacheRequest {
   int ret;
   struct aiocb* paiocb;
   static std::mutex d3n_libaio_cb_lock;
-  std::mutex* d3n_d_lock;
+  std::timed_mutex* d3n_d_lock;
 
   D3nL1CacheRequest() :  D3nCacheRequest(), stat(-1), paiocb(nullptr) {}
   ~D3nL1CacheRequest() {
@@ -100,7 +100,7 @@ struct D3nL1CacheRequest : public D3nCacheRequest {
   }
 
   int d3n_prepare_libaio_op(std::string obj_key, bufferlist* _bl, int read_len, int _ofs, int _read_ofs, std::string& cache_location,
-                        sigval_cb cbf, rgw::Aio* _aio, rgw::AioResult* _r, std::mutex* d_lock) {
+                        sigval_cb cbf, rgw::Aio* _aio, rgw::AioResult* _r, std::timed_mutex* d_lock) {
     std::string location = cache_location + "/" + obj_key;
     lsubdout(g_ceph_context, rgw_datacache, 20) << "D3nDataCache: " << __func__ << "(): Read From Cache, location='" << location << "', ofs=" << ofs << ", read_ofs=" << read_ofs << " read_len=" << read_len << dendl;
     r = _r;

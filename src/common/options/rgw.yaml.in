@@ -2957,7 +2957,7 @@ options:
   desc: posix_fadvise() flag for access pattern of cache files
   long_desc: for example to bypass the page-cache -
     POSIX_FADV_DONTNEED=4
-  default: 0
+  default: 4
   services:
   - rgw
   with_legacy: true

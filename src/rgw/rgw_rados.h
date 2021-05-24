@@ -1584,7 +1584,7 @@ struct get_obj_data {
                uint64_t offset, optional_yield yield)
                : rgwrados(rgwrados), client_cb(cb), aio(aio), offset(offset), yield(yield) {}
 
-  std::mutex d3n_datacache_lock;
+  std::timed_mutex d3n_datacache_lock;
   std::list<bufferlist> d3n_read_list;
   std::list<string> d3n_pending_oid_list;
   void d3n_add_pending_oid(std::string oid);
@@ -1615,7 +1615,7 @@ struct get_obj_data {
     }
 
     if (rgwrados->get_use_datacache()) {
-      const std::lock_guard<std::mutex> l(d3n_datacache_lock);
+      const std::lock_guard l(d3n_datacache_lock);
       d3n_read_list.splice(d3n_read_list.end(), bl_list);
     }
     return 0;

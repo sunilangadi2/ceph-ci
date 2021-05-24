@@ -171,7 +171,7 @@ public:
 template<typename T>
 int D3nRGWDataCache<T>::flush_read_list(const DoutPrefixProvider *dpp, struct get_obj_data* d) {
   ldpp_dout(dpp, 20) << "D3nDataCache: D3nRGWDataCache<T>::" << __func__ << "()" << dendl;
-  const std::lock_guard<std::mutex> l(d->d3n_datacache_lock);
+  const std::lock_guard l(d->d3n_datacache_lock);
   std::list<bufferlist> lbl;
   lbl.swap(d->d3n_read_list);
   d->d3n_read_list.clear();
@@ -282,12 +282,17 @@ int D3nRGWDataCache<T>::get_obj_iterate_cb(const DoutPrefixProvider *dpp, const 
       // Read From Cache
       ldpp_dout(dpp, 20) << "D3nDataCache: " << __func__ << "(): READ FROM CACHE, oid=" << read_obj.oid << ", obj-ofs=" << obj_ofs << ", read_ofs=" << read_ofs << ", len=" << len << dendl;
       auto completed = d->aio->get(obj, rgw::Aio::d3n_cache_op(std::move(op), d->yield, obj_ofs, read_ofs, len, g_conf()->rgw_d3n_l1_datacache_persistent_path, &d->d3n_datacache_lock), cost, id);
-      r = d->drain();
+      r = d->flush(std::move(completed));
       if (r < 0) {
         lsubdout(g_ceph_context, rgw, 0) << "D3nDataCache: Error: failed to drain/flush, r= " << r << dendl;
         d->cancel();
       }
-      const std::lock_guard<std::mutex> l(d->d3n_datacache_lock);
+      if (!d->d3n_datacache_lock.try_lock_for(std::chrono::milliseconds(500))) {
+        ldpp_dout(dpp, 1) << "D3nDataCache: " << __func__ << "(): Warning: try lock timed out" << dendl;
+        std::cerr << "#MK# " << __FILE__ << " #" << __LINE__ << " | " << __func__ << "()| Warning: try lock timed out" << std::endl;
+      } else {
+        d->d3n_datacache_lock.unlock();
+      }
       return r;
     } else {
       // Write To Cache

@@ -6375,7 +6375,7 @@ static int _get_obj_iterate_cb(const DoutPrefixProvider *dpp,
 int RGWRados::flush_read_list(const DoutPrefixProvider *dpp, struct get_obj_data* d)
 {
   ldpp_dout(dpp, 20) << "D3nDataCache: RGWRados::" << __func__ << "()" << dendl;
-  const std::lock_guard<std::mutex> l(d->d3n_datacache_lock);
+  const std::lock_guard l(d->d3n_datacache_lock);
   list<bufferlist> lbl;
   lbl.swap(d->d3n_read_list);
   d->d3n_read_list.clear();
@@ -6477,7 +6477,7 @@ int RGWRados::Object::Read::iterate(const DoutPrefixProvider *dpp, int64_t ofs, 
     if (rf < 0) {
       ldpp_dout(dpp, 0) << "D3nDataCache: " << __func__ << "(): Error: flush read list returned: " << rf << dendl;
     }
-    return rf;
+    return r;
   } else {
     return r;
   }

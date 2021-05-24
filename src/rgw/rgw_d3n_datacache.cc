@@ -98,9 +98,10 @@ void D3nDataCache::init(CephContext *_cct) {
   if (conf_eviction_policy == "random")
     eviction_policy = _eviction_policy::RANDOM;
 
+  // libaio setup
   struct aioinit ainit{0};
   ainit.aio_threads = 1;
-  ainit.aio_num = 32;
+  ainit.aio_num = 2048;
   ainit.aio_idle_time = 120;
   aio_init(&ainit);
 }

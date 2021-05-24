@@ -8,6 +8,7 @@ except:
     # make it work for python2
     pass
 from teuthology.orchestra.run import CommandFailedError
+from teuthology.misc import is_type
 from tasks.cephfs.fuse_mount import FuseMount
 from tasks.cephfs.cephfs_test_case import CephFSTestCase
 
@@ -386,6 +387,38 @@ class TestClusterFull(FullnessTestCase):
     pool_capacity = None
     REQUIRE_MEMSTORE = True
 
+    def mark_osds_in_or_out(self, _in=False):
+        num_replica = 0
+        osd_dump = self.fs.mon_manager.raw_cluster_cmd("osd", "dump", "--format=json-pretty")
+        pools = json.loads(osd_dump)['pools']
+        for pool in pools:
+            if pool['pool_name'] == self.fs.get_data_pool_name():
+                num_replica = pool['size']
+                break
+        self.assertNotEqual(num_replica, 0)
+
+        # Mark all the osds in/out except the first one for each remote.
+        for remote, roles in self.fs._ctx.cluster.remotes.items():
+            # From vstart_runner.py, do nothing
+            if roles[0] == "placeholder":
+                return
+
+            _is_type = is_type("osd")
+            is_first = True
+            for role in roles:
+                if not _is_type(role):
+                    continue
+
+                # For the extra remotes, mark all the osd in/out
+                if num_replica > 0 and is_first:
+                    is_first = False
+                    num_replica -= 1
+                    continue
+                if _in:
+                    self.fs.mon_manager.mark_osd_in(role[4:])
+                else:
+                    self.fs.mon_manager.mark_osd_out(role[4:])
+
     def setUp(self):
         super(TestClusterFull, self).setUp()
 
@@ -394,6 +427,13 @@ class TestClusterFull(FullnessTestCase):
             full_ratio = float(self.fs.get_config("mon_osd_full_ratio", service_type="mon"))
             TestClusterFull.pool_capacity = int(max_avail * full_ratio)
             TestClusterFull.fill_mb = (self.pool_capacity // (1024 * 1024))
+
+        # Mark all the osds out except the first one for each remote.
+        self.mark_osds_in_or_out();
+
+    def tearDown(self):
+        # Mark all the osds in for each remote.
+        self.mark_osds_in_or_out(True);
 
 # Hide the parent class so that unittest.loader doesn't try to run it.
 del globals()['FullnessTestCase']

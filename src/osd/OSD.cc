@@ -42,6 +42,7 @@
 #include "include/types.h"
 #include "include/compat.h"
 #include "include/random.h"
+#include "include/scope_guard.h"
 
 #include "OSD.h"
 #include "OSDMap.h"
@@ -2039,8 +2040,6 @@ int OSD::mkfs(CephContext *cct,
 
   OSDSuperblock sb;
   bufferlist sbbl;
-  ObjectStore::CollectionHandle ch;
-
   // if we are fed a uuid for this osd, use it.
   store->set_fsid(cct->_conf->osd_uuid);
 
@@ -2060,7 +2059,12 @@ int OSD::mkfs(CephContext *cct,
     return ret;
   }
 
-  ch = store->open_collection(coll_t::meta());
+  auto umount_store = make_scope_guard([&] {
+    store->umount();
+  });
+
+  ObjectStore::CollectionHandle ch =
+    store->open_collection(coll_t::meta());
   if (ch) {
     ret = store->read(ch, OSD_SUPERBLOCK_GOBJECT, 0, 0, sbbl);
     if (ret < 0) {
@@ -2074,14 +2078,12 @@ int OSD::mkfs(CephContext *cct,
     if (whoami != sb.whoami) {
       derr << "provided osd id " << whoami << " != superblock's " << sb.whoami
 	   << dendl;
-      ret = -EINVAL;
-      goto umount_store;
+      return -EINVAL;
     }
     if (fsid != sb.cluster_fsid) {
       derr << "provided cluster fsid " << fsid
 	   << " != superblock's " << sb.cluster_fsid << dendl;
-      ret = -EINVAL;
-      goto umount_store;
+      return -EINVAL;
     }
   } else {
     // create superblock
@@ -2102,7 +2104,7 @@ int OSD::mkfs(CephContext *cct,
     if (ret) {
       derr << "OSD::mkfs: error while writing OSD_SUPERBLOCK_GOBJECT: "
 	   << "queue_transaction returned " << cpp_strerror(ret) << dendl;
-      goto umount_store;
+      return ret;
     }
   }
 
@@ -2110,14 +2112,7 @@ int OSD::mkfs(CephContext *cct,
   if (ret) {
     derr << "OSD::mkfs: failed to write fsid file: error "
          << cpp_strerror(ret) << dendl;
-    goto umount_store;
   }
-
-umount_store:
-  if (ch) {
-    ch.reset();
-  }
-  store->umount();
   return ret;
 }
 

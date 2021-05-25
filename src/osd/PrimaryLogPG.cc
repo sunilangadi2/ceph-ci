@@ -12442,7 +12442,6 @@ void PrimaryLogPG::on_failed_pull(
     obc->drop_recovery_read(&blocked_ops);
     requeue_ops(blocked_ops);
   }
-  recovering.erase(soid);
   for (auto&& i : from) {
     if (i != pg_whoami) { // we'll get it below in primary_error
       recovery_state.force_object_missing(i, soid, v);
@@ -12459,6 +12458,7 @@ void PrimaryLogPG::on_failed_pull(
   if (from.count(pg_whoami)) {
     dout(0) << " primary missing oid " << soid << " version " << v << dendl;
     primary_error(soid, v);
+    recovering.erase(soid);
     backfills_in_flight.erase(soid);
   }
 }

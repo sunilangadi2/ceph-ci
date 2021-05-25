@@ -6457,6 +6457,10 @@ int RGWRados::Object::Read::iterate(const DoutPrefixProvider *dpp, int64_t ofs, 
   auto aio = rgw::make_throttle(window_size, y);
   get_obj_data data(store, cb, &*aio, ofs, y);
 
+  int req_libaio_aio_num = (g_conf()->rgw_d3n_l1_fadvise == POSIX_FADV_NORMAL) ? 3 : g_conf()->rgw_d3n_req_libaio_aio_num;
+  for (int i=0 ; i<req_libaio_aio_num ; i++)
+    data.d3n_datacache_sem.Put();
+
   int r = store->iterate_obj(dpp, obj_ctx, source->get_bucket_info(), state.obj,
                              ofs, end, chunk_size, _get_obj_iterate_cb, &data, y);
 
@@ -6469,8 +6473,13 @@ int RGWRados::Object::Read::iterate(const DoutPrefixProvider *dpp, int64_t ofs, 
   r = data.drain();
   if (store->get_use_datacache()) {
     if (r < 0) {
-      ldpp_dout(dpp, 0) << "D3nDataCache: " << __func__ << "(): Error: data drain returned: " << r << dendl;
+      ldpp_dout(dpp, 0) << "D3nDataCache: " << __func__ << "(): Error: data cache drain returned: " << r << dendl;
       return r;
+    }
+    ldpp_dout(dpp, 20) << "D3nDataCache: " << __func__ << "(): draing the libaio callbacks for " << req_libaio_aio_num << " request slots" << dendl;
+    for (int i=0 ; i<req_libaio_aio_num ; i++) {
+      lsubdout(g_ceph_context, rgw_datacache, 20) << "D3nDataCache: " << __func__ << "(): get libaio callback slot #" << i << dendl;
+      data.d3n_datacache_sem.Get();
     }
     ldpp_dout(dpp, 20) << "D3nDataCache: " << __func__ << "(): flush read list" << dendl;
     int rf = store->flush_read_list(dpp, &data);
@@ -6479,6 +6488,9 @@ int RGWRados::Object::Read::iterate(const DoutPrefixProvider *dpp, int64_t ofs, 
     }
     return r;
   } else {
+    if (r < 0) {
+      ldpp_dout(dpp, 0) << "D3nDataCache: " << __func__ << "(): Error: data drain returned: " << r << dendl;
+    }
     return r;
   }
 }

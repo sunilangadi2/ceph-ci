@@ -2972,6 +2972,30 @@ options:
   - lru
   - random
   with_legacy: true
+- name: rgw_d3n_libaio_aio_threads
+  type: int
+  level: advanced
+  desc: specifies the maximum number of worker threads that may be used by libaio
+  default: 1
+  services:
+  - rgw
+  with_legacy: true
+- name: rgw_d3n_libaio_aio_num
+  type: int
+  level: advanced
+  desc: specifies the maximum number of simultaneous I/O requests that libaio expects to enqueue
+  default: 512
+  services:
+  - rgw
+  with_legacy: true
+- name: rgw_d3n_req_libaio_aio_num
+  type: int
+  level: advanced
+  desc: specifies the maximum number of simultaneous I/O requests that libaio will enqueue per GET request
+  default: 4
+  services:
+  - rgw
+  with_legacy: true
 - name: rgw_luarocks_location
   type: str
   level: advanced

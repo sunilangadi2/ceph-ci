@@ -48,7 +48,7 @@ struct D3nCacheAioWriteRequest{
 	CephContext *cct;
 
 	D3nCacheAioWriteRequest(CephContext *_cct) : cct(_cct) {}
-	int create_io(bufferlist& bl, unsigned int len, string oid, string cache_location);
+	int d3n_prepare_libaio_write_op(bufferlist& bl, unsigned int len, string oid, string cache_location);
 
   ~D3nCacheAioWriteRequest() {
     ::close(fd);
@@ -96,9 +96,9 @@ public:
 
   bool get(const string& oid, const off_t len);
   void put(bufferlist& bl, unsigned int len, string& obj_key);
-  int io_write(bufferlist& bl, unsigned int len, std::string oid);
-  int create_aio_write_request(bufferlist& bl, unsigned int len, std::string oid);
-  void cache_aio_write_completion_cb(D3nCacheAioWriteRequest* c);
+  int d3n_io_write(bufferlist& bl, unsigned int len, std::string oid);
+  int d3n_aio_create_write_request(bufferlist& bl, unsigned int len, std::string oid);
+  void d3n_aio_write_completion_cb(D3nCacheAioWriteRequest* c);
   size_t random_eviction();
   size_t lru_eviction();
 
@@ -188,8 +188,8 @@ int D3nRGWDataCache<T>::flush_read_list(const DoutPrefixProvider *dpp, struct ge
       r = -ENOENT;
       break;
     }
-    ldpp_dout(dpp, 20) << "D3nDataCache: " << __func__ << "():  bypass write to datacache : " << d->d3n_bypass_cache << dendl;
-    if (bl.length() <= g_conf()->rgw_get_obj_max_req_size && !d->d3n_bypass_cache) {
+    ldpp_dout(dpp, 20) << "D3nDataCache: " << __func__ << "():  bypass write to datacache : " << d->d3n_bypass_cache_write << dendl;
+    if (bl.length() <= g_conf()->rgw_get_obj_max_req_size && !d->d3n_bypass_cache_write) {
       ldpp_dout(dpp, 20) << "D3nDataCache: " << __func__ << "(): bl.length <= rgw_get_obj_max_req_size (default 4MB) - write to datacache, bl.length=" << bl.length() << dendl;
       d3n_data_cache.put(bl, bl.length(), oid);
     } else {
@@ -270,27 +270,26 @@ int D3nRGWDataCache<T>::get_obj_iterate_cb(const DoutPrefixProvider *dpp, const 
     const bool is_encrypted = (astate->attrset.find(RGW_ATTR_CRYPT_MODE) != astate->attrset.end());
     if (read_ofs != 0 || astate->size != astate->accounted_size || is_compressed || is_encrypted) {
       lsubdout(g_ceph_context, rgw, 5) << "D3nDataCache: " << __func__ << "(): bypassing datacache: oid=" << read_obj.oid << ", read_ofs!=0 = " << read_ofs << ", size=" << astate->size << " != accounted_size=" << astate->accounted_size << ", is_compressed=" << is_compressed << ", is_encrypted=" << is_encrypted  << dendl;
-      d->d3n_bypass_cache = true;
+      d->d3n_bypass_cache_write = true;
       auto completed = d->aio->get(obj, rgw::Aio::librados_op(std::move(op), d->yield), cost, id);
       r = d->flush(std::move(completed));
       return r;
     } else {
-      d->d3n_bypass_cache = false;
+      d->d3n_bypass_cache_write = false;
     }
 
     if (d3n_data_cache.get(oid, len)) {
       // Read From Cache
       ldpp_dout(dpp, 20) << "D3nDataCache: " << __func__ << "(): READ FROM CACHE, oid=" << read_obj.oid << ", obj-ofs=" << obj_ofs << ", read_ofs=" << read_ofs << ", len=" << len << dendl;
-      auto completed = d->aio->get(obj, rgw::Aio::d3n_cache_op(std::move(op), d->yield, obj_ofs, read_ofs, len, g_conf()->rgw_d3n_l1_datacache_persistent_path, &d->d3n_datacache_lock), cost, id);
-      r = d->flush(std::move(completed));
-      if (r < 0) {
-        lsubdout(g_ceph_context, rgw, 0) << "D3nDataCache: Error: failed to drain/flush, r= " << r << dendl;
-      }
+      auto completed = d->aio->get(obj, rgw::Aio::d3n_cache_op(std::move(op), d->yield, obj_ofs, read_ofs, len, g_conf()->rgw_d3n_l1_datacache_persistent_path, &d->d3n_datacache_lock, &d->d3n_datacache_sem), cost, id);
       if (!d->d3n_datacache_lock.try_lock_for(std::chrono::milliseconds(500))) {
         ldpp_dout(dpp, 1) << "D3nDataCache: " << __func__ << "(): Warning: try lock timed out" << dendl;
-        std::cerr << "#MK# " << __FILE__ << " #" << __LINE__ << " | " << __func__ << "()| Warning: try lock timed out" << std::endl;
       } else {
         d->d3n_datacache_lock.unlock();
+      }
+      r = d->flush(std::move(completed));
+      if (r < 0) {
+        lsubdout(g_ceph_context, rgw, 0) << "D3nDataCache: " << __func__ << "(): Error: failed to drain/flush, r= " << r << dendl;
       }
       return r;
     } else {

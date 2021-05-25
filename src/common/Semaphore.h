@@ -26,6 +26,12 @@ class Semaphore
 
   public:
 
+  Semaphore() {}
+  Semaphore(int c)
+  {
+    count = c;
+  }
+
   void Put()
   { 
     std::lock_guard l(m);

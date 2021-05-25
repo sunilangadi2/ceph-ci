@@ -19,6 +19,7 @@ from collections import defaultdict
 from enum import IntEnum
 import rados
 import re
+import socket
 import sys
 import time
 from ceph_argparse import CephArgtype
@@ -1368,6 +1369,20 @@ class MgrModule(ceph_module.BaseMgrModule, MgrModuleLoggingMixin):
         :return: str
         """
         return self._ceph_get_mgr_id()
+
+    def get_mgr_ip(self) -> str:
+        hostname = socket.gethostname()
+        try:
+            r = socket.getaddrinfo(hostname, None, flags=socket.AI_CANONNAME,
+                                   type=socket.SOCK_STREAM)
+            # pick first v4 IP, if present
+            for a in r:
+                if a[0] == socket.AF_INET:
+                    return a[4][0]
+                return r[0][4][0]
+        except socket.gaierror as e:
+            pass
+        return hostname
 
     def get_ceph_option(self, key: str) -> OptionValue:
         return self._ceph_get_option(key)

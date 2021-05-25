@@ -23,7 +23,7 @@ namespace efs = std::experimental::filesystem;
 
 std::mutex D3nL1CacheRequest::d3n_libaio_cb_lock;
 
-int D3nCacheAioWriteRequest::create_io(bufferlist& bl, unsigned int len, string oid, string cache_location)
+int D3nCacheAioWriteRequest::d3n_prepare_libaio_write_op(bufferlist& bl, unsigned int len, string oid, string cache_location)
 {
   std::string location = cache_location + oid;
   int r = 0;
@@ -97,16 +97,9 @@ void D3nDataCache::init(CephContext *_cct) {
     eviction_policy = _eviction_policy::LRU;
   if (conf_eviction_policy == "random")
     eviction_policy = _eviction_policy::RANDOM;
-
-  // libaio setup
-  struct aioinit ainit{0};
-  ainit.aio_threads = 1;
-  ainit.aio_num = 2048;
-  ainit.aio_idle_time = 120;
-  aio_init(&ainit);
 }
 
-int D3nDataCache::io_write(bufferlist& bl, unsigned int len, std::string oid)
+int D3nDataCache::d3n_io_write(bufferlist& bl, unsigned int len, std::string oid)
 {
   D3nChunkDataInfo* chunk_info = new D3nChunkDataInfo;
   std::string location = cache_location + oid;
@@ -145,15 +138,15 @@ int D3nDataCache::io_write(bufferlist& bl, unsigned int len, std::string oid)
   return r;
 }
 
-void _d3n_cache_aio_write_completion_cb(sigval_t sigval)
+void d3n_libaio_write_cb(sigval_t sigval)
 {
   lsubdout(g_ceph_context, rgw_datacache, 30) << "D3nDataCache: " << __func__ << "()" << dendl;
   D3nCacheAioWriteRequest* c = static_cast<D3nCacheAioWriteRequest*>(sigval.sival_ptr);
-  c->priv_data->cache_aio_write_completion_cb(c);
+  c->priv_data->d3n_aio_write_completion_cb(c);
 }
 
 
-void D3nDataCache::cache_aio_write_completion_cb(D3nCacheAioWriteRequest* c)
+void D3nDataCache::d3n_aio_write_completion_cb(D3nCacheAioWriteRequest* c)
 {
   D3nChunkDataInfo* chunk_info{nullptr};
 
@@ -179,24 +172,24 @@ void D3nDataCache::cache_aio_write_completion_cb(D3nCacheAioWriteRequest* c)
   c = nullptr;
 }
 
-int D3nDataCache::create_aio_write_request(bufferlist& bl, unsigned int len, std::string oid)
+int D3nDataCache::d3n_aio_create_write_request(bufferlist& bl, unsigned int len, std::string oid)
 {
   lsubdout(g_ceph_context, rgw_datacache, 30) << "D3nDataCache: " << __func__ << "(): Write To Cache, oid=" << oid << ", len=" << len << dendl;
   struct D3nCacheAioWriteRequest* wr = new struct D3nCacheAioWriteRequest(cct);
   int r=0;
-  if (wr->create_io(bl, len, oid, cache_location) < 0) {
-    ldout(cct, 0) << "ERROR: D3nDataCache: create_aio_write_request:create_io" << dendl;
+  if ((r = wr->d3n_prepare_libaio_write_op(bl, len, oid, cache_location)) < 0) {
+    ldout(cct, 0) << "ERROR: D3nDataCache: " << __func__ << "() prepare libaio write op r=" << r << dendl;
     goto done;
   }
   wr->cb->aio_sigevent.sigev_notify = SIGEV_THREAD;
-  wr->cb->aio_sigevent.sigev_notify_function = _d3n_cache_aio_write_completion_cb;
+  wr->cb->aio_sigevent.sigev_notify_function = d3n_libaio_write_cb;
   wr->cb->aio_sigevent.sigev_notify_attributes = nullptr;
-  wr->cb->aio_sigevent.sigev_value.sival_ptr = wr;
+  wr->cb->aio_sigevent.sigev_value.sival_ptr = (void*)wr;
   wr->oid = oid;
   wr->priv_data = this;
 
   if ((r = ::aio_write(wr->cb)) != 0) {
-    ldout(cct, 0) << "ERROR: D3nDataCache: create_aio_write_request:aio_write r=" << r << dendl;
+    ldout(cct, 0) << "ERROR: D3nDataCache: " << __func__ << "() aio_write r=" << r << dendl;
     goto error;
   }
   return 0;
@@ -249,7 +242,7 @@ void D3nDataCache::put(bufferlist& bl, unsigned int len, std::string& oid)
       return;
     freed_size += r;
   }
-  r = create_aio_write_request(bl, len, oid);
+  r = d3n_aio_create_write_request(bl, len, oid);
   if (r < 0) {
     cache_lock.lock();
     outstanding_write_list.remove(oid);
@@ -321,7 +314,7 @@ size_t D3nDataCache::random_eviction()
   std::advance(iter, random_index);
   del_oid = iter->first;
   del_entry =  iter->second;
-  ldout(cct, 20) << "D3nDataCache: random_eviction: index:" << random_index << ", free size:0x" << std::hex << del_entry->size << dendl;
+  ldout(cct, 20) << "D3nDataCache: random_eviction: index:" << random_index << ", free size: " << del_entry->size << dendl;
   freed_size = del_entry->size;
   delete del_entry;
   del_entry = nullptr;

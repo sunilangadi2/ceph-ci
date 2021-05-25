@@ -6469,7 +6469,7 @@ int RGWRados::Object::Read::iterate(const DoutPrefixProvider *dpp, int64_t ofs, 
   r = data.drain();
   if (store->get_use_datacache()) {
     if (r < 0) {
-      ldpp_dout(dpp, 0) << "D3nDataCache: " << __func__ << "(): Error: data drain returned: " << r << dendl;
+      ldpp_dout(dpp, 0) << "D3nDataCache: " << __func__ << "(): Error: data cache drain returned: " << r << dendl;
       return r;
     }
     ldpp_dout(dpp, 20) << "D3nDataCache: " << __func__ << "(): flush read list" << dendl;
@@ -6479,6 +6479,9 @@ int RGWRados::Object::Read::iterate(const DoutPrefixProvider *dpp, int64_t ofs, 
     }
     return r;
   } else {
+    if (r < 0) {
+      ldpp_dout(dpp, 0) << "D3nDataCache: " << __func__ << "(): Error: data drain returned: " << r << dendl;
+    }
     return r;
   }
 }

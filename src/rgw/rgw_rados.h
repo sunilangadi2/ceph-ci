@@ -1585,11 +1585,13 @@ struct get_obj_data {
                : rgwrados(rgwrados), client_cb(cb), aio(aio), offset(offset), yield(yield) {}
 
   std::timed_mutex d3n_datacache_lock;
+  int req_libaio_aio_num = (g_conf()->rgw_d3n_l1_fadvise == POSIX_FADV_NORMAL) ? 2 : g_conf()->rgw_d3n_req_libaio_aio_num;
+  Semaphore d3n_datacache_sem{req_libaio_aio_num};
   std::list<bufferlist> d3n_read_list;
   std::list<string> d3n_pending_oid_list;
   void d3n_add_pending_oid(std::string oid);
   std::string d3n_get_pending_oid(const DoutPrefixProvider *dpp);
-  bool d3n_bypass_cache{false};
+  bool d3n_bypass_cache_write{false};
 
   int flush(rgw::AioResultList&& results) {
     int r = rgw::check_for_errors(results);

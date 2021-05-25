@@ -8,6 +8,7 @@
 #include <stdlib.h>
 #include <aio.h>
 
+#include "common/Semaphore.h"
 #include "include/rados/librados.hpp"
 #include "include/Context.h"
 
@@ -19,7 +20,7 @@ class D3nCacheRequest {
   public:
     std::mutex lock;
     int sequence;
-    buffer::list* pbl;
+    buffer::list* bl;
     std::string oid;
     off_t ofs;
     off_t len;
@@ -27,7 +28,7 @@ class D3nCacheRequest {
     off_t read_ofs;
     rgw::AioResult* r = nullptr;
     rgw::Aio* aio = nullptr;
-    D3nCacheRequest() : sequence(0), pbl(nullptr), ofs(0), len(0), read_ofs(0) {};
+    D3nCacheRequest() : sequence(0), bl(nullptr), ofs(0), len(0), read_ofs(0) {};
     virtual ~D3nCacheRequest() {};
     virtual void d3n_libaio_release()=0;
     virtual void d3n_libaio_cancel_io()=0;
@@ -39,21 +40,19 @@ struct D3nL1CacheRequest : public D3nCacheRequest {
   using sigval_cb = void (*) (sigval_t);
   int stat;
   int ret;
-  struct aiocb* paiocb;
+  struct aiocb d3n_aiocb;
   static std::mutex d3n_libaio_cb_lock;
   std::timed_mutex* d3n_d_lock;
+  Semaphore* d3n_d_sem;
 
-  D3nL1CacheRequest() :  D3nCacheRequest(), stat(-1), paiocb(nullptr) {}
+  D3nL1CacheRequest() :  D3nCacheRequest(), stat(-1) {}
   ~D3nL1CacheRequest() {
-    const std::lock_guard<std::mutex> l(lock);
-    if (paiocb != nullptr) {
-      if (paiocb->aio_buf != nullptr) {
-        free((void*)paiocb->aio_buf);
-        paiocb->aio_buf = nullptr;
-      }
-      ::close(paiocb->aio_fildes);
-      delete(paiocb);
+    const std::lock_guard l(lock);
+    if (d3n_aiocb.aio_buf != nullptr) {
+      free((void*)d3n_aiocb.aio_buf);
+      d3n_aiocb.aio_buf = nullptr;
     }
+    ::close(d3n_aiocb.aio_fildes);
 
     lsubdout(g_ceph_context, rgw_datacache, 30) << "D3nDataCache: " << __func__ << "(): Read From Cache, comlete" << dendl;
   }
@@ -99,50 +98,49 @@ struct D3nL1CacheRequest : public D3nCacheRequest {
     return 0;
   }
 
-  int d3n_prepare_libaio_op(std::string obj_key, bufferlist* _bl, int read_len, int _ofs, int _read_ofs, std::string& cache_location,
-                        sigval_cb cbf, rgw::Aio* _aio, rgw::AioResult* _r, std::timed_mutex* d_lock) {
+  int d3n_prepare_libaio_read_op(std::string obj_key, bufferlist* _bl, int read_len, int _ofs, int _read_ofs, std::string& cache_location,
+                        sigval_cb cbf, rgw::Aio* _aio, rgw::AioResult* _r, std::timed_mutex* d_lock, Semaphore* d_sem) {
     std::string location = cache_location + "/" + obj_key;
     lsubdout(g_ceph_context, rgw_datacache, 20) << "D3nDataCache: " << __func__ << "(): Read From Cache, location='" << location << "', ofs=" << ofs << ", read_ofs=" << read_ofs << " read_len=" << read_len << dendl;
     r = _r;
     aio = _aio;
-    pbl = _bl;
+    bl = _bl;
     ofs = _ofs;
     key = obj_key;
     len = read_len;
     stat = EINPROGRESS;
     d3n_d_lock = d_lock;
+    d3n_d_sem = d_sem;
 
-    struct aiocb* cb = new struct aiocb;
-    memset(cb, 0, sizeof(aiocb));
-    cb->aio_fildes = ::open(location.c_str(), O_RDONLY);
-    if (cb->aio_fildes < 0) {
+    memset(&d3n_aiocb, 0, sizeof(d3n_aiocb));
+    d3n_aiocb.aio_fildes = ::open(location.c_str(), O_RDONLY);
+    if (d3n_aiocb.aio_fildes < 0) {
       lsubdout(g_ceph_context, rgw, 0) << "Error: " << __func__ << " ::open(" << cache_location << ")" << dendl;
       return -errno;
     }
-    if (g_conf()->rgw_d3n_l1_fadvise != 0)
-      posix_fadvise(cb->aio_fildes, 0, 0, g_conf()->rgw_d3n_l1_fadvise);
+    if (g_conf()->rgw_d3n_l1_fadvise != POSIX_FADV_NORMAL)
+      posix_fadvise(d3n_aiocb.aio_fildes, 0, 0, g_conf()->rgw_d3n_l1_fadvise);
 
-    cb->aio_buf = (volatile void*)malloc(read_len);
-    cb->aio_nbytes = read_len;
-    cb->aio_offset = read_ofs;
-    cb->aio_sigevent.sigev_notify = SIGEV_THREAD;
-    cb->aio_sigevent.sigev_notify_function = cbf;
-    cb->aio_sigevent.sigev_notify_attributes = NULL;
+    d3n_aiocb.aio_buf = (volatile void*)malloc(read_len);
+    d3n_aiocb.aio_nbytes = read_len;
+    d3n_aiocb.aio_offset = read_ofs;
+    d3n_aiocb.aio_sigevent.sigev_notify = SIGEV_THREAD;
+    d3n_aiocb.aio_sigevent.sigev_notify_function = cbf;
+    d3n_aiocb.aio_sigevent.sigev_notify_attributes = NULL;
 
-    cb->aio_sigevent.sigev_value.sival_ptr = this;
-    this->paiocb = cb;
+    d3n_aiocb.aio_sigevent.sigev_value.sival_ptr = this;
     return 0;
   }
 
-  void d3n_libaio_release () {}
+  void d3n_libaio_release() {}
 
   void d3n_libaio_cancel_io() {
-    const std::lock_guard<std::mutex> l(lock);
+    const std::lock_guard l(lock);
     stat = ECANCELED;
   }
 
   int d3n_libaio_status() {
-    const std::lock_guard<std::mutex> l(lock);
+    const std::lock_guard l(lock);
     lsubdout(g_ceph_context, rgw_datacache, 30) << "D3nDataCache: " << __func__ << "(): key=" << key << ", stat=" << stat << dendl;
     if (stat != EINPROGRESS) {
       if (stat == ECANCELED) {
@@ -150,14 +148,14 @@ struct D3nL1CacheRequest : public D3nCacheRequest {
         return ECANCELED;
       }
     }
-    stat = aio_error(paiocb);
+    stat = aio_error(&d3n_aiocb);
     return stat;
   }
 
   void d3n_libaio_finish() {
-    const std::lock_guard<std::mutex> l(lock);
-    lsubdout(g_ceph_context, rgw_datacache, 20) << "D3nDataCache: " << __func__ << "(): Read From Cache, libaio callback - returning data: key=" << key << ", aio_nbytes=" << paiocb->aio_nbytes << dendl;
-    pbl->append((char*)paiocb->aio_buf, paiocb->aio_nbytes);
+    const std::lock_guard l(lock);
+    lsubdout(g_ceph_context, rgw_datacache, 20) << "D3nDataCache: " << __func__ << "(): Read From Cache, libaio callback - returning data: key=" << key << ", aio_nbytes=" << d3n_aiocb.aio_nbytes << dendl;
+    bl->append((char*)d3n_aiocb.aio_buf, d3n_aiocb.aio_nbytes);
   }
 };
 

@@ -1583,13 +1583,17 @@ struct get_obj_data {
   get_obj_data(RGWRados* rgwrados, RGWGetDataCB* cb, rgw::Aio* aio,
                uint64_t offset, optional_yield yield)
                : rgwrados(rgwrados), client_cb(cb), aio(aio), offset(offset), yield(yield) {}
+  ~get_obj_data() {
+    const std::lock_guard l(d3n_datacache_lock);
+  }
 
   std::timed_mutex d3n_datacache_lock;
+  Semaphore d3n_datacache_sem;
   std::list<bufferlist> d3n_read_list;
   std::list<string> d3n_pending_oid_list;
   void d3n_add_pending_oid(std::string oid);
   std::string d3n_get_pending_oid(const DoutPrefixProvider *dpp);
-  bool d3n_bypass_cache{false};
+  bool d3n_bypass_cache_write{false};
 
   int flush(rgw::AioResultList&& results) {
     int r = rgw::check_for_errors(results);

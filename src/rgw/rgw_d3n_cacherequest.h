@@ -19,7 +19,7 @@ class D3nCacheRequest {
   public:
     std::mutex lock;
     int sequence;
-    buffer::list* pbl;
+    buffer::list* bl;
     std::string oid;
     off_t ofs;
     off_t len;
@@ -27,7 +27,7 @@ class D3nCacheRequest {
     off_t read_ofs;
     rgw::AioResult* r = nullptr;
     rgw::Aio* aio = nullptr;
-    D3nCacheRequest() : sequence(0), pbl(nullptr), ofs(0), len(0), read_ofs(0) {};
+    D3nCacheRequest() : sequence(0), bl(nullptr), ofs(0), len(0), read_ofs(0) {};
     virtual ~D3nCacheRequest() {};
     virtual void d3n_libaio_release()=0;
     virtual void d3n_libaio_cancel_io()=0;
@@ -53,6 +53,7 @@ struct D3nL1CacheRequest : public D3nCacheRequest {
       }
       ::close(paiocb->aio_fildes);
       delete(paiocb);
+      paiocb = nullptr;
     }
 
     lsubdout(g_ceph_context, rgw_datacache, 30) << "D3nDataCache: " << __func__ << "(): Read From Cache, comlete" << dendl;
@@ -99,13 +100,13 @@ struct D3nL1CacheRequest : public D3nCacheRequest {
     return 0;
   }
 
-  int d3n_prepare_libaio_op(std::string obj_key, bufferlist* _bl, int read_len, int _ofs, int _read_ofs, std::string& cache_location,
+  int d3n_prepare_libaio_read_op(std::string obj_key, bufferlist* _bl, int read_len, int _ofs, int _read_ofs, std::string& cache_location,
                         sigval_cb cbf, rgw::Aio* _aio, rgw::AioResult* _r, std::timed_mutex* d_lock) {
     std::string location = cache_location + "/" + obj_key;
     lsubdout(g_ceph_context, rgw_datacache, 20) << "D3nDataCache: " << __func__ << "(): Read From Cache, location='" << location << "', ofs=" << ofs << ", read_ofs=" << read_ofs << " read_len=" << read_len << dendl;
     r = _r;
     aio = _aio;
-    pbl = _bl;
+    bl = _bl;
     ofs = _ofs;
     key = obj_key;
     len = read_len;
@@ -134,7 +135,7 @@ struct D3nL1CacheRequest : public D3nCacheRequest {
     return 0;
   }
 
-  void d3n_libaio_release () {}
+  void d3n_libaio_release() {}
 
   void d3n_libaio_cancel_io() {
     const std::lock_guard<std::mutex> l(lock);
@@ -157,7 +158,7 @@ struct D3nL1CacheRequest : public D3nCacheRequest {
   void d3n_libaio_finish() {
     const std::lock_guard<std::mutex> l(lock);
     lsubdout(g_ceph_context, rgw_datacache, 20) << "D3nDataCache: " << __func__ << "(): Read From Cache, libaio callback - returning data: key=" << key << ", aio_nbytes=" << paiocb->aio_nbytes << dendl;
-    pbl->append((char*)paiocb->aio_buf, paiocb->aio_nbytes);
+    bl->append((char*)paiocb->aio_buf, paiocb->aio_nbytes);
   }
 };
 

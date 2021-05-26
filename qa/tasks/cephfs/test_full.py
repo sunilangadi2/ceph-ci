@@ -75,7 +75,7 @@ class FullnessTestCase(CephFSTestCase):
         self.initial_osd_epoch = mds_status['osdmap_epoch_barrier']
 
         # Mark all the osds out except the first one for each remote.
-        self.mark_osds_out()
+        # self.mark_osds_out()
 
     def test_barrier(self):
         """

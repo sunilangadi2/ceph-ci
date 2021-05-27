@@ -486,7 +486,7 @@ void BitmapFreelistManager::allocate(
 {
   dout(10) << __func__ << " 0x" << std::hex << offset << "~" << length
 	   << std::dec << dendl;
-  if (is_null_manager() == false) {
+  if (!is_null_manager()) {
     _xor(offset, length, txn);
   }
 }
@@ -497,7 +497,7 @@ void BitmapFreelistManager::release(
 {
   dout(10) << __func__ << " 0x" << std::hex << offset << "~" << length
 	   << std::dec << dendl;
-  if (is_null_manager() == false) {
+  if (!is_null_manager()) {
     _xor(offset, length, txn);
   }
 }

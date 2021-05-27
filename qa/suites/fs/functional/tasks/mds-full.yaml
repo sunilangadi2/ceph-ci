@@ -32,6 +32,8 @@ overrides:
         debug client: 20
         debug objecter: 20
         debug objectcacher: 20
+    watchdog:
+      daemon_timeout: 900
 tasks:
   - cephfs_test_runner:
       modules:

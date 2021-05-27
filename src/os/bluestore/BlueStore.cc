@@ -3107,7 +3107,6 @@ unsigned BlueStore::ExtentMap::decode_some(bufferlist& bl)
 	le->blob_offset,
 	le->length);
     }
-
     pos += prev_len;
     ++n;
     extent_map.insert(*le);
@@ -5484,28 +5483,31 @@ int BlueStore::_create_alloc()
 }
 
 //-------------------------------------------------------------------------------------
-int BlueStore::commit_to_null_manager()
+static int commit_freelist_type(KeyValueDB *db, const std::string& freelist_type, CephContext *cct, const std::string &path)
 {
-  dout(1) << __func__ << "::NCB::Set FreelistManager to NULL FM..." << dendl;
-  fm->set_null_manager();
-  freelist_type = "null";
-  
+  // When freelist_type to "bitmap" we will store allocation in RocksDB
   // When allocation-info is stored in a single file we set freelist_type to "null"
-  // This will direct the startup code to read allocation from file and not RocksDB  
+  // This will direct the startup code to read allocation from file and not RocksDB
   KeyValueDB::Transaction t = db->get_transaction();
   if (t == nullptr) {
     derr << __func__ << "::NCB::db->get_transaction() failed!!!" << dendl;
     return -1;
   }
   
-  {
-    bufferlist bl;
-    bl.append("null");
-    ceph_assert(t);
-    t->set(PREFIX_SUPER, "freelist_type", bl);
-  }
-  ceph_assert(t);
+  bufferlist bl;
+  bl.append(freelist_type);
+  t->set(PREFIX_SUPER, "freelist_type", bl);
+
   return db->submit_transaction_sync(t);
+}
+
+//-------------------------------------------------------------------------------------
+int BlueStore::commit_to_null_manager()
+{
+  dout(1) << __func__ << "::NCB::Set FreelistManager to NULL FM..." << dendl;
+  fm->set_null_manager();
+  freelist_type = "null";
+  return commit_freelist_type(db, freelist_type, cct, path);
 }    
 
 
@@ -5515,26 +5517,10 @@ int BlueStore::commit_to_real_manager()
   dout(1) << __func__ << "::NCB::Set FreelistManager to Real FM..." << dendl;
   ceph_assert(!fm->is_null_manager()); 
   freelist_type = "bitmap";
-  
-  // When allocation-info is stored in a single file we set freelist_type to "null"
-  // This will direct the startup code to read allocation from file and not RocksDB  
-  KeyValueDB::Transaction t = db->get_transaction();
-  if (t == nullptr) {
-    derr << __func__ << "::NCB::db->get_transaction() failed!!!" << dendl;
-    return -1;
-  }
-  
-  {
-    bufferlist bl;
-    bl.append("bitmap");
-    ceph_assert(t);
-    t->set(PREFIX_SUPER, "freelist_type", bl);
-  }
-  ceph_assert(t);
-  return db->submit_transaction_sync(t);
+  return commit_freelist_type(db, freelist_type, cct, path);
 }
 
-int BlueStore::_init_alloc(bool read_only)
+int BlueStore::_init_alloc()
 {
   int r = _create_alloc();
   if (r < 0) {
@@ -5573,7 +5559,7 @@ int BlueStore::_init_alloc(bool read_only)
     dout(5) << __func__ << "::num_entries=" << num << " free_size=" << bytes << " alloc_size=" <<
       shared_alloc.a->get_capacity() - bytes << " time=" << duration << " seconds" << dendl;
   } else {
-    if (cct->_conf->bluestore_allocation_from_file == false) {
+    if (!cct->_conf->bluestore_allocation_from_file) {
       derr << __func__ << "::NCB::cct->_conf->bluestore_allocation_from_file is set to FALSE with a NULL-FM" << dendl;
       derr << __func__ << "::NCB::Please change the value of bluestore_allocation_from_file to TRUE in your ceph.conf file" << dendl;
       exit(0);
@@ -6030,7 +6016,7 @@ int BlueStore::_open_db_and_around(bool read_only, bool to_repair)
   if (r < 0)
     goto out_db;
 
-  r = _init_alloc(read_only);
+  r = _init_alloc();
   if (r < 0)
     goto out_fm;
 

@@ -15,7 +15,7 @@ class FreelistManager {
   bool         null_manager = false;
 public:
   CephContext* cct;
-  FreelistManager(CephContext* cct) : null_manager(false), cct(cct) {}
+  explicit FreelistManager(CephContext* cct) : cct(cct) {}
   virtual ~FreelistManager() {}
 
   static FreelistManager *create(
@@ -56,7 +56,7 @@ public:
     null_manager = true;
   }
   bool is_null_manager() {
-    return null_manager == true;
+    return null_manager;
   }
 };
 

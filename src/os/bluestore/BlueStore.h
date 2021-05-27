@@ -2388,7 +2388,7 @@ private:
   void _close_fm();
   int _write_out_fm_meta(uint64_t target_size);
   int _create_alloc();
-  int _init_alloc(bool read_only);
+  int _init_alloc();
   void _close_alloc();
   int _open_collections();
   void _fsck_collections(int64_t* errors);
@@ -3705,13 +3705,6 @@ public:
       return false;
     }
   };
-
-  bool fix_leaked_f(KeyValueDB *db,
-		  FreelistManager* fm,
-		  uint64_t offset, uint64_t len);
-  bool fix_false_free_f(KeyValueDB *db,
-		      FreelistManager* fm,
-		      uint64_t offset, uint64_t len);
 
 public:
   void fix_per_pool_omap(KeyValueDB *db, int);

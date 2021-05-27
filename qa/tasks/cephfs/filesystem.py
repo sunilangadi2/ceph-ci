@@ -619,8 +619,8 @@ class Filesystem(MDSCluster):
     # will let the pg autoscale mode to calculate the pg_num as needed.
     # We set the pg_num_min to 64 to make sure that pg autoscale mode
     # won't set the pg_num to low to fix Tracker#45434.
-    pg_num = 1024
-    pg_num_min = 1024
+    pg_num = 512
+    pg_num_min = 512
     target_size_ratio = 0.9
     target_size_ratio_ec = 0.9
 

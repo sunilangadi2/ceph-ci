@@ -3601,7 +3601,16 @@ int main(int argc, char **argv)
     }
     return 1;
   }
-
+  auto umount_fs = make_scope_guard([&] {
+    int r = fs->umount();
+    if (r < 0) {
+      cerr << "umount failed: " << cpp_strerror(r) << std::endl;
+      // If no previous error, then use umount() error
+      if (ret == 0) {
+	ret = r;
+      }
+    }
+  });
   if (op == "fuse") {
 #ifdef HAVE_LIBFUSE
     FuseStore fuse(fs.get(), mountpoint);
@@ -4419,14 +4428,6 @@ out:
     f->flush(ostr);
     delete f;
     cout <<  ostr.str() << std::endl;
-  }
-
-  int r = fs->umount();
-  if (r < 0) {
-    cerr << "umount failed: " << cpp_strerror(r) << std::endl;
-    // If no previous error, then use umount() error
-    if (ret == 0)
-      ret = r;
   }
 
   if (dry_run) {

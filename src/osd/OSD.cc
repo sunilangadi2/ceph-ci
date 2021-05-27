@@ -24,7 +24,6 @@
 #include <sys/stat.h>
 #include <signal.h>
 #include <time.h>
-#include <boost/scoped_ptr.hpp>
 #include <boost/range/adaptor/reversed.hpp>
 
 #ifdef HAVE_SYS_PARAM_H
@@ -42,6 +41,7 @@
 #include "include/types.h"
 #include "include/compat.h"
 #include "include/random.h"
+#include "include/scope_guard.h"
 
 #include "OSD.h"
 #include "OSDMap.h"
@@ -2030,14 +2030,16 @@ int heap(CephContext& cct, const cmdmap_t& cmdmap, Formatter& f, std::ostream& o
 
 } // namespace ceph::osd_cmds
 
-int OSD::mkfs(CephContext *cct, ObjectStore *store, uuid_d fsid, int whoami, string osdspec_affinity)
+int OSD::mkfs(CephContext *cct,
+	      std::unique_ptr<ObjectStore> store,
+	      uuid_d fsid,
+	      int whoami,
+	      string osdspec_affinity)
 {
   int ret;
 
   OSDSuperblock sb;
   bufferlist sbbl;
-  ObjectStore::CollectionHandle ch;
-
   // if we are fed a uuid for this osd, use it.
   store->set_fsid(cct->_conf->osd_uuid);
 
@@ -2045,7 +2047,7 @@ int OSD::mkfs(CephContext *cct, ObjectStore *store, uuid_d fsid, int whoami, str
   if (ret) {
     derr << "OSD::mkfs: ObjectStore::mkfs failed with error "
          << cpp_strerror(ret) << dendl;
-    goto free_store;
+    return ret;
   }
 
   store->set_cache_shards(1);  // doesn't matter for mkfs!
@@ -2054,15 +2056,20 @@ int OSD::mkfs(CephContext *cct, ObjectStore *store, uuid_d fsid, int whoami, str
   if (ret) {
     derr << "OSD::mkfs: couldn't mount ObjectStore: error "
          << cpp_strerror(ret) << dendl;
-    goto free_store;
+    return ret;
   }
 
-  ch = store->open_collection(coll_t::meta());
+  auto umount_store = make_scope_guard([&] {
+    store->umount();
+  });
+
+  ObjectStore::CollectionHandle ch =
+    store->open_collection(coll_t::meta());
   if (ch) {
     ret = store->read(ch, OSD_SUPERBLOCK_GOBJECT, 0, 0, sbbl);
     if (ret < 0) {
       derr << "OSD::mkfs: have meta collection but no superblock" << dendl;
-      goto free_store;
+      return ret;
     }
     /* if we already have superblock, check content of superblock */
     dout(0) << " have superblock" << dendl;
@@ -2071,14 +2078,12 @@ int OSD::mkfs(CephContext *cct, ObjectStore *store, uuid_d fsid, int whoami, str
     if (whoami != sb.whoami) {
       derr << "provided osd id " << whoami << " != superblock's " << sb.whoami
 	   << dendl;
-      ret = -EINVAL;
-      goto umount_store;
+      return -EINVAL;
     }
     if (fsid != sb.cluster_fsid) {
       derr << "provided cluster fsid " << fsid
 	   << " != superblock's " << sb.cluster_fsid << dendl;
-      ret = -EINVAL;
-      goto umount_store;
+      return -EINVAL;
     }
   } else {
     // create superblock
@@ -2099,24 +2104,15 @@ int OSD::mkfs(CephContext *cct, ObjectStore *store, uuid_d fsid, int whoami, str
     if (ret) {
       derr << "OSD::mkfs: error while writing OSD_SUPERBLOCK_GOBJECT: "
 	   << "queue_transaction returned " << cpp_strerror(ret) << dendl;
-      goto umount_store;
+      return ret;
     }
   }
 
-  ret = write_meta(cct, store, sb.cluster_fsid, sb.osd_fsid, whoami, osdspec_affinity);
+  ret = write_meta(cct, store.get(), sb.cluster_fsid, sb.osd_fsid, whoami, osdspec_affinity);
   if (ret) {
     derr << "OSD::mkfs: failed to write fsid file: error "
          << cpp_strerror(ret) << dendl;
-    goto umount_store;
   }
-
-umount_store:
-  if (ch) {
-    ch.reset();
-  }
-  store->umount();
-free_store:
-  delete store;
   return ret;
 }
 
@@ -2223,7 +2219,8 @@ int OSD::peek_meta(ObjectStore *store,
 
 // cons/des
 
-OSD::OSD(CephContext *cct_, ObjectStore *store_,
+OSD::OSD(CephContext *cct_,
+	 std::unique_ptr<ObjectStore> store_,
 	 int id,
 	 Messenger *internal_messenger,
 	 Messenger *external_messenger,
@@ -2246,7 +2243,7 @@ OSD::OSD(CephContext *cct_, ObjectStore *store_,
   mgrc(cct_, client_messenger, &mc->monmap),
   logger(create_logger()),
   recoverystate_perf(create_recoverystate_perf()),
-  store(store_),
+  store(std::move(store_)),
   log_client(cct, client_messenger, &mc->monmap, LogClient::NO_FLAGS),
   clog(log_client.create_channel()),
   whoami(id),
@@ -2338,7 +2335,6 @@ OSD::~OSD()
   cct->get_perfcounters_collection()->remove(logger);
   delete recoverystate_perf;
   delete logger;
-  delete store;
 }
 
 double OSD::get_tick_interval() const
@@ -3792,8 +3788,7 @@ int OSD::init()
 out:
   enable_disable_fuse(true);
   store->umount();
-  delete store;
-  store = NULL;
+  store.reset();
   return r;
 }
 
@@ -4356,8 +4351,7 @@ int OSD::shutdown()
 
   std::lock_guard lock(osd_lock);
   store->umount();
-  delete store;
-  store = nullptr;
+  store.reset();
   dout(10) << "Store synced" << dendl;
 
   op_tracker.on_shutdown();

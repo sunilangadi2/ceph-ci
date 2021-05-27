@@ -1119,7 +1119,7 @@ protected:
   MgrClient   mgrc;
   PerfCounters      *logger;
   PerfCounters      *recoverystate_perf;
-  ObjectStore *store;
+  std::unique_ptr<ObjectStore> store;
 #ifdef HAVE_LIBFUSE
   FuseStore *fuse_store = nullptr;
 #endif
@@ -2010,7 +2010,7 @@ private:
   /* internal and external can point to the same messenger, they will still
    * be cleaned up properly*/
   OSD(CephContext *cct_,
-      ObjectStore *store_,
+      std::unique_ptr<ObjectStore> store_,
       int id,
       Messenger *internal,
       Messenger *external,

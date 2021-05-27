@@ -2219,7 +2219,8 @@ int OSD::peek_meta(ObjectStore *store,
 
 // cons/des
 
-OSD::OSD(CephContext *cct_, ObjectStore *store_,
+OSD::OSD(CephContext *cct_,
+	 std::unique_ptr<ObjectStore> store_,
 	 int id,
 	 Messenger *internal_messenger,
 	 Messenger *external_messenger,
@@ -2242,7 +2243,7 @@ OSD::OSD(CephContext *cct_, ObjectStore *store_,
   mgrc(cct_, client_messenger, &mc->monmap),
   logger(create_logger()),
   recoverystate_perf(create_recoverystate_perf()),
-  store(store_),
+  store(std::move(store_)),
   log_client(cct, client_messenger, &mc->monmap, LogClient::NO_FLAGS),
   clog(log_client.create_channel()),
   whoami(id),
@@ -2334,7 +2335,6 @@ OSD::~OSD()
   cct->get_perfcounters_collection()->remove(logger);
   delete recoverystate_perf;
   delete logger;
-  delete store;
 }
 
 double OSD::get_tick_interval() const
@@ -3788,8 +3788,7 @@ int OSD::init()
 out:
   enable_disable_fuse(true);
   store->umount();
-  delete store;
-  store = NULL;
+  store.reset();
   return r;
 }
 
@@ -4352,8 +4351,7 @@ int OSD::shutdown()
 
   std::lock_guard lock(osd_lock);
   store->umount();
-  delete store;
-  store = nullptr;
+  store.reset();
   dout(10) << "Store synced" << dendl;
 
   op_tracker.on_shutdown();

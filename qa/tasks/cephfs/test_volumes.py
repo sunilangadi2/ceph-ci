@@ -6,7 +6,6 @@ import random
 import logging
 import collections
 import uuid
-import unittest
 from hashlib import md5
 from textwrap import dedent
 
@@ -2253,7 +2252,6 @@ class TestSubvolumes(TestVolumesHelper):
 
 class TestSubvolumeGroupSnapshots(TestVolumesHelper):
     """Tests for FS subvolume group snapshot operations."""
-    @unittest.skip("skipping subvolumegroup snapshot tests")
     def test_nonexistent_subvolume_group_snapshot_rm(self):
         subvolume = self._generate_random_subvolume_name()
         group = self._generate_random_group_name()
@@ -2289,7 +2287,6 @@ class TestSubvolumeGroupSnapshots(TestVolumesHelper):
         # remove group
         self._fs_cmd("subvolumegroup", "rm", self.volname, group)
 
-    @unittest.skip("skipping subvolumegroup snapshot tests")
     def test_subvolume_group_snapshot_create_and_rm(self):
         subvolume = self._generate_random_subvolume_name()
         group = self._generate_random_group_name()
@@ -2316,7 +2313,6 @@ class TestSubvolumeGroupSnapshots(TestVolumesHelper):
         # remove group
         self._fs_cmd("subvolumegroup", "rm", self.volname, group)
 
-    @unittest.skip("skipping subvolumegroup snapshot tests")
     def test_subvolume_group_snapshot_idempotence(self):
         subvolume = self._generate_random_subvolume_name()
         group = self._generate_random_group_name()
@@ -2346,7 +2342,6 @@ class TestSubvolumeGroupSnapshots(TestVolumesHelper):
         # remove group
         self._fs_cmd("subvolumegroup", "rm", self.volname, group)
 
-    @unittest.skip("skipping subvolumegroup snapshot tests")
     def test_subvolume_group_snapshot_ls(self):
         # tests the 'fs subvolumegroup snapshot ls' command
 
@@ -2369,7 +2364,6 @@ class TestSubvolumeGroupSnapshots(TestVolumesHelper):
             if collections.Counter(snapshotnames) != collections.Counter(snapshots):
                 raise RuntimeError("Error creating or listing subvolume group snapshots")
 
-    @unittest.skip("skipping subvolumegroup snapshot tests")
     def test_subvolume_group_snapshot_rm_force(self):
         # test removing non-existing subvolume group snapshot with --force
         group = self._generate_random_group_name()
@@ -2379,24 +2373,6 @@ class TestSubvolumeGroupSnapshots(TestVolumesHelper):
             self._fs_cmd("subvolumegroup", "snapshot", "rm", self.volname, group, snapshot, "--force")
         except CommandFailedError:
             raise RuntimeError("expected the 'fs subvolumegroup snapshot rm --force' command to succeed")
-
-    def test_subvolume_group_snapshot_unsupported_status(self):
-        group = self._generate_random_group_name()
-        snapshot = self._generate_random_snapshot_name()
-
-        # create group
-        self._fs_cmd("subvolumegroup", "create", self.volname, group)
-
-        # snapshot group
-        try:
-            self._fs_cmd("subvolumegroup", "snapshot", "create", self.volname, group, snapshot)
-        except CommandFailedError as ce:
-            self.assertEqual(ce.exitstatus, errno.ENOSYS, "invalid error code on subvolumegroup snapshot create")
-        else:
-            self.fail("expected subvolumegroup snapshot create command to fail")
-
-        # remove group
-        self._fs_cmd("subvolumegroup", "rm", self.volname, group)
 
 
 class TestSubvolumeSnapshots(TestVolumesHelper):

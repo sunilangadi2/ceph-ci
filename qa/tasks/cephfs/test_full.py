@@ -132,7 +132,7 @@ class FullnessTestCase(CephFSTestCase):
         else:
             log.info("Writing file B succeeded (full status will happen soon)")
             self.wait_until_true(lambda: self.is_full(),
-                                 timeout=osd_mon_report_interval * 5)
+                                 timeout=osd_mon_report_interval * 120)
 
         # Attempting to write more data should give me ENOSPC
         with self.assertRaises(CommandFailedError) as ar:

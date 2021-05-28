@@ -138,13 +138,20 @@ dump_cmd_to_json(Formatter *f, uint64_t features, const string& cmd)
 
   stringstream ss(cmd);
   std::string word;
+  bool positional = true;
 
   while (std::getline(ss, word, ' ')) {
+    if (word == "--") {
+      positional = false;
+      continue;
+    }
+
     // if no , or =, must be a plain word to put out
     if (word.find_first_of(",=") == string::npos) {
       f->dump_string("arg", word);
       continue;
     }
+
     // accumulate descriptor keywords in desckv
     auto desckv = cmddesc_get_args(word);
     // name the individual desc object based on the name key
@@ -168,7 +175,13 @@ dump_cmd_to_json(Formatter *f, uint64_t features, const string& cmd)
     }
 
     // dump all the keys including name into the array
+    if (!positional) {
+      desckv["positional"] = "false";
+    }
     for (auto [key, value] : desckv) {
+      if (key == "positional" && !HAVE_FEATURE(features, SERVER_QUINCY)) {
+	continue;
+      }
       f->dump_string(key, value);
     }
     f->close_section(); // attribute object for individual desc
@@ -566,9 +579,9 @@ bool validate_arg(CephContext* cct,
   try {
     if (!cmd_getval(cmdmap, string(name), v)) {
       if constexpr (is_vector) {
-	  // an empty list is acceptable.
-	  return true;
-	} else {
+	// an empty list is acceptable.
+	return true;
+      } else {
 	if (auto req = desc.find("req");
 	    req != end(desc) && req->second == "false") {
 	  return true;
@@ -668,6 +681,25 @@ bool cmd_getval(const cmdmap_t& cmdmap,
     } catch (boost::bad_get&) {
       throw bad_cmd_get(k, cmdmap);
     }
+  }
+}
+
+bool cmd_getval_compat_cephbool(
+  const cmdmap_t& cmdmap,
+  const std::string& k, bool& val)
+{
+  try {
+    return cmd_getval(cmdmap, k, val);
+  } catch (bad_cmd_get& e) {
+    // try as legacy/compat CephChoices
+    std::string t;
+    if (!cmd_getval(cmdmap, k, t)) {
+      return false;
+    }
+    std::string expected = "--"s + k;
+    std::replace(expected.begin(), expected.end(), '_', '-');
+    val = (t == expected);
+    return true;
   }
 }
 

@@ -21,5 +21,7 @@ tasks:
       - \(PG_
       - \(TOO_FEW_PGS\)
       - \(POOL_APP_NOT_ENABLED\)
+      - \(SLOW_OPS\)
+      - slow request
 - ceph_objectstore_tool:
     objects: 20

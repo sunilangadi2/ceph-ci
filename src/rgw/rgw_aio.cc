@@ -43,6 +43,8 @@ struct cache_state {
     : aio(aio) {}
 
   int submit_libaio_op(D3nL1CacheRequest* c) {
+    const std::lock_guard l1(D3nL1CacheRequest::d3n_libaio_cb_lock);
+    const std::lock_guard l2(*c->d3n_d_lock);
     lsubdout(g_ceph_context, rgw_datacache, 30) << "D3nDataCache: " << __func__ << "(): Read From Cache, key=" << c->key << dendl;
     int ret = 0;
     if((ret = ::aio_read(c->paiocb)) != 0) {

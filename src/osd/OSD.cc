@@ -10101,7 +10101,7 @@ void OSD::maybe_override_max_osd_capacity_for_qos()
     int64_t count = 12288000; // Count of bytes to write
     int64_t bsize = 4096;     // Block size
     int64_t osize = 4194304;  // Object size
-    int64_t onum = 200;       // Count of objects to write
+    int64_t onum = 100;       // Count of objects to write
     double elapsed = 0.0;     // Time taken to complete the test
     stringstream ss;
     int ret = run_osd_bench_test(count, bsize, osize, onum, &elapsed, ss);

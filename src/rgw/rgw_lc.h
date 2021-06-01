@@ -514,14 +514,14 @@ public:
   int process(LCWorker* worker, bool once);
   int process(int index, int max_secs, LCWorker* worker, bool once);
   bool if_already_run_today(time_t start_date);
-  bool expired_session(time_t started);
+  bool expired_session(const DoutPrefixProvider *dpp, time_t started);
   time_t thread_stop_at();
   int list_lc_progress(string& marker, uint32_t max_entries,
 		       vector<rgw::sal::Lifecycle::LCEntry>&, int& index);
-  int bucket_lc_prepare(int index, LCWorker* worker);
+  int bucket_lc_prepare(const DoutPrefixProvider *dpp, int index, LCWorker* worker);
   int bucket_lc_process(string& shard_id, LCWorker* worker, time_t stop_at,
 			bool once);
-  int bucket_lc_post(int index, int max_lock_sec,
+  int bucket_lc_post(const DoutPrefixProvider *dpp, int index, int max_lock_sec,
 		     rgw::sal::Lifecycle::LCEntry& entry, int& result, LCWorker* worker);
   bool going_down();
   void start_processor();
@@ -539,7 +539,8 @@ public:
 
   private:
 
-  int handle_multipart_expiration(rgw::sal::Bucket* target,
+  int handle_multipart_expiration(const DoutPrefixProvider *dpp,
+                                  rgw::sal::Bucket* target,
 				  const multimap<string, lc_op>& prefix_map,
 				  LCWorker* worker, time_t stop_at, bool once);
 };

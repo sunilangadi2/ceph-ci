@@ -37,6 +37,7 @@
 #include "services/svc_zone.h"
 #include "services/svc_tier_rados.h"
 #include "services/svc_quota.h"
+#include "services/svc_qos.h"
 #include "services/svc_config_key.h"
 #include "services/svc_zone_utils.h"
 #include "cls/rgw/cls_rgw_client.h"
@@ -1238,7 +1239,12 @@ void RadosStore::get_quota(RGWQuotaInfo& bucket_quota, RGWQuotaInfo& user_quota)
     bucket_quota = svc()->quota->get_bucket_quota();
     user_quota = svc()->quota->get_user_quota();
 }
-
+void RadosStore::get_qos(RGWQoSInfo& bucket_qos, RGWQoSInfo& user_qos, RGWQoSInfo& anon_qos)
+{
+  bucket_qos = svc()->qos->get_bucket_qos();
+  user_qos = svc()->qos->get_user_qos();
+  anon_qos = svc()->qos->get_anon_qos();
+}
 int RadosStore::set_buckets_enabled(const DoutPrefixProvider* dpp, vector<rgw_bucket>& buckets, bool enabled)
 {
     return rados->set_buckets_enabled(buckets, enabled, dpp);

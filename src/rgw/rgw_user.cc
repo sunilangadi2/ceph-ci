@@ -1772,7 +1772,6 @@ int RGWUser::execute_add(const DoutPrefixProvider *dpp, RGWUserAdminOpState& op_
   user_info.user_id = user_id;
   user_info.display_name = display_name;
   user_info.type = TYPE_RGW;
-
   if (!user_email.empty())
     user_info.user_email = user_email;
 
@@ -2108,7 +2107,9 @@ int RGWUser::execute_modify(const DoutPrefixProvider *dpp, RGWUserAdminOpState& 
   if (op_state.placement_tags_specified) {
     user_info.placement_tags = op_state.placement_tags;
   }
-
+  if (op_state.user_ratelimit_specified) {
+    user_info.qos_info = op_state.user_qos;
+  }
   op_state.set_user_info(user_info);
 
   // if we're supposed to modify keys, do so

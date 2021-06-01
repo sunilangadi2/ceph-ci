@@ -18,6 +18,8 @@
 
 #include <array>
 #include <string_view>
+#include <atomic>
+#include <unordered_map>
 
 #include "common/ceph_crypto.h"
 #include "common/random_string.h"
@@ -39,6 +41,7 @@
 #include "include/rados/librados.hpp"
 #include "rgw_public_access.h"
 #include "rgw_tracer.h"
+#include "rgw_qos.h"
 
 namespace ceph {
   class Formatter;
@@ -301,6 +304,7 @@ struct rgw_err {
   std::string err_code;
   std::string message;
 };
+
 
 /* Helper class used for RGWHTTPArgs parsing */
 class NameVal
@@ -708,6 +712,7 @@ struct RGWUserInfo
   RGWQuotaInfo bucket_quota;
   std::map<int, std::string> temp_url_keys;
   RGWQuotaInfo user_quota;
+  RGWQoSInfo qos_info;
   uint32_t type;
   std::set<std::string> mfa_ids;
   std::string assumed_role_arn;
@@ -733,7 +738,7 @@ struct RGWUserInfo
   }
 
   void encode(bufferlist& bl) const {
-     ENCODE_START(22, 9, bl);
+     ENCODE_START(23, 9, bl);
      encode((uint64_t)0, bl); // old auid
      std::string access_key;
      std::string secret_key;
@@ -777,10 +782,11 @@ struct RGWUserInfo
      encode(mfa_ids, bl);
      encode(assumed_role_arn, bl);
      encode(user_id.ns, bl);
+     encode(qos_info, bl);
      ENCODE_FINISH(bl);
   }
   void decode(bufferlist::const_iterator& bl) {
-     DECODE_START_LEGACY_COMPAT_LEN_32(22, 9, 9, bl);
+     DECODE_START_LEGACY_COMPAT_LEN_32(23, 9, 9, bl);
      if (struct_v >= 2) {
        uint64_t old_auid;
        decode(old_auid, bl);
@@ -865,6 +871,9 @@ struct RGWUserInfo
       decode(user_id.ns, bl);
     } else {
       user_id.ns.clear();
+    }
+    if (struct_v >= 23) {
+      decode(qos_info, bl);
     }
     DECODE_FINISH(bl);
   }
@@ -1025,6 +1034,7 @@ struct RGWBucketInfo {
   bool has_instance_obj{false};
   RGWObjVersionTracker objv_tracker; /* we don't need to serialize this, for runtime tracking */
   RGWQuotaInfo quota;
+  RGWQoSInfo qos_info;
 
   // layout of bucket index objects
   rgw::BucketLayout layout;
@@ -1516,6 +1526,8 @@ struct req_state : DoutPrefixProvider {
   rgw::io::BasicClient *cio{nullptr};
   http_op op{OP_UNKNOWN};
   RGWOpType op_type{};
+  std::shared_ptr<QosDatastruct> qos_data;
+  bool concurrent_started{false};
   bool content_started{false};
   int format{0};
   ceph::Formatter *formatter{nullptr};

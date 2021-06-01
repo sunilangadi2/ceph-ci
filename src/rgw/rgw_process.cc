@@ -6,6 +6,7 @@
 #include "common/WorkQueue.h"
 #include "include/scope_guard.h"
 
+#include <utility>
 #include "rgw_dmclock_scheduler.h"
 #include "rgw_rest.h"
 #include "rgw_frontend.h"
@@ -17,6 +18,7 @@
 #include "rgw_perf_counters.h"
 #include "rgw_lua.h"
 #include "rgw_lua_request.h"
+#include "rgw_qos.h"
 
 #include "services/svc_zone_utils.h"
 
@@ -169,6 +171,11 @@ int rgw_process_authenticated(RGWHandler_REST * const handler,
   ldpp_dout(op, 2) << "pre-executing" << dendl;
   op->pre_exec();
 
+  ldpp_dout(op, 2) << "check rate limiting" << dendl;
+  bool islimited = op->rate_limit();
+  if (islimited)
+    return -ERR_RATE_LIMITED;
+
   ldpp_dout(op, 2) << "executing" << dendl;
   {
     auto span = rgw_tracer.start_span("execute", s->trace);
@@ -194,6 +201,7 @@ int process_request(rgw::sal::Store* const store,
 		    rgw::dmclock::Scheduler *scheduler,
                     string* user,
                     ceph::coarse_real_clock::duration* latency,
+                    std::shared_ptr<QosDatastruct> ratelimit,
                     int* http_ret)
 {
   int ret = client_io->init(g_ceph_context);
@@ -207,6 +215,7 @@ int process_request(rgw::sal::Store* const store,
   struct req_state rstate(g_ceph_context, &rgw_env, req->id);
   struct req_state *s = &rstate;
 
+  s->qos_data = ratelimit;
   std::unique_ptr<rgw::sal::User> u = store->get_user(rgw_user());
   s->set_user(u);
 
@@ -354,7 +363,6 @@ done:
     dout(0) << "ERROR: client_io->complete_request() returned "
             << e.what() << dendl;
   }
-
   if (should_log) {
     rgw_log_op(store, rest, s, (op ? op->name() : "unknown"), olog);
   }
@@ -383,7 +391,17 @@ done:
   if (latency) {
     *latency = lat;
   }
-
+  if(s->concurrent_started) {
+    std::string userfind;
+    s->user->get_id().to_str(userfind);
+    userfind = "u" + userfind;
+    std::string bucketfind = !rgw::sal::Bucket::empty(s->bucket.get()) ? "b" + s->bucket->get_marker() : "";
+    const char *method = s->info.method;
+    std::cout << userfind << std::endl;
+    s->qos_data->decrease_concurrent_ops(method, userfind);
+    if(!rgw::sal::Bucket::empty(s->bucket.get()))
+      s->qos_data->decrease_concurrent_ops(method, bucketfind);
+  }
   dout(1) << "====== req done req=" << hex << req << dec
 	  << " op status=" << op_ret
 	  << " http_status=" << s->err.http_ret

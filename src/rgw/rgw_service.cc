@@ -21,6 +21,7 @@
 #include "services/svc_zone.h"
 #include "services/svc_zone_utils.h"
 #include "services/svc_quota.h"
+#include "services/svc_qos.h"
 #include "services/svc_sync_modules.h"
 #include "services/svc_sys_obj.h"
 #include "services/svc_sys_obj_cache.h"
@@ -70,6 +71,7 @@ int RGWServices_Def::init(CephContext *cct,
   zone = std::make_unique<RGWSI_Zone>(cct);
   zone_utils = std::make_unique<RGWSI_ZoneUtils>(cct);
   quota = std::make_unique<RGWSI_Quota>(cct);
+  qos = std::make_unique<RGWSI_QoS>(cct);
   sync_modules = std::make_unique<RGWSI_SyncModules>(cct);
   sysobj = std::make_unique<RGWSI_SysObj>(cct);
   sysobj_core = std::make_unique<RGWSI_SysObj_Core>(cct);
@@ -103,6 +105,7 @@ int RGWServices_Def::init(CephContext *cct,
   zone->init(sysobj.get(), rados.get(), sync_modules.get(), bucket_sync_sobj.get());
   zone_utils->init(rados.get(), zone.get());
   quota->init(zone.get());
+  qos->init(zone.get());
   sync_modules->init(zone.get());
   sysobj_core->core_init(rados.get(), zone.get());
   if (have_cache) {
@@ -187,6 +190,11 @@ int RGWServices_Def::init(CephContext *cct,
     ldpp_dout(dpp, 0) << "ERROR: failed to start quota service (" << cpp_strerror(-r) << dendl;
     return r;
   }
+  r = qos->start(y, dpp);
+  if (r < 0) {
+    ldpp_dout(dpp, 0) << "ERROR: failed to start qos service (" << cpp_strerror(-r) << dendl;
+    return r;
+  }
 
   r = sysobj_core->start(y, dpp);
   if (r < 0) {
@@ -268,6 +276,7 @@ void RGWServices_Def::shutdown()
     sysobj_cache->shutdown();
   }
   quota->shutdown();
+  qos->shutdown();
   zone_utils->shutdown();
   zone->shutdown();
   rados->shutdown();
@@ -308,6 +317,7 @@ int RGWServices::do_init(CephContext *_cct, bool have_cache, bool raw, bool run_
   zone = _svc.zone.get();
   zone_utils = _svc.zone_utils.get();
   quota = _svc.quota.get();
+  qos = _svc.qos.get();
   sync_modules = _svc.sync_modules.get();
   sysobj = _svc.sysobj.get();
   cache = _svc.sysobj_cache.get();

@@ -55,6 +55,7 @@
 
 #include "services/svc_zone.h"
 #include "services/svc_quota.h"
+#include "services/svc_qos.h"
 #include "services/svc_sys_obj.h"
 
 #include "cls/lock/cls_lock_client.h"

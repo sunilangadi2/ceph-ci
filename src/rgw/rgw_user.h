@@ -164,9 +164,13 @@ struct RGWUserAdminOpState {
 
   bool bucket_quota_specified{false};
   bool user_quota_specified{false};
+  bool bucket_ratelimit_specified{false};
+  bool user_ratelimit_specified{false};
 
   RGWQuotaInfo bucket_quota;
   RGWQuotaInfo user_quota;
+  RGWQoSInfo user_qos;
+  RGWQoSInfo bucket_qos;
 
   // req parameters for listing user
   std::string marker{""};
@@ -196,7 +200,6 @@ struct RGWUserAdminOpState {
     gen_secret = false;
     key_op = true;
   }
-
   void set_user_id(const rgw_user& id);
 
   void set_new_user_id(const rgw_user& id) {
@@ -326,7 +329,17 @@ struct RGWUserAdminOpState {
     user_quota_specified = true;
   }
 
-  void set_mfa_ids(const std::set<std::string>& ids) {
+  void set_bucket_ratelimit(RGWQoSInfo& qos) {
+    bucket_qos = qos;
+    bucket_ratelimit_specified = true;
+  }
+
+  void set_user_ratelimit(RGWQoSInfo& qos) {
+    user_qos = qos;
+    user_ratelimit_specified = true;
+  }
+
+  void set_mfa_ids(const std::set<string>& ids) {
     mfa_ids = ids;
     mfa_ids_specified = true;
   }

@@ -68,6 +68,7 @@ class RGWSI_RADOS;
 class RGWSI_Zone;
 class RGWSI_ZoneUtils;
 class RGWSI_Quota;
+class RGWSI_QoS;
 class RGWSI_SyncModules;
 class RGWSI_SysObj;
 class RGWSI_SysObj_Core;
@@ -98,6 +99,7 @@ struct RGWServices_Def
   std::unique_ptr<RGWSI_Zone> zone;
   std::unique_ptr<RGWSI_ZoneUtils> zone_utils;
   std::unique_ptr<RGWSI_Quota> quota;
+  std::unique_ptr<RGWSI_QoS> qos;
   std::unique_ptr<RGWSI_SyncModules> sync_modules;
   std::unique_ptr<RGWSI_SysObj> sysobj;
   std::unique_ptr<RGWSI_SysObj_Core> sysobj_core;
@@ -141,6 +143,7 @@ struct RGWServices
   RGWSI_Zone *zone{nullptr};
   RGWSI_ZoneUtils *zone_utils{nullptr};
   RGWSI_Quota *quota{nullptr};
+  RGWSI_QoS *qos{nullptr};
   RGWSI_SyncModules *sync_modules{nullptr};
   RGWSI_SysObj *sysobj{nullptr};
   RGWSI_SysObj_Cache *cache{nullptr};

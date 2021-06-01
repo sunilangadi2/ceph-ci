@@ -880,11 +880,18 @@ struct RGWPeriodConfig
 {
   RGWQuotaInfo bucket_quota;
   RGWQuotaInfo user_quota;
+  RGWQoSInfo user_qos;
+  RGWQoSInfo bucket_qos;
+  // rate limit unauthenticated user
+  RGWQoSInfo anon_qos;
 
   void encode(bufferlist& bl) const {
     ENCODE_START(1, 1, bl);
     encode(bucket_quota, bl);
     encode(user_quota, bl);
+    encode(bucket_qos, bl);
+    encode(user_qos, bl);
+    encode(anon_qos, bl);
     ENCODE_FINISH(bl);
   }
 
@@ -892,6 +899,9 @@ struct RGWPeriodConfig
     DECODE_START(1, bl);
     decode(bucket_quota, bl);
     decode(user_quota, bl);
+    decode(bucket_qos, bl);
+    decode(user_qos, bl);
+    decode(anon_qos, bl);
     DECODE_FINISH(bl);
   }
 
@@ -918,6 +928,9 @@ struct RGWRegionMap {
 
   RGWQuotaInfo bucket_quota;
   RGWQuotaInfo user_quota;
+  RGWQoSInfo bucket_qos;
+  RGWQoSInfo user_qos;
+  RGWQoSInfo anon_qos;
 
   void encode(bufferlist& bl) const;
   void decode(bufferlist::const_iterator& bl);
@@ -936,6 +949,9 @@ struct RGWZoneGroupMap {
 
   RGWQuotaInfo bucket_quota;
   RGWQuotaInfo user_quota;
+  RGWQoSInfo bucket_qos;
+  RGWQoSInfo user_qos;
+  RGWQoSInfo anon_qos;
 
   /* construct the map */
   int read(const DoutPrefixProvider *dpp, CephContext *cct, RGWSI_SysObj *sysobj_svc, optional_yield y);

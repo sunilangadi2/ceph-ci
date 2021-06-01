@@ -28,6 +28,7 @@
 #include "rgw_resolve.h"
 #include "rgw_sal_rados.h"
 
+#include "rgw_qos.h"
 #include <numeric>
 
 #define dout_subsys ceph_subsys_rgw
@@ -759,6 +760,20 @@ int dump_body(struct req_state* const s,
               const char* const buf,
               const size_t len)
 {
+  bool healthchk = false;
+  // we dont want to limit health checks
+  if(s->op_type == RGW_OP_GET_HEALTH_CHECK)
+    healthchk = true;
+  if(len > 0 && !healthchk) {
+    std::string userfind;
+    s->user->get_id().to_str(userfind);
+    userfind = "u" + userfind;
+    std::string bucketfind = !rgw::sal::Bucket::empty(s->bucket.get()) ? "b" + s->bucket->get_marker() : "";
+    const char *method = s->info.method;
+    s->qos_data->increase_bw(method, userfind, len);
+    if(!rgw::sal::Bucket::empty(s->bucket.get()))
+      s->qos_data->increase_bw(method, bucketfind, len);
+  }
   try {
     return RESTFUL_IO(s)->send_body(buf, len);
   } catch (rgw::io::Exception& e) {
@@ -781,7 +796,22 @@ int recv_body(struct req_state* const s,
               const size_t max)
 {
   try {
-    return RESTFUL_IO(s)->recv_body(buf, max);
+    int len = RESTFUL_IO(s)->recv_body(buf, max);
+    bool healthchk = false;
+    // we dont want to limit health checks
+    if(s->op_type ==  RGW_OP_GET_HEALTH_CHECK)
+      healthchk = true;
+    if(len > 0 && !healthchk) {
+      std::string userfind;
+      s->user->get_id().to_str(userfind);
+      userfind = "u" + userfind;
+      std::string bucketfind = !rgw::sal::Bucket::empty(s->bucket.get()) ? "b" + s->bucket->get_marker() : "";
+      const char *method = s->info.method;
+      s->qos_data->increase_bw(method, userfind, len);
+      if(!rgw::sal::Bucket::empty(s->bucket.get()))
+        s->qos_data->increase_bw(method, bucketfind, len);
+    }
+    return len;
   } catch (rgw::io::Exception& e) {
     return -e.code().value();
   }

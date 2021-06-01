@@ -500,6 +500,8 @@ void RGWUserInfo::dump(Formatter *f) const
   encode_json("bucket_quota", bucket_quota, f);
   encode_json("user_quota", user_quota, f);
   encode_json("temp_url_keys", temp_url_keys, f);
+  encode_json("user_qos", qos_info, f);
+
 
   string user_source_type;
   switch ((RGWIdentityType)type) {
@@ -581,6 +583,7 @@ void RGWUserInfo::decode_json(JSONObj *obj)
   JSONDecoder::decode_json("bucket_quota", bucket_quota, obj);
   JSONDecoder::decode_json("user_quota", user_quota, obj);
   JSONDecoder::decode_json("temp_url_keys", temp_url_keys, obj);
+  JSONDecoder::decode_json("user_qos", qos_info, obj);
 
   string user_source_type;
   JSONDecoder::decode_json("type", user_source_type, obj);
@@ -604,6 +607,24 @@ void RGWQuotaInfo::dump(Formatter *f) const
   f->dump_int("max_size", max_size);
   f->dump_int("max_size_kb", rgw_rounded_kb(max_size));
   f->dump_int("max_objects", max_objects);
+}
+
+void RGWQoSInfo::decode_json(JSONObj *obj)
+{
+  JSONDecoder::decode_json("max_read_ops", max_read_ops, obj);
+  JSONDecoder::decode_json("max_write_ops", max_write_ops, obj);
+  JSONDecoder::decode_json("max_read_bytes", max_read_ops, obj);
+  JSONDecoder::decode_json("max_write_bytes", max_write_ops, obj);
+  JSONDecoder::decode_json("enabled", enabled, obj);
+}
+
+void RGWQoSInfo::dump(Formatter *f) const
+{
+  f->dump_int("max_read_ops", max_read_ops);
+  f->dump_int("max_write_ops", max_write_ops);
+  f->dump_int("max_read_bytes", max_read_bytes);
+  f->dump_int("max_write_bytes", max_write_bytes);
+  f->dump_bool("enabled", enabled);
 }
 
 void RGWQuotaInfo::decode_json(JSONObj *obj)
@@ -804,6 +825,10 @@ void RGWBucketInfo::dump(Formatter *f) const
   if (!empty_sync_policy()) {
     encode_json("sync_policy", *sync_policy, f);
   }
+  encode_json("limit_read_ops", qos_info.max_read_ops, f);
+  encode_json("limit_write_ops", qos_info.max_write_ops, f);
+  encode_json("limit_read_bytes", qos_info.max_read_bytes, f);
+  encode_json("limit_write_bytes", qos_info.max_write_bytes, f);
 }
 
 void RGWBucketInfo::decode_json(JSONObj *obj) {
@@ -847,6 +872,10 @@ void RGWBucketInfo::decode_json(JSONObj *obj) {
   if (!sp.empty()) {
     set_sync_policy(std::move(sp));
   }
+  JSONDecoder::decode_json("limit_read_ops", qos_info.max_read_ops, obj);
+  JSONDecoder::decode_json("limit_write_ops", qos_info.max_write_ops, obj);
+  JSONDecoder::decode_json("limit_read_bytes", qos_info.max_read_bytes, obj);
+  JSONDecoder::decode_json("limit_write_bytes", qos_info.max_write_bytes, obj);
 }
 
 void rgw_sync_directional_rule::dump(Formatter *f) const
@@ -1507,12 +1536,18 @@ void RGWPeriodConfig::dump(Formatter *f) const
 {
   encode_json("bucket_quota", bucket_quota, f);
   encode_json("user_quota", user_quota, f);
+  encode_json("user_qos", user_qos, f);
+  encode_json("bucket_qos", bucket_qos, f);
+  encode_json("anonymous_qos", anon_qos, f);
 }
 
 void RGWPeriodConfig::decode_json(JSONObj *obj)
 {
   JSONDecoder::decode_json("bucket_quota", bucket_quota, obj);
   JSONDecoder::decode_json("user_quota", user_quota, obj);
+  JSONDecoder::decode_json("user_qos", user_qos, obj);
+  JSONDecoder::decode_json("bucket_qos", bucket_qos, obj);
+  JSONDecoder::decode_json("anonymous_qos", anon_qos, obj);
 }
 
 void RGWRegionMap::dump(Formatter *f) const
@@ -1521,6 +1556,8 @@ void RGWRegionMap::dump(Formatter *f) const
   encode_json("master_region", master_region, f);
   encode_json("bucket_quota", bucket_quota, f);
   encode_json("user_quota", user_quota, f);
+  encode_json("user_qos", user_qos, f);
+  encode_json("anonymous_qos", anon_qos, f);
 }
 
 void RGWRegionMap::decode_json(JSONObj *obj)
@@ -1529,6 +1566,9 @@ void RGWRegionMap::decode_json(JSONObj *obj)
   JSONDecoder::decode_json("master_region", master_region, obj);
   JSONDecoder::decode_json("bucket_quota", bucket_quota, obj);
   JSONDecoder::decode_json("user_quota", user_quota, obj);
+  JSONDecoder::decode_json("user_qos", user_qos, obj);
+  JSONDecoder::decode_json("bucket_qos", bucket_qos, obj);
+  JSONDecoder::decode_json("anonymous_qos", anon_qos, obj);
 }
 
 void RGWZoneGroupMap::dump(Formatter *f) const
@@ -1537,6 +1577,9 @@ void RGWZoneGroupMap::dump(Formatter *f) const
   encode_json("master_zonegroup", master_zonegroup, f);
   encode_json("bucket_quota", bucket_quota, f);
   encode_json("user_quota", user_quota, f);
+  encode_json("user_qos", user_qos, f);
+  encode_json("bucket_qos", bucket_qos, f);
+  encode_json("anonymous_qos", anon_qos, f);
 }
 
 void RGWZoneGroupMap::decode_json(JSONObj *obj)
@@ -1554,6 +1597,9 @@ void RGWZoneGroupMap::decode_json(JSONObj *obj)
 
   JSONDecoder::decode_json("bucket_quota", bucket_quota, obj);
   JSONDecoder::decode_json("user_quota", user_quota, obj);
+  JSONDecoder::decode_json("user_qos", user_qos, obj);
+  JSONDecoder::decode_json("bucket_qos", bucket_qos, obj);
+  JSONDecoder::decode_json("anonymous_qos", anon_qos, obj);
 }
 
 void RGWMetadataLogInfo::dump(Formatter *f) const

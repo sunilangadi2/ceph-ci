@@ -30,6 +30,7 @@ set(librgw_common_srcs
   services/svc_notify.cc
   services/svc_otp.cc
   services/svc_quota.cc
+  services/svc_qos.cc
   services/svc_sync_modules.cc
   services/svc_rados.cc
   services/svc_sys_obj.cc
@@ -293,6 +294,7 @@ endif()
 if(WITH_RADOSGW_KAFKA_ENDPOINT)
   find_package(RDKafka 0.9.2 REQUIRED)
 endif()
+find_package(TBB REQUIRED)
 
 target_link_libraries(rgw_a
   PRIVATE
@@ -310,6 +312,8 @@ if(WITH_CURL_OPENSSL)
 endif()
 
 set(rgw_libs rgw_a)
+
+list(APPEND rgw_libs tbb)
 
 list(APPEND rgw_libs ${LUA_LIBRARIES})
 
@@ -437,7 +441,7 @@ endif()
 if(WITH_RADOSGW_KAFKA_ENDPOINT)
   target_link_libraries(rgw PRIVATE RDKafka::RDKafka)
 endif()
-
+target_link_libraries(rgw PRIVATE tbb)
 target_link_libraries(rgw PRIVATE ${LUA_LIBRARIES})
 
 set_target_properties(rgw PROPERTIES OUTPUT_NAME rgw VERSION 2.0.0

@@ -236,6 +236,39 @@ public:
     this->s = s;
     this->dialect_handler = dialect_handler;
   }
+  virtual bool rate_limit() {
+    // we dont want to limit health check requests
+    if (get_type() ==  RGW_OP_GET_HEALTH_CHECK)
+      return false;
+    std::string userfind;
+    RGWQoSInfo global_user;
+    RGWQoSInfo global_bucket;
+    RGWQoSInfo global_anon;
+    RGWQoSInfo user_info;
+    RGWQoSInfo bucket_info;
+    store->get_qos(global_bucket, global_user, global_anon);
+    bucket_info = global_bucket;
+    user_info = global_user;
+    s->user->get_id().to_str(userfind);
+    userfind = "u" + userfind;
+    std::string bucketfind = !rgw::sal::Bucket::empty(s->bucket.get()) ? "b" + s->bucket->get_marker() : "";
+    const char *method = s->info.method;
+    int64_t time = std::chrono::duration_cast<std::chrono::seconds>(s->time.time_since_epoch()).count();
+    s->qos_data->increase_entry(method, userfind, time);
+    s->qos_data->increase_entry(method, bucketfind, time);
+    s->concurrent_started = true;
+    if (s->user->get_id().id == RGW_USER_ANON_ID && global_anon.enabled) {
+        user_info = global_anon;
+    } else if (s->user->get_info().qos_info.enabled) {
+        user_info = s->user->get_info().qos_info;
+    }
+    if (!rgw::sal::Bucket::empty(s->bucket.get()) && s->bucket->get_info().qos_info.enabled)
+      bucket_info = s->bucket->get_info().qos_info;
+
+    bool limit_user = !s->qos_data->check_entry(method, userfind, user_info);
+    bool limit_bucket = !s->qos_data->check_entry(method, bucketfind, bucket_info);
+    return (limit_user || limit_bucket);
+  }
   int read_bucket_cors();
   bool generate_cors_headers(std::string& origin, std::string& method, std::string& headers, std::string& exp_headers, unsigned *max_age);
 

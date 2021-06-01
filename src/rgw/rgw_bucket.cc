@@ -1079,6 +1079,7 @@ static int bucket_stats(rgw::sal::Store* store,
   formatter->dump_string("max_marker", max_marker);
   dump_bucket_usage(stats, formatter);
   encode_json("bucket_quota", bucket->get_info().quota, formatter);
+  encode_json("bucket_qos", bucket->get_info().qos_info, formatter);
 
   // bucket tags
   auto iter = bucket->get_attrs().find(RGW_ATTR_TAGS);

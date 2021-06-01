@@ -98,28 +98,29 @@ def assert_rm_service(cephadm: CephadmOrchestrator, srv_name):
 
 @contextmanager
 def with_service(cephadm_module: CephadmOrchestrator, spec: ServiceSpec, meth=None, host: str = '') -> Iterator[List[str]]:
-    if spec.placement.is_empty() and host:
-        spec.placement = PlacementSpec(hosts=[host], count=1)
-    if meth is not None:
-        c = meth(cephadm_module, spec)
-        assert wait(cephadm_module, c) == f'Scheduled {spec.service_name()} update...'
-    else:
-        c = cephadm_module.apply([spec])
-        assert wait(cephadm_module, c) == [f'Scheduled {spec.service_name()} update...']
+    with mock.patch("cephadm.module.CephadmOrchestrator.connect_dashboard_rgw"):
+        if spec.placement.is_empty() and host:
+            spec.placement = PlacementSpec(hosts=[host], count=1)
+        if meth is not None:
+            c = meth(cephadm_module, spec)
+            assert wait(cephadm_module, c) == f'Scheduled {spec.service_name()} update...'
+        else:
+            c = cephadm_module.apply([spec])
+            assert wait(cephadm_module, c) == [f'Scheduled {spec.service_name()} update...']
 
-    specs = [d.spec for d in wait(cephadm_module, cephadm_module.describe_service())]
-    assert spec in specs
+        specs = [d.spec for d in wait(cephadm_module, cephadm_module.describe_service())]
+        assert spec in specs
 
-    CephadmServe(cephadm_module)._apply_all_services()
+        CephadmServe(cephadm_module)._apply_all_services()
 
-    dds = wait(cephadm_module, cephadm_module.list_daemons())
-    own_dds = [dd for dd in dds if dd.service_name() == spec.service_name()]
-    if host:
-        assert own_dds
+        dds = wait(cephadm_module, cephadm_module.list_daemons())
+        own_dds = [dd for dd in dds if dd.service_name() == spec.service_name()]
+        if host:
+            assert own_dds
 
-    yield [dd.name() for dd in own_dds]
+        yield [dd.name() for dd in own_dds]
 
-    assert_rm_service(cephadm_module, spec.service_name())
+        assert_rm_service(cephadm_module, spec.service_name())
 
 
 def _deploy_cephadm_binary(host):

@@ -245,6 +245,11 @@ struct RGWBucketAdminOpState {
   std::unique_ptr<rgw::sal::Bucket>  bucket;
 
   RGWQuotaInfo quota;
+  RGWQoSInfo qos_info;
+  bool read_qos_ops_specified{false};
+  bool write_qos_ops_specified{false};
+  bool read_qos_bytes_specified{false};
+  bool write_qos_bytes_specified{false};
 
   void set_fetch_stats(bool value) { stat_buckets = value; }
   void set_check_objects(bool value) { check_objects = value; }
@@ -271,6 +276,9 @@ struct RGWBucketAdminOpState {
   }
   void set_quota(RGWQuotaInfo& value) {
     quota = value;
+  }
+  void set_bucket_ratelimit(RGWQoSInfo& value) {
+    qos_info = value;
   }
 
 

@@ -260,6 +260,7 @@ if [ x$(uname)x = xFreeBSDx ]; then
         devel/libedit \
         devel/libtool \
         devel/google-perftools \
+        devel/tbb \
         lang/cython \
         databases/leveldb \
         net/openldap24-client \
@@ -312,6 +313,7 @@ else
         echo "Using apt-get to install dependencies"
         $SUDO apt-get install -y devscripts equivs
         $SUDO apt-get install -y dpkg-dev
+        $SUDO apt-get install -y libtbb-dev
         ensure_python3_sphinx_on_ubuntu
         case "$VERSION" in
             *Bionic*)

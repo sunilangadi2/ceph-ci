@@ -518,7 +518,8 @@ int radosgw_Main(int argc, const char **argv)
   }
 
   rgw::dmclock::SchedulerCtx sched_ctx{cct.get()};
-
+  std::shared_ptr<QosActiveDatastruct> ratelimiting = std::shared_ptr<QosActiveDatastruct>(new QosActiveDatastruct());
+  ratelimiting->start();
   OpsLogSocket *olog = NULL;
 
   if (!g_conf()->rgw_ops_log_socket_path.empty()) {
@@ -580,7 +581,7 @@ int radosgw_Main(int argc, const char **argv)
       std::string uri_prefix;
       config->get_val("prefix", "", &uri_prefix);
 
-      RGWProcessEnv env = { store, &rest, olog, port, uri_prefix, auth_registry };
+      RGWProcessEnv env = { store, &rest, olog, port, uri_prefix, auth_registry, ratelimiting };
 
       fe = new RGWLoadGenFrontend(env, config);
     }
@@ -589,7 +590,7 @@ int radosgw_Main(int argc, const char **argv)
       config->get_val("port", 80, &port);
       std::string uri_prefix;
       config->get_val("prefix", "", &uri_prefix);
-      RGWProcessEnv env{ store, &rest, olog, port, uri_prefix, auth_registry };
+      RGWProcessEnv env{ store, &rest, olog, port, uri_prefix, auth_registry, ratelimiting };
       fe = new RGWAsioFrontend(env, config, sched_ctx);
     }
 
@@ -672,7 +673,7 @@ int radosgw_Main(int argc, const char **argv)
   shutdown_async_signal_handler();
 
   rgw_log_usage_finalize();
-
+  ratelimiting.reset();
   delete olog;
 
   StoreManager::close_storage(store);

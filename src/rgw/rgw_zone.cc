@@ -2030,31 +2030,39 @@ int RGWZoneGroupMap::read(const DoutPrefixProvider *dpp, CephContext *cct, RGWSI
 }
 
 void RGWRegionMap::encode(bufferlist& bl) const {
-  ENCODE_START( 3, 1, bl);
+  ENCODE_START( 4, 1, bl);
   encode(regions, bl);
   encode(master_region, bl);
   encode(bucket_quota, bl);
   encode(user_quota, bl);
+  encode(bucket_qos, bl);
+  encode(user_qos, bl);
   ENCODE_FINISH(bl);
 }
 
 void RGWRegionMap::decode(bufferlist::const_iterator& bl) {
-  DECODE_START(3, bl);
+  DECODE_START(4, bl);
   decode(regions, bl);
   decode(master_region, bl);
   if (struct_v >= 2)
     decode(bucket_quota, bl);
   if (struct_v >= 3)
     decode(user_quota, bl);
+  if (struct_v >= 4) {
+    decode(bucket_qos, bl);
+    decode(user_qos, bl);
+  }
   DECODE_FINISH(bl);
 }
 
 void RGWZoneGroupMap::encode(bufferlist& bl) const {
-  ENCODE_START( 3, 1, bl);
+  ENCODE_START( 4, 1, bl);
   encode(zonegroups, bl);
   encode(master_zonegroup, bl);
   encode(bucket_quota, bl);
   encode(user_quota, bl);
+  encode(bucket_qos, bl);
+  encode(user_qos, bl);
   ENCODE_FINISH(bl);
 }
 
@@ -2066,6 +2074,10 @@ void RGWZoneGroupMap::decode(bufferlist::const_iterator& bl) {
     decode(bucket_quota, bl);
   if (struct_v >= 3)
     decode(user_quota, bl);
+  if (struct_v >= 4) {
+    decode(bucket_qos, bl);
+    decode(user_qos, bl);
+  }
   DECODE_FINISH(bl);
 
   zonegroups_by_api.clear();

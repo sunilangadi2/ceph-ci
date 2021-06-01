@@ -179,10 +179,20 @@ dump_cmd_to_json(Formatter *f, uint64_t features, const string& cmd)
       desckv["positional"] = "false";
     }
     for (auto [key, value] : desckv) {
-      if (key == "positional" && !HAVE_FEATURE(features, SERVER_QUINCY)) {
-	continue;
+      if (key == "positional") {
+	if (!HAVE_FEATURE(features, SERVER_QUINCY)) {
+	  continue;
+	}
+	if (value == "false" || value == "False") {
+	  f->dump_bool(key, false);
+	}
+      } else if (key == "req" && HAVE_FEATURE(features, SERVER_QUINCY)) {
+	if (value == "false" || value == "False") {
+	  f->dump_bool(key, false);
+	}
+      } else {
+	f->dump_string(key, value);
       }
-      f->dump_string(key, value);
     }
     f->close_section(); // attribute object for individual desc
   }

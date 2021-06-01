@@ -78,6 +78,7 @@ using namespace librados;
 #include "services/svc_zone.h"
 #include "services/svc_zone_utils.h"
 #include "services/svc_quota.h"
+#include "services/svc_qos.h"
 #include "services/svc_sync_modules.h"
 #include "services/svc_sys_obj.h"
 #include "services/svc_sys_obj_cache.h"

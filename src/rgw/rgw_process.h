@@ -10,7 +10,7 @@
 #include "rgw_user.h"
 #include "rgw_op.h"
 #include "rgw_rest.h"
-
+#include "rgw_qos.h"
 #include "include/ceph_assert.h"
 
 #include "common/WorkQueue.h"
@@ -38,6 +38,8 @@ struct RGWProcessEnv {
   int port;
   std::string uri_prefix;
   std::shared_ptr<rgw::auth::StrategyRegistry> auth_registry;
+  //maybe there is a better place to store the rate limit data structure
+  std::shared_ptr<QosActiveDatastruct> ratelimiting;
 };
 
 class RGWFrontendConfig;
@@ -174,6 +176,7 @@ extern int process_request(rgw::sal::Store* store,
                            rgw::dmclock::Scheduler *scheduler,
                            std::string* user,
                            ceph::coarse_real_clock::duration* latency,
+                           std::shared_ptr<QosDatastruct> ratelimit,
                            int* http_ret = nullptr);
 
 extern int rgw_process_authenticated(RGWHandler_REST* handler,

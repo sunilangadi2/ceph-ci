@@ -539,7 +539,7 @@ int RadosBucket::purge_instance(const DoutPrefixProvider* dpp)
            << "): " << cpp_strerror(-ret) << std::endl;
       return ret;
     }
-    ret = store->getRados()->bi_remove(bs);
+    ret = store->getRados()->bi_remove(dpp, bs);
     if (ret < 0) {
       cerr << "ERROR: failed to remove bucket index object: "
            << cpp_strerror(-ret) << std::endl;
@@ -992,10 +992,10 @@ int RadosStore::log_op(const DoutPrefixProvider *dpp, std::string& oid, bufferli
   return ret;
 }
 
-int RadosStore::register_to_service_map(const std::string& daemon_type,
+int RadosStore::register_to_service_map(const DoutPrefixProvider *dpp, const std::string& daemon_type,
 					   const map<std::string, std::string>& meta)
 {
-  return rados->register_to_service_map(daemon_type, meta);
+  return rados->register_to_service_map(dpp, daemon_type, meta);
 }
 
 void RadosStore::get_quota(RGWQuotaInfo& bucket_quota, RGWQuotaInfo& user_quota)
@@ -1615,10 +1615,10 @@ int RadosObject::RadosStatOp::stat_async(const DoutPrefixProvider *dpp)
   return parent_op.stat_async(dpp);
 }
 
-int RadosObject::RadosStatOp::wait()
+int RadosObject::RadosStatOp::wait(const DoutPrefixProvider *dpp)
 {
   result.obj = source;
-  int ret =  parent_op.wait();
+  int ret =  parent_op.wait(dpp);
   if (ret < 0)
     return ret;
 

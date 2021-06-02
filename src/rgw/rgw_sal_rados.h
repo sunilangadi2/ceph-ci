@@ -134,7 +134,7 @@ class RadosObject : public Object {
       RadosStatOp(RadosObject* _source, RGWObjectCtx* _rctx);
 
       virtual int stat_async(const DoutPrefixProvider *dpp) override;
-      virtual int wait() override;
+      virtual int wait(const DoutPrefixProvider *dpp) override;
     };
 
     RadosObject() = default;
@@ -415,7 +415,7 @@ class RadosStore : public Store {
 
     virtual int log_usage(const DoutPrefixProvider *dpp, map<rgw_user_bucket, RGWUsageBatch>& usage_info) override;
     virtual int log_op(const DoutPrefixProvider *dpp, std::string& oid, bufferlist& bl) override;
-    virtual int register_to_service_map(const std::string& daemon_type,
+    virtual int register_to_service_map(const DoutPrefixProvider *dpp, const std::string& daemon_type,
 				const map<std::string, std::string>& meta) override;
     virtual void get_quota(RGWQuotaInfo& bucket_quota, RGWQuotaInfo& user_quota) override;
     virtual int set_buckets_enabled(const DoutPrefixProvider* dpp, vector<rgw_bucket>& buckets, bool enabled) override;
@@ -427,7 +427,7 @@ class RadosStore : public Store {
 					optional_yield y) override;
     virtual RGWDataSyncStatusManager* get_data_sync_manager(const rgw_zone_id& source_zone) override;
     virtual void wakeup_meta_sync_shards(set<int>& shard_ids) override { rados->wakeup_meta_sync_shards(shard_ids); }
-    virtual void wakeup_data_sync_shards(const rgw_zone_id& source_zone, map<int, set<std::string> >& shard_ids) override { rados->wakeup_data_sync_shards(source_zone, shard_ids); }
+    virtual void wakeup_data_sync_shards(const DoutPrefixProvider *dpp, const rgw_zone_id& source_zone, map<int, set<std::string> >& shard_ids) override { rados->wakeup_data_sync_shards(dpp, source_zone, shard_ids); }
     virtual int clear_usage(const DoutPrefixProvider *dpp) override { return rados->clear_usage(dpp); }
     virtual int read_all_usage(const DoutPrefixProvider *dpp, uint64_t start_epoch, uint64_t end_epoch,
 			       uint32_t max_entries, bool* is_truncated,

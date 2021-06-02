@@ -184,7 +184,7 @@ class Store {
 
     virtual int log_usage(const DoutPrefixProvider *dpp, map<rgw_user_bucket, RGWUsageBatch>& usage_info) = 0;
     virtual int log_op(const DoutPrefixProvider *dpp, std::string& oid, bufferlist& bl) = 0;
-    virtual int register_to_service_map(const std::string& daemon_type,
+    virtual int register_to_service_map(const DoutPrefixProvider *dpp, const std::string& daemon_type,
 					const map<std::string, std::string>& meta) = 0;
     virtual void get_quota(RGWQuotaInfo& bucket_quota, RGWQuotaInfo& user_quota) = 0;
     virtual int set_buckets_enabled(const DoutPrefixProvider* dpp, vector<rgw_bucket>& buckets, bool enabled) = 0;
@@ -196,7 +196,7 @@ class Store {
 					optional_yield y) = 0;
     virtual RGWDataSyncStatusManager* get_data_sync_manager(const rgw_zone_id& source_zone) = 0;
     virtual void wakeup_meta_sync_shards(set<int>& shard_ids) = 0;
-    virtual void wakeup_data_sync_shards(const rgw_zone_id& source_zone, map<int, set<std::string> >& shard_ids) = 0;
+    virtual void wakeup_data_sync_shards(const DoutPrefixProvider *dpp, const rgw_zone_id& source_zone, map<int, set<std::string> >& shard_ids) = 0;
     virtual int clear_usage(const DoutPrefixProvider *dpp) = 0;
     virtual int read_all_usage(const DoutPrefixProvider *dpp, uint64_t start_epoch, uint64_t end_epoch,
 			       uint32_t max_entries, bool* is_truncated,
@@ -615,7 +615,7 @@ class Object {
       virtual ~StatOp() = default;
 
       virtual int stat_async(const DoutPrefixProvider *dpp) = 0;
-      virtual int wait() = 0;
+      virtual int wait(const DoutPrefixProvider *dpp) = 0;
     };
 
     Object()

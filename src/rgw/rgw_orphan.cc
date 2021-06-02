@@ -471,7 +471,7 @@ int RGWOrphanSearch::pop_and_handle_stat_op(const DoutPrefixProvider *dpp, map<i
 {
   rgw::sal::Object::StatOp* front_op = ops.front().get();
 
-  int ret = front_op->wait();
+  int ret = front_op->wait(dpp);
   if (ret < 0) {
     if (ret != -ENOENT) {
       ldpp_dout(dpp, -1) << "ERROR: stat_async() returned error: " << cpp_strerror(-ret) << dendl;
@@ -1057,7 +1057,7 @@ int RGWRadosList::pop_and_handle_stat_op(
   std::set<std::string> obj_oids;
   std::unique_ptr<rgw::sal::Object::StatOp> front_op = std::move(ops.front());
 
-  int ret = front_op->wait();
+  int ret = front_op->wait(dpp);
   if (ret < 0) {
     if (ret != -ENOENT) {
       ldpp_dout(dpp, -1) << "ERROR: stat_async() returned error: " <<

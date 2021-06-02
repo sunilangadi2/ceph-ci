@@ -6276,7 +6276,7 @@ int main(int argc, const char **argv)
       struct rgw_log_entry entry;
 
       // peek at first entry to get bucket metadata
-      r = static_cast<rgw::sal::RadosStore*>(store)->getRados()->log_show_next(h, &entry);
+      r = static_cast<rgw::sal::RadosStore*>(store)->getRados()->log_show_next(dpp(), h, &entry);
       if (r < 0) {
 	cerr << "error reading log " << oid << ": " << cpp_strerror(-r) << std::endl;
 	return -r;
@@ -6312,7 +6312,7 @@ int main(int argc, const char **argv)
 	  formatter->flush(cout);
         }
 next:
-	r = static_cast<rgw::sal::RadosStore*>(store)->getRados()->log_show_next(h, &entry);
+	r = static_cast<rgw::sal::RadosStore*>(store)->getRados()->log_show_next(dpp(), h, &entry);
       } while (r > 0);
 
       if (r < 0) {

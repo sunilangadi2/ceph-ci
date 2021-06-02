@@ -1,5 +1,4 @@
 import logging
-import socket
 import json
 import re
 from typing import cast, Dict, List, Any, Union, Optional, TypeVar, Callable, TYPE_CHECKING, Tuple
@@ -221,7 +220,7 @@ class NFSCluster:
             raise ClusterNotFound()
         except NotImplementedError:
             return 0, "NFS-Ganesha Config Added Successfully "\
-                    "(Manual Restart of NFS PODS required)", ""
+                "(Manual Restart of NFS PODS required)", ""
         except Exception as e:
             return exception_handler(e, f"Setting NFS-Ganesha Config failed for {cluster_id}")
 
@@ -239,6 +238,6 @@ class NFSCluster:
             raise ClusterNotFound()
         except NotImplementedError:
             return 0, "NFS-Ganesha Config Removed Successfully "\
-                    "(Manual Restart of NFS PODS required)", ""
+                "(Manual Restart of NFS PODS required)", ""
         except Exception as e:
             return exception_handler(e, f"Resetting NFS-Ganesha Config failed for {cluster_id}")

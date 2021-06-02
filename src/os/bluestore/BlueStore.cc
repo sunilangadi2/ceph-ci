@@ -5312,7 +5312,9 @@ int BlueStore::_open_fm(KeyValueDB::Transaction t, bool read_only, bool fm_resto
 
   dout(5) << __func__ << "::NCB::freelist_type=" << freelist_type << dendl;
   ceph_assert(fm == NULL);
-
+  // fm_restore means we are transitioning from null-fm to bitmap-fm
+  ceph_assert(!fm_restore || (freelist_type != "null"));
+  
   // When allocation-info is stored in a single file we set freelist_type to "null"
   bool set_null_freemap = false;
   if (freelist_type == "null") {
@@ -5348,6 +5350,8 @@ int BlueStore::_open_fm(KeyValueDB::Transaction t, bool read_only, bool fm_resto
     fm->create(bdev->get_size(), alloc_size, t);
     auto reserved = _get_ondisk_reserved();
     if (fm_restore) {
+      // we need to allocate the full space in restore case
+      // as later we will add free-space marked in the allocator file
       fm->allocate(0, bdev->get_size(), t);
     }
     else {
@@ -5357,7 +5361,7 @@ int BlueStore::_open_fm(KeyValueDB::Transaction t, bool read_only, bool fm_resto
       fm->allocate(0, reserved, t);
     }
     // debug code - not needed for NULL FM
-    if (cct->_conf->bluestore_debug_prefill > 0 && !fm->is_null_manager() ) {
+    if (cct->_conf->bluestore_debug_prefill > 0 && !fm->is_null_manager() && !fm_restore) {
       uint64_t end = bdev->get_size() - reserved;
       dout(1) << __func__ << " pre-fragmenting freespace, using "
 	      << cct->_conf->bluestore_debug_prefill << " with max free extent "
@@ -12618,8 +12622,8 @@ int BlueStore::_open_super_meta()
     } else {
       ceph_abort_msg("Not Support extent freelist manager");
     }
+    dout(5) << __func__ << "::NCB::freelist_type=" << freelist_type << dendl;
   }
-  dout(5) << __func__ << "::freelist_type=" << freelist_type << dendl;
   // ondisk format
   int32_t compat_ondisk_format = 0;
   {

@@ -425,6 +425,18 @@ PyObject *ActivePyModules::get_python(const std::string &what)
       mgr_map.dump(&f);
       return f.get();
     });
+  } else if (what == "mgr_ips") {
+    return cluster_state.with_mgrmap([&](const MgrMap &mgr_map) {
+      with_gil_t with_gil{no_gil};
+      f.open_array_section("ips");
+      for (auto& i : mgr_map.active_addrs.v) {
+	f.dump_string("ip", i.ip_only_to_str());
+      }
+      f.close_section();
+      mgr_map.dump(&f);
+      return f.get();
+    });
+
   } else if (what == "have_local_config_map") {
     with_gil_t with_gil{no_gil};
     f.dump_bool("have_local_config_map", have_local_config_map);

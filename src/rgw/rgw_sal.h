@@ -205,7 +205,7 @@ class Store {
     virtual int trim_all_usage(const DoutPrefixProvider *dpp, uint64_t start_epoch, uint64_t end_epoch) = 0;
     virtual int get_config_key_val(std::string name, bufferlist* bl) = 0;
     virtual int meta_list_keys_init(const DoutPrefixProvider *dpp, const std::string& section, const std::string& marker, void** phandle) = 0;
-    virtual int meta_list_keys_next(void* handle, int max, list<std::string>& keys, bool* truncated) = 0;
+    virtual int meta_list_keys_next(const DoutPrefixProvider *dpp, void* handle, int max, list<std::string>& keys, bool* truncated) = 0;
     virtual void meta_list_keys_complete(void* handle) = 0;
     virtual std::string meta_get_marker(void* handle) = 0;
     virtual int meta_remove(const DoutPrefixProvider* dpp, std::string& metadata_key, optional_yield y) = 0;

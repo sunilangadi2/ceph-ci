@@ -1053,9 +1053,9 @@ int RadosStore::meta_list_keys_init(const DoutPrefixProvider *dpp, const std::st
   return ctl()->meta.mgr->list_keys_init(dpp, section, marker, phandle);
 }
 
-int RadosStore::meta_list_keys_next(void* handle, int max, list<std::string>& keys, bool* truncated)
+int RadosStore::meta_list_keys_next(const DoutPrefixProvider *dpp, void* handle, int max, list<std::string>& keys, bool* truncated)
 {
-  return ctl()->meta.mgr->list_keys_next(handle, max, keys, truncated);
+  return ctl()->meta.mgr->list_keys_next(dpp, handle, max, keys, truncated);
 }
 
 void RadosStore::meta_list_keys_complete(void* handle)

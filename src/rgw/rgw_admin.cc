@@ -6045,7 +6045,7 @@ int main(int argc, const char **argv)
       }
 
       do {
-	ret = store->meta_list_keys_next(handle, max, user_ids,
+	ret = store->meta_list_keys_next(dpp(), handle, max, user_ids,
 					      &truncated);
 	if (ret < 0 && ret != -ENOENT) {
 	  cerr << "ERROR: buckets limit check lists_keys_next(): "
@@ -7562,7 +7562,7 @@ next:
     do {
       list<string> keys;
       left = (max_entries_specified ? max_entries - count : max);
-      ret = store->meta_list_keys_next(handle, left, keys, &truncated);
+      ret = store->meta_list_keys_next(dpp(), handle, left, keys, &truncated);
       if (ret < 0 && ret != -ENOENT) {
         cerr << "ERROR: lists_keys_next(): " << cpp_strerror(-ret) << std::endl;
         return -ret;

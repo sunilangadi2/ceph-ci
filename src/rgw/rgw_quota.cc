@@ -666,7 +666,7 @@ int RGWUserStatsCache::sync_all_users(const DoutPrefixProvider *dpp, optional_yi
 
   do {
     list<string> keys;
-    ret = store->meta_list_keys_next(handle, max, keys, &truncated);
+    ret = store->meta_list_keys_next(dpp, handle, max, keys, &truncated);
     if (ret < 0) {
       ldpp_dout(dpp, 0) << "ERROR: lists_keys_next(): ret=" << ret << dendl;
       goto done;

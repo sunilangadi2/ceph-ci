@@ -5314,6 +5314,8 @@ int BlueStore::_open_fm(KeyValueDB::Transaction t, bool read_only, bool fm_resto
   ceph_assert(fm == NULL);
   // fm_restore means we are transitioning from null-fm to bitmap-fm
   ceph_assert(!fm_restore || (freelist_type != "null"));
+  // fm restore must pass in a valid transaction
+  ceph_assert(!fm_restore || (t != nullptr));
   
   // When allocation-info is stored in a single file we set freelist_type to "null"
   bool set_null_freemap = false;
@@ -5353,8 +5355,7 @@ int BlueStore::_open_fm(KeyValueDB::Transaction t, bool read_only, bool fm_resto
       // we need to allocate the full space in restore case
       // as later we will add free-space marked in the allocator file
       fm->allocate(0, bdev->get_size(), t);
-    }
-    else {
+    } else {
       // allocate superblock reserved space.  note that we do not mark
       // bluefs space as allocated in the freelist; we instead rely on
       // bluefs doing that itself.
@@ -5482,7 +5483,6 @@ int BlueStore::_create_alloc()
       << dendl;
     return -EINVAL;
   }
-  //dout(1) << __func__ << "::NCB::allocator=" << shared_alloc.a << dendl;
   return 0;
 }
 
@@ -5511,7 +5511,15 @@ int BlueStore::commit_to_null_manager()
   dout(1) << __func__ << "::NCB::Set FreelistManager to NULL FM..." << dendl;
   fm->set_null_manager();
   freelist_type = "null";
+#if 1
   return commit_freelist_type(db, freelist_type, cct, path);
+#else
+  // should check how long this step take on a big configuration as deletes are expensive
+  if (commit_freelist_type(db, freelist_type, cct, path) == 0) {
+    // remove all objects of PREFIX_ALLOC_BITMAP from RocksDB to guarantee a clean start
+    clear_allocation_objects_from_rocksdb(db, cct, path);
+  }
+#endif
 }    
 
 
@@ -5563,16 +5571,17 @@ int BlueStore::_init_alloc()
     dout(5) << __func__ << "::num_entries=" << num << " free_size=" << bytes << " alloc_size=" <<
       shared_alloc.a->get_capacity() - bytes << " time=" << duration << " seconds" << dendl;
   } else {
+    // This is the new path reading the allocation map from a flat bluefs file and feeding them into the allocator
+    
     if (!cct->_conf->bluestore_allocation_from_file) {
-      derr << __func__ << "::NCB::cct->_conf->bluestore_allocation_from_file is set to FALSE with a NULL-FM" << dendl;
+      derr << __func__ << "::NCB::cct->_conf->bluestore_allocation_from_file is set to FALSE with an active NULL-FM" << dendl;
       derr << __func__ << "::NCB::Please change the value of bluestore_allocation_from_file to TRUE in your ceph.conf file" << dendl;
       exit(0);
     }
-    // This is the new path reading the allocation map from a flat bluefs file and feeing them into the allocator
+
     if (restore_allocator(shared_alloc.a, &num, &bytes) == 0) {
       dout(1) << __func__ << "::NCB:;restore_allocator() completed successfully shared_alloc.a=" << shared_alloc.a << dendl;
-    }
-    else {
+    } else {
       // This must mean that we had an unplanned shutdown and didn't manage to destage the allocator
       derr << __func__ << "::NCB::restore_allocator() failed!" << dendl;
       derr << __func__ << "::NCB::Run Full Recovery from ONodes (might take a while) ..." << dendl;
@@ -6038,7 +6047,7 @@ int BlueStore::_open_db_and_around(bool read_only, bool to_repair)
 
   // when function is called in repair mode (to_repair=true) we skip db->open()/create()
   // we can't change bluestore allocation so no need to invlidate allocation-file
-  if (fm->is_null_manager() && !read_only &&!to_repair) {
+  if (fm->is_null_manager() && !read_only && !to_repair) {
     // Now that we load the allocation map we need to invalidate the file as new allocation won't be reflected
     // Changes to the allocation map (alloc/release) are not updated inline and will only be stored on umount()
     // This means that we should not use the existing file on failure case (unplanned shutdown) and must resort
@@ -6051,7 +6060,7 @@ int BlueStore::_open_db_and_around(bool read_only, bool to_repair)
   }
 
   // when function is called in repair mode (to_repair=true) we skip db->open()/create()
-  if (!read_only &&!to_repair && cct->_conf->bluestore_allocation_from_file) {
+  if (!read_only && !to_repair && cct->_conf->bluestore_allocation_from_file) {
     dout(1) << __func__ << "::NCB::Commit to Null-Manager" << dendl;
     commit_to_null_manager();
   }
@@ -7651,8 +7660,7 @@ Allocator* BlueStore::create_allocator(uint64_t bdev_size, string type) {
   Allocator* alloc = Allocator::create(cct, type, bdev_size, alloc_size, "recovery");
   if (alloc) {
     return alloc;
-  }
-  else {
+  } else {
     derr << __func__ << "::NCB::Failed Allocator Creation" << dendl;
     return nullptr;
   }
@@ -7673,8 +7681,7 @@ static int restore_and_check_allocator_header( BlueFS                 *bluefs,
   if (read_bytes == sizeof(allocator_image_header)) {
     p_header->decode(buff);
     return p_header->verify(cct, path);
-  }
-  else {
+  } else {
     derr << __func__ << "::NCB::read_bytes=" << read_bytes << ", sizeof(allocator_image_header)=" << sizeof(allocator_image_header) << dendl;
   }
 
@@ -7746,8 +7753,7 @@ static int restore_and_check_allocator_trailer(BlueFS                       *blu
     }    
     // if arrives here -> trailer is illegal !
     return report_illegal_allocator_trailer(p_header, &trailer2, entries_count, cct, path);
-  }
-  else {
+  } else {
     derr << __func__ << "::NCB::failed !! read_bytes=" << read_bytes << ", sizeof(allocator_image_trailer)=" << sizeof(allocator_image_trailer) << dendl;
   }
   
@@ -7774,8 +7780,7 @@ int BlueStore::allocator_add_restored_entries(Allocator          *allocator,
       //{ dout(1) << (*p_extent_count) << ") NCB::Read[" << offset << "," << length << "]" << dendl; }
       allocator->init_add_free(offset, length);
       (*p_extent_count) ++;
-    }
-    else {
+    } else {
       dout(1) << __func__ << "::NCB::extent with zero length at idx=" << *p_extent_count << dendl;
 
       char trailer[sizeof(allocator_image_trailer)];
@@ -7838,8 +7843,7 @@ int BlueStore::restore_allocator(Allocator* allocator, uint64_t *num, uint64_t *
   allocator_image_header  header;
   if ((ret=restore_and_check_allocator_header(bluefs, p_handle, &header, 0, cct, path)) == 0) {
     dout(1) << __func__ << "::NCB::successfully restore_and_check_allocator_header()" << dendl;
-  }
-  else {
+  } else {
     derr << __func__ << "::NCB::Failed restore_and_check_allocator_header" << dendl;
     delete p_handle; return -1;
   }
@@ -7930,29 +7934,27 @@ void BlueStore::read_allocation_from_single_onode(
       auto offset = p_extent->offset;
       auto length = p_extent->length;
 
-      // Offset of -1 means that the extent was removed and can be safely skipped
+      // Offset of -1 means that the extent was removed (and it is only a place holder) and can be safely skipped
       if (offset == (uint64_t)-1) {
 	stats.skipped_illegal_extent++;
-	//std::cout << "Skip pExtent::P_EXTNT[" << onode_num << "," << i << "] <" << l_extent.logical_offset << "," << length << ">" << std::endl;
-	//std::cout << "[" << onode_num << "] oid="<< oid << " key=" << pretty_binary_string(key) << std::endl;
 	continue;
       }
 
       if (length > std::numeric_limits<uint32_t>::max()) {
-	//std::cout << __func__ << "extent_length=" << length << " > MAX_UINT32" << std::endl;
 	stats.limit_count++;
       }
 
       // skip repeating extents
       auto lcl_itr = lcl_extnt_map.find(offset);
       if (lcl_itr != lcl_extnt_map.end()) {
-	lcl_extnt_map[offset] ++;
+	// repeated extents must have the same length!
+	ceph_assert(lcl_extnt_map[offset] == length);
+	lcl_extnt_map[offset];
 	stats.skipped_repeated_extent++;
 	ceph_assert( blobs_count > 0 );
 	continue;
-      }
-      else {
-	lcl_extnt_map[offset] = 1;     
+      } else {
+	lcl_extnt_map[offset] = length;     
 	allocator->init_rm_free(offset, length);
 	stats.extent_count++;
       }
@@ -7986,13 +7988,13 @@ int BlueStore::read_allocation_from_onodes(Allocator* allocator, read_alloc_stat
   BlueStore::OnodeRef onode_ref;
   bool                has_open_onode = false;
   int                 shard_id       = 0;
-  uint32_t            obj_count      = 0;
-  uint32_t            count_interval = 1'000'000;
+  uint64_t            kv_count       = 0;
+  uint64_t            count_interval = 1'000'000;
   // iterate over all ONodes stored in RocksDB 
-  for (it->lower_bound(string()); it->valid(); it->next(), obj_count++) {
+  for (it->lower_bound(string()); it->valid(); it->next(), kv_count++) {
     // trace an even after every million processed objects (typically every 5-10 seconds)
-    if ( obj_count && (obj_count % count_interval == 0) ) {
-        dout(1) << "::NCB::processed objects count = " << obj_count << dendl;
+    if (kv_count && (kv_count % count_interval == 0) ) {
+        dout(1) << "::NCB::processed objects count = " << kv_count << dendl;
     }
     
     // add the extents from the shards to the main Obj
@@ -8008,8 +8010,7 @@ int BlueStore::read_allocation_from_onodes(Allocator* allocator, read_alloc_stat
     if (has_open_onode) {
       // We completed an Onode Object -> pass it to be processed
       read_allocation_from_single_onode(allocator, onode_ref, stats);
-    }
-    else {
+    } else {
       // We opened a new Object 
       has_open_onode =  true;
     }
@@ -8066,28 +8067,23 @@ int BlueStore::reconstruct_allocations(Allocator* allocator, read_alloc_stats_t 
   uint64_t memory_target = cct->_conf.get_val<Option::size_t>("osd_memory_target");
   uint64_t bdev_size = bdev->get_size();
   dout(1) << __func__ << "::NCB::memory_target=" << memory_target << ", bdev_size=" << bdev_size << dendl;
-  try {
-    // start by marking the full device space as allocated and then remove each extent we find
-    dout(1) << __func__ << "::NCB::init_add_free(0, " << bdev_size << ")" << dendl;
-    allocator->init_add_free(0, bdev_size);
 
-    // first add space used by superblock
-    auto super_length = std::max<uint64_t>(min_alloc_size, SUPER_RESERVED);
-    dout(1) << __func__ << "::NCB::init_rm_free(0, " << super_length << ")" << dendl;
-    allocator->init_rm_free(0, super_length);
-    stats.extent_count++;
+  // start by marking the full device space as allocated and then remove each extent we find
+  dout(1) << __func__ << "::NCB::init_add_free(0, " << bdev_size << ")" << dendl;
+  allocator->init_add_free(0, bdev_size);
 
-    dout(1) << __func__ << "::NCB::calling read_allocation_from_onodes()" << dendl;
-    // then add all space taken by Objects
-    int ret = read_allocation_from_onodes(allocator, stats);
-    if (ret < 0) {
-      derr << __func__ << "::NCB::failed read_allocation_from_onodes()" << dendl;
-      return ret;
-    }
-  }
-  catch (std::bad_alloc&) {
-    derr << __func__ << "::NCB::\n****Failed sorted_extents allocation()" << dendl;
-    return -1; 
+  // first add space used by superblock
+  auto super_length = std::max<uint64_t>(min_alloc_size, SUPER_RESERVED);
+  dout(1) << __func__ << "::NCB::init_rm_free(0, " << super_length << ")" << dendl;
+  allocator->init_rm_free(0, super_length);
+  stats.extent_count++;
+
+  dout(1) << __func__ << "::NCB::calling read_allocation_from_onodes()" << dendl;
+  // then add all space taken by Objects
+  int ret = read_allocation_from_onodes(allocator, stats);
+  if (ret < 0) {
+    derr << __func__ << "::NCB::failed read_allocation_from_onodes()" << dendl;
+    return ret;
   }
   
   return 0;
@@ -8223,8 +8219,7 @@ int BlueStore::compare_allocators(Allocator* alloc1, Allocator* alloc2, uint64_t
       }
     }
     return 0;
-  }
-  else {
+  } else {
     derr << __func__ << "::NCB::mismatch:: idx1=" << idx1 << " idx2=" << idx2 << dendl;
     std::cout << "::NCB::==================================================================="  << std::endl;
     for (uint64_t i = 0; i < idx1; i++) {
@@ -8279,8 +8274,7 @@ int BlueStore::read_allocation_from_drive_for_bluestore_tool(bool test_store_and
     if (ret < 0) {
       _close_db_and_around(false); return ret;
     }
-  }
-  else {
+  } else {
     dout(1) << __func__ << "::NCB collection already open" << dendl;
   }
 
@@ -8289,8 +8283,7 @@ int BlueStore::read_allocation_from_drive_for_bluestore_tool(bool test_store_and
   Allocator* allocator = create_allocator(bdev_size, "bitmap");
   if (allocator) {
     dout(1) << __func__ << "::NCB::bitmap-allocator=" << allocator << dendl;
-  }
-  else {
+  } else {
     return -1;
   }
   dout(1) << __func__ << "::NCB calling reconstruct_allocations()" << dendl;  
@@ -8321,8 +8314,7 @@ int BlueStore::read_allocation_from_drive_for_bluestore_tool(bool test_store_and
   ret = compare_allocators(allocator, shared_alloc.a, stats.insert_count, memory_target);
   if (ret == 0) {
     dout(1) << __func__ << "::NCB::SUCCESS!!! compare(allocator, shared_alloc.a)" << dendl;
-  }
-  else {
+  } else {
     derr << __func__ << "::NCB::**** FAILURE compare(allocator, shared_alloc.a)::ret=" << ret << dendl;
   }
 
@@ -8340,17 +8332,14 @@ int BlueStore::read_allocation_from_drive_for_bluestore_tool(bool test_store_and
 	ret = compare_allocators(alloc2, shared_alloc.a, stats.insert_count, memory_target);
 	if (ret == 0) {
 	  dout(1) << __func__ << "::NCB::SUCCESS!!! compare(alloc2, shared_alloc.a)" << dendl;
-	}
-	else {
+	} else {
 	  derr << __func__ << "::NCB::**** FAILURE compare(alloc2, shared_alloc.a)::ret=" << ret << dendl;
 	}
-      }    
-      else {
+      } else {
 	derr << __func__ << "::NCB::******Failed restore_allocator******\n" << dendl;
       }
       delete alloc2;
-    }
-    else {
+    } else {
       derr << __func__ << "::NCB::Failed allcoator2 create" << dendl;
     }
   }
@@ -8381,8 +8370,7 @@ Allocator* BlueStore::clone_allocator_without_bluefs(Allocator *src_allocator)
   Allocator* allocator = create_allocator(bdev_size, "bitmap");
   if (allocator) {
     dout(1) << __func__ << "::NCB::bitmap-allocator=" << allocator << dendl;
-  }
-  else {
+  } else {
     derr << __func__ << "::NCB::****failed create_allocator()" << dendl;
     return nullptr;
   }
@@ -8418,7 +8406,7 @@ static void clear_allocation_objects_from_rocksdb(KeyValueDB *db, CephContext *c
 //---------------------------------------------------------
 void BlueStore::copy_allocator_content_to_fm(Allocator *allocator, FreelistManager *real_fm)
 {
-  unsigned max_txn = 16;
+  unsigned max_txn = 1024;
   dout(1) << __func__ << "::NCB:: max_transaction_submit=" << max_txn << dendl; 
   uint64_t size = 0, idx = 0;
   KeyValueDB::Transaction txn = db->get_transaction();
@@ -8445,8 +8433,7 @@ Allocator* BlueStore::initialize_allocator_from_freelist(FreelistManager *real_f
   Allocator* allocator2 = create_allocator(bdev->get_size(), "bitmap");
   if (allocator2) {
     dout(1) << __func__ << "::NCB::bitmap-allocator=" << allocator2 << dendl;
-  }
-  else {
+  } else {
     return nullptr;
   }
 #endif
@@ -8517,8 +8504,7 @@ int BlueStore::verify_rocksdb_allocations(Allocator *allocator)
   if (ret == 0) {
     dout(1) << __func__ << "::NCB::SUCCESS!!! compare(allocator, temp_allocator)" << dendl;
     return 0;
-  }
-  else {
+  } else {
     derr << __func__ << "::NCB::**** FAILURE compare(allocator, temp_allocator)::ret=" << ret << dendl;
     return -1;
   }
@@ -8528,10 +8514,10 @@ int BlueStore::verify_rocksdb_allocations(Allocator *allocator)
 // convert back the system from null-allocator to using rocksdb to store allocation
 int BlueStore::push_allocation_to_rocksdb()
 {
-#if 0
+#if 1
   if (cct->_conf->bluestore_allocation_from_file) {
     derr << __func__ << "::NCB cct->_conf->bluestore_allocation_from_file must be cleared first" << dendl;
-    derr << __func__ << "::NCB please change default to false in <src/common/options/global.yaml.in>" << dendl;
+    derr << __func__ << "::NCB please change default to false in ceph.conf file>" << dendl;
     return -1;
   }
 #endif
@@ -8567,8 +8553,7 @@ int BlueStore::push_allocation_to_rocksdb()
   if (verify_rocksdb_allocations(allocator) == 0) {
     // all is good -> we can commit to rocksdb allocator
     commit_to_real_manager();
-  }
-  else {
+  } else {
     return db_cleanup(-1);
   }
 

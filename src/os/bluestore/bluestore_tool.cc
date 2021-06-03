@@ -538,7 +538,7 @@ int main(int argc, char **argv)
     }
 #endif
   }
-  else  if( action == "qfsck" ) {
+  else if( action == "qfsck" ) {
 #ifndef CEPH_BLUESTORE_TOOL_RESTORE_ALLOCATION
     cerr << action << " bluestore.qfsck is not supported!!! " << std::endl;
     exit(EXIT_FAILURE);

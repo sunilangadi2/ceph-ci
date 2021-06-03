@@ -9083,7 +9083,7 @@ int RGWRados::check_bucket_shards(const RGWBucketInfo& bucket_info,
   const uint64_t max_objs_per_shard =
     cct->_conf.get_val<uint64_t>("rgw_max_objs_per_shard");
 
-  quota_handler->check_bucket_shards(max_objs_per_shard, num_source_shards,
+  quota_handler->check_bucket_shards(dpp, max_objs_per_shard, num_source_shards,
 				     num_objs, need_resharding, &suggested_num_shards);
   if (! need_resharding) {
     return 0;
@@ -9128,16 +9128,16 @@ int RGWRados::add_bucket_to_reshard(const DoutPrefixProvider *dpp, const RGWBuck
   return reshard.add(dpp, entry);
 }
 
-int RGWRados::check_quota(const rgw_user& bucket_owner, rgw_bucket& bucket,
+int RGWRados::check_quota(const DoutPrefixProvider *dpp, const rgw_user& bucket_owner, rgw_bucket& bucket,
                           RGWQuotaInfo& user_quota, RGWQuotaInfo& bucket_quota,
 			  uint64_t obj_size, optional_yield y,
 			  bool check_size_only)
 {
   // if we only check size, then num_objs will set to 0
   if(check_size_only)
-    return quota_handler->check_quota(bucket_owner, bucket, user_quota, bucket_quota, 0, obj_size, y);
+    return quota_handler->check_quota(dpp, bucket_owner, bucket, user_quota, bucket_quota, 0, obj_size, y);
 
-  return quota_handler->check_quota(bucket_owner, bucket, user_quota, bucket_quota, 1, obj_size, y);
+  return quota_handler->check_quota(dpp, bucket_owner, bucket, user_quota, bucket_quota, 1, obj_size, y);
 }
 
 int RGWRados::get_target_shard_id(const rgw::bucket_index_normal_layout& layout, const string& obj_key,

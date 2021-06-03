@@ -397,7 +397,7 @@ class Bucket {
     virtual User* get_owner(void) { return owner; };
     virtual ACLOwner get_acl_owner(void) { return ACLOwner(info.owner); };
     virtual int check_empty(const DoutPrefixProvider* dpp, optional_yield y) = 0;
-    virtual int check_quota(RGWQuotaInfo& user_quota, RGWQuotaInfo& bucket_quota, uint64_t obj_size, optional_yield y, bool check_size_only = false) = 0;
+    virtual int check_quota(const DoutPrefixProvider *dpp, RGWQuotaInfo& user_quota, RGWQuotaInfo& bucket_quota, uint64_t obj_size, optional_yield y, bool check_size_only = false) = 0;
     virtual int set_instance_attrs(const DoutPrefixProvider* dpp, Attrs& attrs, optional_yield y) = 0;
     virtual int try_refresh_info(const DoutPrefixProvider* dpp, ceph::real_time* pmtime) = 0;
     virtual int read_usage(const DoutPrefixProvider *dpp, uint64_t start_epoch, uint64_t end_epoch, uint32_t max_entries,

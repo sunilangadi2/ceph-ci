@@ -302,12 +302,12 @@ static inline std::ostream& operator<<(std::ostream &os, rgw::sal::Lifecycle::LC
     return os;
 }
 
-int RGWLC::bucket_lc_prepare(const DoutPrefixProvider *dpp, int index, LCWorker* worker)
+int RGWLC::bucket_lc_prepare(int index, LCWorker* worker)
 {
   vector<rgw::sal::Lifecycle::LCEntry> entries;
   string marker;
 
-  ldpp_dout(dpp, 5) << "RGWLC::bucket_lc_prepare(): PREPARE "
+  ldpp_dout(this, 5) << "RGWLC::bucket_lc_prepare(): PREPARE "
 	  << "index: " << index << " worker ix: " << worker->ix
 	  << dendl;
 
@@ -820,8 +820,7 @@ static inline bool worker_should_stop(time_t stop_at, bool once)
   return !once && stop_at < time(nullptr);
 }
 
-int RGWLC::handle_multipart_expiration(const DoutPrefixProvider *dpp,
-                                       rgw::sal::Bucket* target,
+int RGWLC::handle_multipart_expiration(rgw::sal::Bucket* target,
 				       const multimap<string, lc_op>& prefix_map,
 				       LCWorker* worker, time_t stop_at, bool once)
 {
@@ -842,7 +841,7 @@ int RGWLC::handle_multipart_expiration(const DoutPrefixProvider *dpp,
     auto wt = boost::get<std::tuple<lc_op, rgw_bucket_dir_entry>>(wi);
     auto& [rule, obj] = wt;
     RGWMPObj mp_obj;
-    if (obj_has_expired(dpp, cct, obj.meta.mtime, rule.mp_expiration)) {
+    if (obj_has_expired(this, cct, obj.meta.mtime, rule.mp_expiration)) {
       rgw_obj_key key(obj.key);
       if (!mp_obj.from_meta(key.name)) {
 	return;
@@ -877,7 +876,7 @@ int RGWLC::handle_multipart_expiration(const DoutPrefixProvider *dpp,
        ++prefix_iter) {
 
     if (worker_should_stop(stop_at, once)) {
-      ldpp_dout(dpp, 5) << __func__ << " interval budget EXPIRED worker "
+      ldpp_dout(this, 5) << __func__ << " interval budget EXPIRED worker "
 		     << worker->ix
 		     << dendl;
       return 0;
@@ -1555,11 +1554,11 @@ int RGWLC::bucket_lc_process(string& shard_id, LCWorker* worker,
     worker->workpool->drain();
   }
 
-  ret = handle_multipart_expiration(this, bucket.get(), prefix_map, worker, stop_at, once);
+  ret = handle_multipart_expiration(bucket.get(), prefix_map, worker, stop_at, once);
   return ret;
 }
 
-int RGWLC::bucket_lc_post(const DoutPrefixProvider *dpp, int index, int max_lock_sec,
+int RGWLC::bucket_lc_post(int index, int max_lock_sec,
 			  rgw::sal::Lifecycle::LCEntry& entry, int& result,
 			  LCWorker* worker)
 {
@@ -1569,7 +1568,7 @@ int RGWLC::bucket_lc_post(const DoutPrefixProvider *dpp, int index, int max_lock
 							obj_names[index],
 							cookie);
 
-  ldpp_dout(dpp, 5) << "RGWLC::bucket_lc_post(): POST " << entry
+  ldpp_dout(this, 5) << "RGWLC::bucket_lc_post(): POST " << entry
 	  << " index: " << index << " worker ix: " << worker->ix
 	  << dendl;
 
@@ -1672,7 +1671,7 @@ int RGWLC::process(LCWorker* worker, bool once = false)
   return 0;
 }
 
-bool RGWLC::expired_session(const DoutPrefixProvider *dpp, time_t started)
+bool RGWLC::expired_session(time_t started)
 {
   time_t interval = (cct->_conf->rgw_lc_debug_interval > 0)
     ? cct->_conf->rgw_lc_debug_interval
@@ -1680,7 +1679,7 @@ bool RGWLC::expired_session(const DoutPrefixProvider *dpp, time_t started)
 
   auto now = time(nullptr);
 
-  ldpp_dout(dpp, 16) << "RGWLC::expired_session"
+  ldpp_dout(this, 16) << "RGWLC::expired_session"
 	   << " started: " << started
 	   << " interval: " << interval << "(*2==" << 2*interval << ")"
 	   << " now: " << now
@@ -1740,7 +1739,7 @@ int RGWLC::process(int index, int max_lock_secs, LCWorker* worker,
       ret = sal_lc->get_entry(obj_names[index], head.marker, entry);
       if (ret >= 0) {
 	if (entry.status == lc_processing) {
-	  if (expired_session(this, entry.start_time)) {
+	  if (expired_session(entry.start_time)) {
 	    ldpp_dout(this, 5) << "RGWLC::process(): STALE lc session found for: " << entry
 		    << " index: " << index << " worker ix: " << worker->ix
 		    << " (clearing)"
@@ -1759,7 +1758,7 @@ int RGWLC::process(int index, int max_lock_secs, LCWorker* worker,
        once) {
       head.start_date = now;
       head.marker.clear();
-      ret = bucket_lc_prepare(this, index, worker);
+      ret = bucket_lc_prepare(index, worker);
       if (ret < 0) {
       ldpp_dout(this, 0) << "RGWLC::process() failed to update lc object "
 			 << obj_names[index]
@@ -1807,7 +1806,7 @@ int RGWLC::process(int index, int max_lock_secs, LCWorker* worker,
 
     lock->unlock();
     ret = bucket_lc_process(entry.bucket, worker, thread_stop_at(), once);
-    bucket_lc_post(this, index, max_lock_secs, entry, ret, worker);
+    bucket_lc_post(index, max_lock_secs, entry, ret, worker);
   } while(1 && !once);
 
   delete lock;

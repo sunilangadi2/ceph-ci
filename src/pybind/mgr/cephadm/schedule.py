@@ -27,7 +27,8 @@ class DaemonPlacement(NamedTuple):
         if self.name:
             other.append(f'name={self.name}')
         if self.ports:
-            other.append(f'{self.ip or "*"}:{self.ports[0] if len(self.ports) == 1 else ",".join(map(str, self.ports))}')
+            other.append(
+                f'{self.ip or "*"}:{self.ports[0] if len(self.ports) == 1 else ",".join(map(str, self.ports))}')
         if other:
             res += '(' + ' '.join(other) + ')'
         return res
@@ -302,9 +303,6 @@ class HostAssignment(object):
             for h in old:
                 if self.filter_new_host(h.hostname):
                     ls.append(h)
-                else:
-                    logger.info(
-                        f"Filtered out host {h.hostname}: could not verify host allowed virtual ips")
             if len(old) > len(ls):
                 logger.debug('Filtered %s down to %s' % (old, ls))
 

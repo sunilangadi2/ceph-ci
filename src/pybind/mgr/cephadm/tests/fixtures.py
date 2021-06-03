@@ -20,7 +20,9 @@ def get_ceph_option(_, key):
 
 
 def _run_cephadm(ret):
-    def foo(*args, **kwargs):
+    def foo(s, host, entity, cmd, e, **kwargs):
+        if cmd == 'gather-facts':
+            return '{}', '', 0
         return [ret], '', 0
     return foo
 
@@ -70,11 +72,12 @@ def wait(m, c):
 @contextmanager
 def with_host(m: CephadmOrchestrator, name, refresh_hosts=True):
     # type: (CephadmOrchestrator, str) -> None
-    wait(m, m.add_host(HostSpec(hostname=name)))
-    if refresh_hosts:
-        CephadmServe(m)._refresh_hosts_and_daemons()
-    yield
-    wait(m, m.remove_host(name))
+    with mock.patch("cephadm.utils.resolve_ip"):
+        wait(m, m.add_host(HostSpec(hostname=name)))
+        if refresh_hosts:
+            CephadmServe(m)._refresh_hosts_and_daemons()
+        yield
+        wait(m, m.remove_host(name))
 
 
 def assert_rm_service(cephadm: CephadmOrchestrator, srv_name):

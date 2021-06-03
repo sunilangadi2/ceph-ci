@@ -11,12 +11,14 @@ Requirements
 -  ``nfs-ganesha``, ``nfs-ganesha-ceph``, ``nfs-ganesha-rados-grace`` and
    ``nfs-ganesha-rados-urls`` packages (version 3.3 and above)
 
+.. note:: From Pacific, the nfs mgr module must be enabled prior to use.
+
 Create NFS Ganesha Cluster
 ==========================
 
 .. code:: bash
 
-    $ ceph nfs cluster create <type> <clusterid> [<placement>]
+    $ ceph nfs cluster create <clusterid> [<placement>]
 
 This creates a common recovery pool for all NFS Ganesha daemons, new user based on
 ``clusterid``, and a common NFS Ganesha config RADOS object.
@@ -27,10 +29,6 @@ This creates a common recovery pool for all NFS Ganesha daemons, new user based 
 
    Currently, NFS Ganesha daemon deployed by cephadm listens on the standard
    port. So only one daemon will be deployed on a host.
-
-``<type>`` signifies the export type, which corresponds to the NFS Ganesha file
-system abstraction layer (FSAL). Permissible values are ``"cephfs`` or
-``rgw``, but currently only ``cephfs`` is supported.
 
 ``<clusterid>`` is an arbitrary string by which this NFS Ganesha cluster will be
 known.
@@ -160,8 +158,8 @@ This removes the user defined configuration.
 Create CephFS Export
 ====================
 
-.. warning:: Currently, the volume/nfs interface is not integrated with dashboard. Both
-   dashboard and volume/nfs interface have different export requirements and
+.. warning:: Currently, the nfs interface is not integrated with dashboard. Both
+   dashboard and nfs interface have different export requirements and
    create exports differently. Management of dashboard created exports is not
    supported.
 
@@ -185,6 +183,8 @@ path is '/'. It need not be unique. Subvolume path can be fetched using:
 .. code::
 
    $ ceph fs subvolume getpath <vol_name> <subvol_name> [--group_name <subvol_group_name>]
+
+.. note:: Export creation is supported only for NFS Ganesha clusters deployed using nfs interface.
 
 Delete CephFS Export
 ====================
@@ -322,5 +322,24 @@ grace period. The exports can be mounted by
     $ mount -t nfs -o port=<ganesha-port> <ganesha-host-name>:<ganesha-pseudo-path> <mount-point>
 
 .. note:: Only NFS v4.0+ is supported.
+
+Troubleshooting
+===============
+
+Checking NFS-Ganesha logs with
+
+1) ``cephadm``
+
+   .. code:: bash
+
+      $ cephadm logs --fsid <fsid> --name nfs.<cluster_id>.hostname
+
+2) ``rook``
+
+   .. code:: bash
+
+      $ kubectl logs -n rook-ceph rook-ceph-nfs-<cluster_id>-<node_id> nfs-ganesha
+
+Log level can be changed using `nfs cluster config set` command.
 
 .. _NFS-Ganesha NFS Server: https://github.com/nfs-ganesha/nfs-ganesha/wiki

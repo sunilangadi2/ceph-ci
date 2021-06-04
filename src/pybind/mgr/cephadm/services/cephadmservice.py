@@ -1,7 +1,9 @@
+import datetime
 import errno
 import json
 import logging
 import re
+import subprocess
 from abc import ABCMeta, abstractmethod
 from typing import TYPE_CHECKING, List, Callable, TypeVar, \
     Optional, Dict, Any, Tuple, NewType, cast
@@ -10,7 +12,7 @@ from mgr_module import HandleCommandResult, MonCommandFailed
 
 from ceph.deployment.service_spec import ServiceSpec, RGWSpec
 from ceph.deployment.utils import is_ipv6, unwrap_ipv6
-from orchestrator import OrchestratorError, DaemonDescription, DaemonDescriptionStatus
+from orchestrator import OrchestratorError, DaemonDescription, DaemonDescriptionStatus, raise_if_exception
 from orchestrator._interface import daemon_type_to_service
 from cephadm import utils
 
@@ -882,6 +884,7 @@ class RgwService(CephService):
             'who': utils.name_to_config_section(daemon.name()),
             'name': 'rgw_frontends',
         })
+        self.mgr.trigger_connect_dashboard_rgw()
 
     def ok_to_stop(
             self,
@@ -917,6 +920,110 @@ class RgwService(CephService):
         # Provide warning
         warn_message = "WARNING: Removing RGW daemons can cause clients to lose connectivity. "
         return HandleCommandResult(-errno.EBUSY, '', warn_message)
+
+    def config_dashboard(self, daemon_descrs: List[DaemonDescription]) -> None:
+        self.mgr.trigger_connect_dashboard_rgw()
+
+    def connect_dashboard_rgw(self) -> None:
+        """
+        Configure the dashboard to talk to RGW
+        """
+        self.mgr.log.info('Checking dashboard <-> RGW connection')
+        try:
+            self._connect_dashboard_rgw()
+        except Exception as e:
+            self.mgr.log.error(f'Failed to configure dashboard <-> RGW connection: {e}')
+
+    def _connect_dashboard_rgw(self) -> None:
+        def radosgw_admin(args: List[str]) -> Tuple[int, str, str]:
+            try:
+                result = subprocess.run(
+                    [
+                        'radosgw-admin',
+                        '-c', str(self.mgr.get_ceph_conf_path()),
+                        '-k', str(self.mgr.get_ceph_option('keyring')),
+                        '-n', f'mgr.{self.mgr.get_mgr_id()}',
+                    ] + args,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
+                    timeout=10,
+                )
+                return result.returncode, result.stdout.decode('utf-8'), result.stderr.decode('utf-8')
+            except subprocess.CalledProcessError as ex:
+                self.mgr.log.error(f'Error executing radosgw-admin {ex.cmd}: {ex.output}')
+                raise
+            except subprocess.TimeoutExpired as ex:
+                self.mgr.log.error(f'Timeout (10s) executing radosgw-admin {ex.cmd}')
+                raise
+
+        def get_secrets(user: str, out: str) -> Tuple[Optional[str], Optional[str]]:
+            r = json.loads(out)
+            for k in r.get('keys', []):
+                if k.get('user') == user and r.get('system') in ['true', True]:
+                    access_key = k.get('access_key')
+                    secret_key = k.get('secret_key')
+                    return access_key, secret_key
+            return None, None
+
+        def update_dashboard(what: str, value: str) -> None:
+            _, out, _ = self.mgr.check_mon_command({'prefix': f'dashboard get-{what}'})
+            if out.strip() != value:
+                if what.endswith('-key'):
+                    self.mgr.check_mon_command(
+                        {'prefix': f'dashboard set-{what}'},
+                        inbuf=value
+                    )
+                else:
+                    self.mgr.check_mon_command({'prefix': f'dashboard set-{what}',
+                                                "value": value})
+                self.mgr.log.info(f'Updated dashboard {what}')
+
+        completion = self.mgr.list_daemons(daemon_type='rgw')
+        raise_if_exception(completion)
+        daemons = completion.result
+        if not daemons:
+            self.mgr.log.info('No remaining RGW daemons; disconnecting dashboard')
+            self.mgr.check_mon_command({'prefix': 'dashboard reset-rgw-api-host'})
+            self.mgr.check_mon_command({'prefix': 'dashboard reset-rgw-api-port'})
+            self.mgr.check_mon_command({'prefix': 'dashboard reset-rgw-api-scheme'})
+            return
+
+        # set up dashboard creds
+        user = 'dashboard'
+        access_key = None
+        secret_key = None
+        rc, out, _ = radosgw_admin(['user', 'info', '--uid', user])
+        if not rc:
+            access_key, secret_key = get_secrets(user, out)
+        if not access_key:
+            rc, out, err = radosgw_admin([
+                'user', 'create', '--uid', user, '--display-name', 'Ceph Dashboard',
+                '--system',
+            ])
+            if not rc:
+                access_key, secret_key = get_secrets(user, out)
+        if not access_key:
+            self.mgr.log.error(f'Unable to create rgw {user} user: {err}')
+        assert access_key
+        assert secret_key
+        update_dashboard('rgw-api-access-key', access_key)
+        update_dashboard('rgw-api-secret-key', secret_key)
+
+        # configure rgw endpoint using the oldest rgw daemon
+        # FIXME: we should perhaps check if the old value references a daemon that
+        # still exists and is up and, if so, leave this be.
+        daemons.sort(key=lambda x: x.created or datetime.datetime.now())   # oldest first
+        dd = daemons[0]
+        assert dd.hostname
+        self.mgr.log.info(f'Connecting dashboard to {dd.name()}')
+        spec = cast(RGWSpec, self.mgr.spec_store[dd.service_name()].spec)
+        port = dd.ports[0] if dd.ports else 80
+        host = dd.ip or self.mgr.inventory.get_addr(dd.hostname) or dd.hostname
+        proto = 'https' if spec.ssl else 'http'
+        update_dashboard('rgw-api-host', host)
+        update_dashboard('rgw-api-port', str(port))
+        update_dashboard('rgw-api-scheme', proto)
+        update_dashboard('rgw-api-ssl-verify', 'False')  # TODO: detect self-signedness
 
 
 class RbdMirrorService(CephService):

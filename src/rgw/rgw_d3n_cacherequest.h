@@ -41,7 +41,6 @@ struct D3nL1CacheRequest : public D3nCacheRequest {
   int stat;
   int ret;
   struct aiocb d3n_aiocb;
-  static std::mutex d3n_libaio_cb_lock;
   std::timed_mutex* d3n_d_lock;
   Semaphore* d3n_d_sem;
 

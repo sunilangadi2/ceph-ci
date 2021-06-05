@@ -6476,11 +6476,6 @@ int RGWRados::Object::Read::iterate(const DoutPrefixProvider *dpp, int64_t ofs, 
       ldpp_dout(dpp, 0) << "D3nDataCache: " << __func__ << "(): Error: data cache drain returned: " << r << dendl;
       return r;
     }
-    ldpp_dout(dpp, 20) << "D3nDataCache: " << __func__ << "(): draing the libaio callbacks for " << req_libaio_aio_num << " request slots" << dendl;
-    for (int i=0 ; i<req_libaio_aio_num ; i++) {
-      lsubdout(g_ceph_context, rgw_datacache, 20) << "D3nDataCache: " << __func__ << "(): get libaio callback slot #" << i << dendl;
-      data.d3n_datacache_sem.Get();
-    }
     ldpp_dout(dpp, 20) << "D3nDataCache: " << __func__ << "(): flush read list" << dendl;
     int rf = store->flush_read_list(dpp, &data);
     if (rf < 0) {

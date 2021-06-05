@@ -44,7 +44,6 @@ struct d3n_cache_state {
 
   int d3n_submit_libaio_read_op(D3nL1CacheRequest* c) {
     c->d3n_d_sem->Get();
-    const std::lock_guard l1(D3nL1CacheRequest::d3n_libaio_cb_lock);
     const std::lock_guard l2(*c->d3n_d_lock);
     lsubdout(g_ceph_context, rgw_datacache, 30) << "D3nDataCache: " << __func__ << "(): Read From Cache, key=" << c->key << dendl;
     int ret = 0;
@@ -67,7 +66,6 @@ void cb(librados::completion_t, void* arg) {
 }
 
 void d3n_libaio_read_cbt(sigval_t sigval) {
-  const std::lock_guard l1(D3nL1CacheRequest::d3n_libaio_cb_lock);
   D3nL1CacheRequest* c = static_cast<D3nL1CacheRequest*>(sigval.sival_ptr);
   const std::lock_guard l2(*c->d3n_d_lock);
   lsubdout(g_ceph_context, rgw_datacache, 30) << "D3nDataCache: " << __func__ << "(): Read From Cache, key=" << c->key << ", thread id=0x" << std::hex << std::this_thread::get_id() << dendl;

@@ -19,6 +19,7 @@
 /*D3nDataCache*/
 struct D3nDataCache;
 
+
 struct D3nChunkDataInfo : public LRUObject {
 	CephContext *cct;
 	uint64_t size;
@@ -39,7 +40,7 @@ struct D3nChunkDataInfo : public LRUObject {
 	static void generate_test_instances(list<D3nChunkDataInfo*>& o);
 };
 
-struct D3nCacheAioWriteRequest{
+struct D3nCacheAioWriteRequest {
 	string oid;
 	void *data;
 	int fd;
@@ -143,8 +144,7 @@ public:
 
 
 template <class T>
-class D3nRGWDataCache : public T
-{
+class D3nRGWDataCache : public T {
 
   D3nDataCache d3n_data_cache;
 
@@ -171,7 +171,7 @@ public:
 template<typename T>
 int D3nRGWDataCache<T>::flush_read_list(const DoutPrefixProvider *dpp, struct get_obj_data* d) {
   ldpp_dout(dpp, 20) << "D3nDataCache: D3nRGWDataCache<T>::" << __func__ << "()" << dendl;
-  const std::lock_guard l(d->d3n_datacache_lock);
+  const std::lock_guard l(d->d3n_data.d3n_datacache_lock);
   std::list<bufferlist> lbl;
   lbl.swap(d->d3n_read_list);
   d->d3n_read_list.clear();
@@ -281,7 +281,7 @@ int D3nRGWDataCache<T>::get_obj_iterate_cb(const DoutPrefixProvider *dpp, const 
     if (d3n_data_cache.get(oid, len)) {
       // Read From Cache
       ldpp_dout(dpp, 20) << "D3nDataCache: " << __func__ << "(): READ FROM CACHE, oid=" << read_obj.oid << ", obj-ofs=" << obj_ofs << ", read_ofs=" << read_ofs << ", len=" << len << dendl;
-      auto completed = d->aio->get(obj, rgw::Aio::d3n_cache_op(std::move(op), d->yield, obj_ofs, read_ofs, len, g_conf()->rgw_d3n_l1_datacache_persistent_path, &d->d3n_datacache_lock, &d->d3n_datacache_sem), cost, id);
+      auto completed = d->aio->get(obj, rgw::Aio::d3n_cache_op(std::move(op), d->yield, obj_ofs, read_ofs, len, g_conf()->rgw_d3n_l1_datacache_persistent_path, &d->d3n_data), cost, id);
       r = d->flush(std::move(completed));
       if (r < 0) {
         lsubdout(g_ceph_context, rgw, 0) << "D3nDataCache: " << __func__ << "(): Error: failed to drain/flush, r= " << r << dendl;

@@ -42,12 +42,14 @@ struct d3n_cache_state {
   d3n_cache_state(Aio* aio)
     : aio(aio) {}
 
-  int d3n_submit_libaio_read_op(D3nL1CacheRequest* c) {
-    c->d3n_d_sem->Get();
-    const std::lock_guard l2(*c->d3n_d_lock);
-    lsubdout(g_ceph_context, rgw_datacache, 30) << "D3nDataCache: " << __func__ << "(): Read From Cache, key=" << c->key << dendl;
+  int d3n_submit_libaio_read_op(D3nL1CacheRequest* cr) {
+    cr->d_sem->Get();
+    const std::lock_guard l2(*cr->d_lock);
+    cr->libaio_op_seq.store(++(*cr->d_libaio_op_seq));
+    lsubdout(g_ceph_context, rgw, 20) << "D3nDataCache: " << __func__ << "(): Read From Cache, key=" << c->key << dendl;
+    lsubdout(g_ceph_context, rgw_datacache, 30) << "D3nDataCache: " << __func__ << "(): d_libaio_op_seq= " << *cr->d_libaio_op_seq << ", libaio_op_seq= " << cr->libaio_op_seq << dendl;
     int ret = 0;
-    if((ret = ::aio_read(&c->d3n_aiocb)) != 0) {
+    if((ret = ::aio_read(&cr->d3n_aiocb)) != 0) {
       lsubdout(g_ceph_context, rgw, 1) << "D3nDataCache: " << __func__ << "(): Error: ::aio_read(), errno= " << -errno << dendl;
       return -errno;
     }
@@ -67,8 +69,16 @@ void cb(librados::completion_t, void* arg) {
 
 void d3n_libaio_read_cbt(sigval_t sigval) {
   D3nL1CacheRequest* c = static_cast<D3nL1CacheRequest*>(sigval.sival_ptr);
-  const std::lock_guard l2(*c->d3n_d_lock);
-  lsubdout(g_ceph_context, rgw_datacache, 30) << "D3nDataCache: " << __func__ << "(): Read From Cache, key=" << c->key << ", thread id=0x" << std::hex << std::this_thread::get_id() << dendl;
+  lsubdout(g_ceph_context, rgw, 20) << "D3nDataCache: " << __func__ << "(): Read From Cache, key=" << c->key << dendl;
+  std::unique_lock<std::mutex> lcv(*c->d_libaio_op_cv_lock);
+  while (c->libaio_op_seq-1 != *c->d_libaio_op_prev) {
+    lsubdout(g_ceph_context, rgw_datacache, 30) << "D3nDataCache: " << __func__ << "(): Note: libaio callback out-of-order, reordering: key=" << c->key << ", d_libaio_op_seq= " << *c->d_libaio_op_seq << ", libaio_op_seq= " << c->libaio_op_seq << ", d_libaio_op_prev= " << *c->d_libaio_op_prev << dendl;
+    c->d_libaio_op_cv->wait(lcv);
+  }
+  c->d_libaio_op_prev->store(c->libaio_op_seq);
+
+  const std::lock_guard l2(*c->d_lock);
+  lsubdout(g_ceph_context, rgw_datacache, 30) << "D3nDataCache: " << __func__ << "(): libaio callback: key=" << c->key << ", d_libaio_op_seq= " << *c->d_libaio_op_seq << ", libaio_op_seq= " << c->libaio_op_seq << ", d_libaio_op_prev= " << *c->d_libaio_op_prev << dendl;
   int status = c->d3n_libaio_status();
   if (status == 0) {
     c->d3n_libaio_finish();
@@ -82,7 +92,8 @@ void d3n_libaio_read_cbt(sigval_t sigval) {
       lsubdout(g_ceph_context, rgw, 1) << "D3nDataCache: " << __func__ << "(): Error: status!=ECANCELED, status=" << status << dendl;
     }
   }
-  c->d3n_d_sem->Put();
+  c->d_sem->Put();
+  c->d_libaio_op_cv->notify_all();
   delete c;
   c = nullptr;
 }
@@ -138,14 +149,14 @@ Aio::OpFunc aio_abstract(Op&& op, boost::asio::io_context& context,
 
 
 template <typename Op>
-Aio::OpFunc d3n_cache_aio_abstract(Op&& op, off_t obj_ofs, off_t read_ofs, off_t read_len, std::string& location, std::timed_mutex* d_lock, Semaphore* d_sem) {
-  return [op = std::move(op), obj_ofs, read_ofs, read_len, location, d_lock, d_sem] (Aio* aio, AioResult& r) mutable {
+Aio::OpFunc d3n_cache_aio_abstract(Op&& op, off_t obj_ofs, off_t read_ofs, off_t read_len, std::string& location, D3nGetObjData* d_d3n_data) {
+  return [op = std::move(op), obj_ofs, read_ofs, read_len, location, d_d3n_data] (Aio* aio, AioResult& r) mutable {
     auto& ref = r.obj.get_ref();
     auto cs = new(&r.user_data) d3n_cache_state(aio);
     cs->c = new D3nL1CacheRequest();
 
     lsubdout(g_ceph_context, rgw_datacache, 20) << "D3nDataCache: d3n_cache_aio_abstract(): libaio Read From Cache, oid=" << ref.obj.oid << dendl;
-    cs->c->d3n_prepare_libaio_read_op(ref.obj.oid, &r.data, read_len, obj_ofs, read_ofs, location, d3n_libaio_read_cbt, aio, &r, d_lock, d_sem);
+    cs->c->d3n_prepare_libaio_read_op(ref.obj.oid, &r.data, read_len, obj_ofs, read_ofs, location, d3n_libaio_read_cbt, aio, &r, d_d3n_data);
     int ret = cs->d3n_submit_libaio_read_op(cs->c);
     if(ret < 0) {
       lsubdout(g_ceph_context, rgw, 1) << "D3nDataCache: d3n_cache_aio_abstract(): ERROR: submit_libaio_op, ret=" << ret << dendl;
@@ -172,11 +183,11 @@ Aio::OpFunc aio_abstract(Op&& op, optional_yield y) {
 
 template <typename Op>
 Aio::OpFunc d3n_cache_aio_abstract(Op&& op, optional_yield y, off_t obj_ofs,
-                                   off_t read_ofs, off_t read_len, std::string& location, std::timed_mutex* d_lock, Semaphore* d_sem) {
+                                   off_t read_ofs, off_t read_len, std::string& location, D3nGetObjData* d_d3n_data) {
   static_assert(std::is_base_of_v<librados::ObjectOperation, std::decay_t<Op>>);
   static_assert(!std::is_lvalue_reference_v<Op>);
   static_assert(!std::is_const_v<Op>);
-  return d3n_cache_aio_abstract(std::forward<Op>(op), obj_ofs, read_ofs, read_len, location, d_lock, d_sem);
+  return d3n_cache_aio_abstract(std::forward<Op>(op), obj_ofs, read_ofs, read_len, location, d_d3n_data);
 }
 
 } // anonymous namespace
@@ -191,8 +202,8 @@ Aio::OpFunc Aio::librados_op(librados::ObjectWriteOperation&& op,
 }
 
 Aio::OpFunc Aio::d3n_cache_op(librados::ObjectReadOperation&& op, optional_yield y,
-                              off_t obj_ofs, off_t read_ofs, off_t read_len, std::string& location, std::timed_mutex* d_lock, Semaphore* d_sem) {
-  return d3n_cache_aio_abstract(std::move(op), y, obj_ofs, read_ofs, read_len, location, d_lock, d_sem);
+                              off_t obj_ofs, off_t read_ofs, off_t read_len, std::string& location, D3nGetObjData* d_d3n_data) {
+  return d3n_cache_aio_abstract(std::move(op), y, obj_ofs, read_ofs, read_len, location, d_d3n_data);
 }
 
 } // namespace rgw

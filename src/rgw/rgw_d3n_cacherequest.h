@@ -16,6 +16,16 @@
 #include "rgw_cache.h"
 
 
+struct D3nGetObjData {
+  std::timed_mutex d3n_datacache_lock;
+  Semaphore d3n_datacache_sem;
+  atomic_ulong d3n_libaio_op_seq{0};
+  atomic_ulong d3n_libaio_op_prev{0};
+  std::condition_variable d3n_libaio_op_cv;
+  std::mutex d3n_libaio_op_cv_lock;
+
+};
+
 class D3nCacheRequest {
   public:
     std::mutex lock;
@@ -41,8 +51,14 @@ struct D3nL1CacheRequest : public D3nCacheRequest {
   int stat;
   int ret;
   struct aiocb d3n_aiocb;
-  std::timed_mutex* d3n_d_lock;
-  Semaphore* d3n_d_sem;
+  std::timed_mutex* d_lock;
+  Semaphore* d_sem;
+  atomic_ulong* d_libaio_op_seq;
+  atomic_ulong* d_libaio_op_prev;
+  atomic_ulong libaio_op_seq{0};
+  std::condition_variable* d_libaio_op_cv;
+  std::mutex* d_libaio_op_cv_lock;
+
 
   D3nL1CacheRequest() :  D3nCacheRequest(), stat(-1) {}
   ~D3nL1CacheRequest() {
@@ -98,7 +114,7 @@ struct D3nL1CacheRequest : public D3nCacheRequest {
   }
 
   int d3n_prepare_libaio_read_op(std::string obj_key, bufferlist* _bl, int read_len, int _ofs, int _read_ofs, std::string& cache_location,
-                        sigval_cb cbf, rgw::Aio* _aio, rgw::AioResult* _r, std::timed_mutex* d_lock, Semaphore* d_sem) {
+                        sigval_cb cbf, rgw::Aio* _aio, rgw::AioResult* _r, D3nGetObjData* d_d3n_data) {
     std::string location = cache_location + "/" + obj_key;
     lsubdout(g_ceph_context, rgw_datacache, 20) << "D3nDataCache: " << __func__ << "(): Read From Cache, location='" << location << "', ofs=" << ofs << ", read_ofs=" << read_ofs << " read_len=" << read_len << dendl;
     r = _r;
@@ -108,8 +124,12 @@ struct D3nL1CacheRequest : public D3nCacheRequest {
     key = obj_key;
     len = read_len;
     stat = EINPROGRESS;
-    d3n_d_lock = d_lock;
-    d3n_d_sem = d_sem;
+    d_lock = &d_d3n_data->d3n_datacache_lock;
+    d_sem = &d_d3n_data->d3n_datacache_sem;
+    d_libaio_op_seq = &d_d3n_data->d3n_libaio_op_seq;
+    d_libaio_op_prev = &d_d3n_data->d3n_libaio_op_prev;
+    d_libaio_op_cv = &d_d3n_data->d3n_libaio_op_cv;
+    d_libaio_op_cv_lock = &d_d3n_data->d3n_libaio_op_cv_lock;
 
     memset(&d3n_aiocb, 0, sizeof(d3n_aiocb));
     d3n_aiocb.aio_fildes = ::open(location.c_str(), O_RDONLY);

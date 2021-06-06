@@ -30,6 +30,9 @@
 
 #include "include/function2.hpp"
 
+/*D3nDataCache*/
+struct D3nGetObjData;
+
 namespace rgw {
 
 struct AioResult {
@@ -97,7 +100,7 @@ class Aio {
   static OpFunc librados_op(librados::ObjectWriteOperation&& op,
                             optional_yield y);
   static OpFunc d3n_cache_op(librados::ObjectReadOperation&& op, optional_yield y,
-                             off_t obj_ofs, off_t read_ofs, off_t read_len, std::string& location, std::timed_mutex* d_lock, Semaphore* d_sem);
+                             off_t obj_ofs, off_t read_ofs, off_t read_len, std::string& location, D3nGetObjData* d_d3n_data);
 };
 
 } // namespace rgw

@@ -56,7 +56,6 @@ class TestNFS(MgrTestCase):
            "name": "CEPH",
            "user_id": "test1",
            "fs_name": self.fs_name,
-           "sec_label_xattr": ''
          },
          "clients": []
         }

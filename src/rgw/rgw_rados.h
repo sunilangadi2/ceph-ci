@@ -1585,7 +1585,7 @@ struct get_obj_data {
                : rgwrados(rgwrados), client_cb(cb), aio(aio), offset(offset), yield(yield) {}
   ~get_obj_data() {
     if (rgwrados->get_use_datacache()) {
-      const std::lock_guard l(d3n_data.d3n_datacache_lock);
+      const std::lock_guard l(d3n_data.d3n_lock);
     }
   }
 
@@ -1620,7 +1620,7 @@ struct get_obj_data {
     }
 
     if (rgwrados->get_use_datacache()) {
-      const std::lock_guard l(d3n_data.d3n_datacache_lock);
+      const std::lock_guard l(d3n_data.d3n_lock);
       d3n_read_list.splice(d3n_read_list.end(), bl_list);
     }
     return 0;

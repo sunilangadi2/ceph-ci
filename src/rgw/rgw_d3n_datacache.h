@@ -171,7 +171,7 @@ public:
 template<typename T>
 int D3nRGWDataCache<T>::flush_read_list(const DoutPrefixProvider *dpp, struct get_obj_data* d) {
   ldpp_dout(dpp, 20) << "D3nDataCache: D3nRGWDataCache<T>::" << __func__ << "()" << dendl;
-  const std::lock_guard l(d->d3n_data.d3n_datacache_lock);
+  const std::lock_guard l(d->d3n_data.d3n_lock);
   std::list<bufferlist> lbl;
   lbl.swap(d->d3n_read_list);
   d->d3n_read_list.clear();
@@ -272,6 +272,7 @@ int D3nRGWDataCache<T>::get_obj_iterate_cb(const DoutPrefixProvider *dpp, const 
       lsubdout(g_ceph_context, rgw, 5) << "D3nDataCache: " << __func__ << "(): bypassing datacache: oid=" << read_obj.oid << ", read_ofs!=0 = " << read_ofs << ", size=" << astate->size << " != accounted_size=" << astate->accounted_size << ", is_compressed=" << is_compressed << ", is_encrypted=" << is_encrypted  << dendl;
       d->d3n_bypass_cache_write = true;
       auto completed = d->aio->get(obj, rgw::Aio::librados_op(std::move(op), d->yield), cost, id);
+      const std::lock_guard l(d->d3n_data.d3n_rw_lock);
       r = d->flush(std::move(completed));
       return r;
     } else {
@@ -283,6 +284,7 @@ int D3nRGWDataCache<T>::get_obj_iterate_cb(const DoutPrefixProvider *dpp, const 
       ldpp_dout(dpp, 20) << "D3nDataCache: " << __func__ << "(): READ FROM CACHE, oid=" << read_obj.oid << ", obj-ofs=" << obj_ofs << ", read_ofs=" << read_ofs << ", len=" << len << dendl;
       auto completed = d->aio->get(obj, rgw::Aio::d3n_cache_op(std::move(op), d->yield, obj_ofs, read_ofs, len, g_conf()->rgw_d3n_l1_datacache_persistent_path, &d->d3n_data), cost, id);
       r = d->flush(std::move(completed));
+      //r = d->drain();
       if (r < 0) {
         lsubdout(g_ceph_context, rgw, 0) << "D3nDataCache: " << __func__ << "(): Error: failed to drain/flush, r= " << r << dendl;
       }
@@ -291,6 +293,7 @@ int D3nRGWDataCache<T>::get_obj_iterate_cb(const DoutPrefixProvider *dpp, const 
       // Write To Cache
       ldpp_dout(dpp, 20) << "D3nDataCache: " << __func__ << "(): WRITE TO CACHE, oid=" << read_obj.oid << ", obj-ofs=" << obj_ofs << ", read_ofs=" << read_ofs << ", len=" << len << dendl;
       auto completed = d->aio->get(obj, rgw::Aio::librados_op(std::move(op), d->yield), cost, id);
+      const std::lock_guard l(d->d3n_data.d3n_rw_lock);
       return d->flush(std::move(completed));
     }
   }

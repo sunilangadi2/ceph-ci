@@ -6375,7 +6375,7 @@ static int _get_obj_iterate_cb(const DoutPrefixProvider *dpp,
 int RGWRados::flush_read_list(const DoutPrefixProvider *dpp, struct get_obj_data* d)
 {
   ldpp_dout(dpp, 20) << "D3nDataCache: RGWRados::" << __func__ << "()" << dendl;
-  const std::lock_guard l(d->d3n_data.d3n_datacache_lock);
+  const std::lock_guard l(d->d3n_data.d3n_lock);
   list<bufferlist> lbl;
   lbl.swap(d->d3n_read_list);
   d->d3n_read_list.clear();
@@ -6459,7 +6459,7 @@ int RGWRados::Object::Read::iterate(const DoutPrefixProvider *dpp, int64_t ofs, 
 
   int req_libaio_aio_num = g_conf()->rgw_d3n_req_libaio_aio_num;
   for (int i=0 ; i<req_libaio_aio_num ; i++)
-    data.d3n_data.d3n_datacache_sem.Put();
+    data.d3n_data.d3n_sem.Put();
 
   int r = store->iterate_obj(dpp, obj_ctx, source->get_bucket_info(), state.obj,
                              ofs, end, chunk_size, _get_obj_iterate_cb, &data, y);
@@ -6470,13 +6470,12 @@ int RGWRados::Object::Read::iterate(const DoutPrefixProvider *dpp, int64_t ofs, 
     return r;
   }
 
-  r = data.drain();
   if (store->get_use_datacache()) {
     for (int i=0 ; i<req_libaio_aio_num ; i++) {
-      lsubdout(g_ceph_context, rgw_datacache, 20) << "D3nDataCache: " << __func__ << "(): get libaio callback slot #" << i << dendl;
-      //std::cerr << "--#MK# " << __FILE__ << " #" << __LINE__ << " | " << __func__ << "()| get libaio callback slot #" << i << std::endl;
-      data.d3n_data.d3n_datacache_sem.Get();
+      lsubdout(g_ceph_context, rgw_datacache, 30) << "D3nDataCache: " << __func__ << "(): Get libaio semaphore callback slot #" << i << dendl;
+      data.d3n_data.d3n_sem.Get();
     }
+    r = data.drain();
     if (r < 0) {
       ldpp_dout(dpp, 0) << "D3nDataCache: " << __func__ << "(): Error: data cache drain returned: " << r << dendl;
       return r;
@@ -6488,10 +6487,7 @@ int RGWRados::Object::Read::iterate(const DoutPrefixProvider *dpp, int64_t ofs, 
     }
     return r;
   } else {
-    if (r < 0) {
-      ldpp_dout(dpp, 0) << "D3nDataCache: " << __func__ << "(): Error: data drain returned: " << r << dendl;
-    }
-    return r;
+    return data.drain();
   }
 }
 

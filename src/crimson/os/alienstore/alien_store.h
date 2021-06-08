@@ -37,6 +37,7 @@ public:
   private:
     ObjectMap::ObjectMapIterator iter;
     AlienStore* store;
+    // XXX
     CollectionRef ch;
   };
   AlienStore(const std::string& path, const ConfigValues& values);

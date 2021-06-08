@@ -14,7 +14,8 @@ class FuturizedStore;
 
 class FuturizedCollection
   : public boost::intrusive_ref_counter<FuturizedCollection,
-                                        boost::thread_unsafe_counter>
+                                        // XXX: for the sake of AlienStore
+                                        boost::thread_safe_counter>
 {
 public:
   FuturizedCollection(const coll_t& cid)

@@ -100,6 +100,7 @@ seastar::future<> AlienStore::stop()
     return seastar::now();
   }
   return tp->submit([this] {
+    // XXX: bumping up/down the counter from multiple threads
     for (auto [cid, ch]: coll_map) {
       static_cast<AlienCollection*>(ch.get())->collection.reset();
     }
@@ -572,6 +573,7 @@ seastar::future<FuturizedStore::OmapIteratorRef> AlienStore::get_omap_iterator(
     auto c = static_cast<AlienCollection*>(ch.get());
     auto iter = store->get_omap_iterator(c->collection, oid);
     return FuturizedStore::OmapIteratorRef(
+              // XXX: multi-threaded ref counting
 	      new AlienStore::AlienOmapIterator(iter,
 						this,
 						ch));

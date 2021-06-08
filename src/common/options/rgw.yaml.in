@@ -3180,10 +3180,13 @@ options:
 - name: rgw_d3n_req_libaio_aio_num
   type: int
   level: advanced
-  desc: specifies the maximum number of simultaneous I/O requests that libaio will enqueue per GET request
-  default: 8
+  desc: specifies the maximum number of simultaneous I/O requests that libaio will enqueue per GET request, by default calculated from rgw_get_obj_window_size/rgw_get_obj_max_req_size
+  default: 0
   services:
   - rgw
+  see_also:
+  - rgw_get_obj_window_size
+  - rgw_get_obj_max_req_size
   with_legacy: true
 - name: rgw_luarocks_location
   type: str

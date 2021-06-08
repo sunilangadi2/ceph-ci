@@ -96,9 +96,9 @@ class TestNFS(MgrTestCase):
         '''
         output = self._cmd('auth', 'ls')
         if check_in:
-            self.assertIn(f'client.{self.cluster_id}{export_id}', output)
+            self.assertIn(f'client.nfs.{self.cluster_id}.{export_id}', output)
         else:
-            self.assertNotIn(f'client-{self.cluster_id}', output)
+            self.assertNotIn(f'client.nfs.{self.cluster_id}', output)
 
     def _test_idempotency(self, cmd_func, cmd_args):
         '''

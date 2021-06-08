@@ -44,7 +44,7 @@ class TestNFS(MgrTestCase):
          "cluster_id": self.cluster_id,
          "pseudo": self.pseudo_path,
          "access_type": "RW",
-         "squash": "no_root_squash",
+         "squash": "none",
          "security_label": True,
          "protocols": [
            4
@@ -56,7 +56,6 @@ class TestNFS(MgrTestCase):
            "name": "CEPH",
            "user_id": "nfs.test.1",
            "fs_name": self.fs_name,
-           "sec_label_xattr": ''
          },
          "clients": []
         }

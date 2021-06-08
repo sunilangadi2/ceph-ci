@@ -17,8 +17,9 @@
 
 
 struct D3nGetObjData {
-  std::timed_mutex d3n_datacache_lock;
-  Semaphore d3n_datacache_sem;
+  std::timed_mutex d3n_lock;
+  std::shared_mutex d3n_rw_lock;
+  Semaphore d3n_sem;
   atomic_ulong d3n_libaio_op_seq{0};
   atomic_ulong d3n_libaio_op_prev{0};
   std::condition_variable d3n_libaio_op_cv;
@@ -51,6 +52,7 @@ struct D3nL1CacheRequest : public D3nCacheRequest {
   int ret;
   struct aiocb d3n_aiocb;
   std::timed_mutex* d_lock;
+  std::shared_mutex* d_rw_lock;
   Semaphore* d_sem;
   atomic_ulong* d_libaio_op_seq;
   atomic_ulong* d_libaio_op_prev;
@@ -123,8 +125,9 @@ struct D3nL1CacheRequest : public D3nCacheRequest {
     key = obj_key;
     len = read_len;
     stat = EINPROGRESS;
-    d_lock = &d_d3n_data->d3n_datacache_lock;
-    d_sem = &d_d3n_data->d3n_datacache_sem;
+    d_lock = &d_d3n_data->d3n_lock;
+    d_rw_lock = &d_d3n_data->d3n_rw_lock;
+    d_sem = &d_d3n_data->d3n_sem;
     d_libaio_op_seq = &d_d3n_data->d3n_libaio_op_seq;
     d_libaio_op_prev = &d_d3n_data->d3n_libaio_op_prev;
     d_libaio_op_cv = &d_d3n_data->d3n_libaio_op_cv;
@@ -144,7 +147,7 @@ struct D3nL1CacheRequest : public D3nCacheRequest {
     d3n_aiocb.aio_offset = read_ofs;
     d3n_aiocb.aio_sigevent.sigev_notify = SIGEV_THREAD;
     d3n_aiocb.aio_sigevent.sigev_notify_function = cbf;
-    d3n_aiocb.aio_sigevent.sigev_notify_attributes = NULL;
+    d3n_aiocb.aio_sigevent.sigev_notify_attributes = nullptr;
 
     d3n_aiocb.aio_sigevent.sigev_value.sival_ptr = this;
     return 0;

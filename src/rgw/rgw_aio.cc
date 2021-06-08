@@ -44,7 +44,7 @@ struct d3n_cache_state {
 
   int d3n_submit_libaio_read_op(D3nL1CacheRequest* cr) {
     cr->d_sem->Get();
-    const std::lock_guard l2(*cr->d_lock);
+    const std::lock_guard ld(*cr->d_lock);
     cr->libaio_op_seq.store(++(*cr->d_libaio_op_seq));
     lsubdout(g_ceph_context, rgw, 20) << "D3nDataCache: " << __func__ << "(): Read From Cache, key=" << c->key << dendl;
     lsubdout(g_ceph_context, rgw_datacache, 30) << "D3nDataCache: " << __func__ << "(): d_libaio_op_seq= " << *cr->d_libaio_op_seq << ", libaio_op_seq= " << cr->libaio_op_seq << dendl;
@@ -69,23 +69,23 @@ void cb(librados::completion_t, void* arg) {
 
 void d3n_libaio_read_cbt(sigval_t sigval) {
   D3nL1CacheRequest* c = static_cast<D3nL1CacheRequest*>(sigval.sival_ptr);
-  lsubdout(g_ceph_context, rgw, 20) << "D3nDataCache: " << __func__ << "(): Read From Cache, key=" << c->key << dendl;
   // handle libaio requests callbacks re-ordering
   std::unique_lock<std::mutex> lcv(*c->d_libaio_op_cv_lock);
   while (c->libaio_op_seq-1 != *c->d_libaio_op_prev) {
     lsubdout(g_ceph_context, rgw_datacache, 5) << "D3nDataCache: " << __func__ << "(): Note: libaio callback out-of-order, reordering: key=" << c->key << ", d_libaio_op_seq= " << *c->d_libaio_op_seq << ", libaio_op_seq= " << c->libaio_op_seq << ", d_libaio_op_prev= " << *c->d_libaio_op_prev << dendl;
     c->d_libaio_op_cv->wait(lcv);
   }
-  c->d_libaio_op_prev->store(c->libaio_op_seq);
 
-  const std::lock_guard l2(*c->d_lock);
-  lsubdout(g_ceph_context, rgw_datacache, 30) << "D3nDataCache: " << __func__ << "(): libaio callback: key=" << c->key << ", d_libaio_op_seq= " << *c->d_libaio_op_seq << ", libaio_op_seq= " << c->libaio_op_seq << ", d_libaio_op_prev= " << *c->d_libaio_op_prev << dendl;
+  const std::lock_guard ld(*c->d_lock);
+  lsubdout(g_ceph_context, rgw_datacache, 30) << "D3nDataCache: " << __func__ << "(): Read From Cache, key=" << c->key << ", thread id=0x" << std::hex << std::this_thread::get_id() << dendl;
   int status = c->d3n_libaio_status();
   if (status == 0) {
     c->d3n_libaio_finish();
     c->r->result = 0;
     c->aio->put(*(c->r));
   } else {
+    std::cerr << "  !!  #MK# " << __func__ << "()| result= " << c->r->result << ", key=" << c->key.substr(42) << ", d_libaio_op_seq= " << *c->d_libaio_op_seq << ", libaio_op_seq= " << c->libaio_op_seq << ", d_libaio_op_prev= " << *c->d_libaio_op_prev << ", thread id= 0x" << std::hex << std::this_thread::get_id() << std::dec << std::endl;
+    std::this_thread::yield(); abort();
     c->r->result = -EINVAL;
     c->aio->put(*(c->r));
     if (status != ECANCELED) {
@@ -93,6 +93,7 @@ void d3n_libaio_read_cbt(sigval_t sigval) {
     }
   }
   c->d_sem->Put();
+  (*c->d_libaio_op_prev)++;
   c->d_libaio_op_cv->notify_all();
   delete c;
   c = nullptr;

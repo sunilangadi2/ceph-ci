@@ -144,7 +144,7 @@ struct D3nL1CacheRequest : public D3nCacheRequest {
     d3n_aiocb.aio_offset = read_ofs;
     d3n_aiocb.aio_sigevent.sigev_notify = SIGEV_THREAD;
     d3n_aiocb.aio_sigevent.sigev_notify_function = cbf;
-    d3n_aiocb.aio_sigevent.sigev_notify_attributes = NULL;
+    d3n_aiocb.aio_sigevent.sigev_notify_attributes = nullptr;
 
     d3n_aiocb.aio_sigevent.sigev_value.sival_ptr = this;
     return 0;

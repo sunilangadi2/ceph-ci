@@ -3181,7 +3181,7 @@ options:
   type: int
   level: advanced
   desc: specifies the maximum number of simultaneous I/O requests that libaio will enqueue per GET request
-  default: 8
+  default: 4
   services:
   - rgw
   with_legacy: true

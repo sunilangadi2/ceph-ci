@@ -44,9 +44,9 @@ struct d3n_cache_state {
 
   int d3n_submit_libaio_read_op(D3nL1CacheRequest* cr) {
     cr->d_sem->Get();
-    cr->libaio_op_seq.store(++(*cr->d_libaio_op_seq));
+    cr->libaio_op_seq.store(++(*cr->d_libaio_op_curr));
     lsubdout(g_ceph_context, rgw, 20) << "D3nDataCache: " << __func__ << "(): Read From Cache, key=" << c->key << dendl;
-    lsubdout(g_ceph_context, rgw_datacache, 30) << "D3nDataCache: " << __func__ << "(): d_libaio_op_seq= " << *cr->d_libaio_op_seq << ", libaio_op_seq= " << cr->libaio_op_seq << dendl;
+    lsubdout(g_ceph_context, rgw_datacache, 30) << "D3nDataCache: " << __func__ << "(): d_libaio_op_seq= " << *cr->d_libaio_op_curr << ", libaio_op_seq= " << cr->libaio_op_seq << dendl;
     int ret = 0;
     if((ret = ::aio_read(&cr->d3n_aiocb)) != 0) {
       lsubdout(g_ceph_context, rgw, 1) << "D3nDataCache: " << __func__ << "(): Error: ::aio_read(), errno= " << -errno << dendl;
@@ -61,7 +61,7 @@ void d3n_libaio_read_cbt(sigval_t sigval) {
   // handle libaio requests callbacks re-ordering
   std::unique_lock<std::mutex> lcv(*c->d_libaio_op_cv_lock);
   while (c->libaio_op_seq-1 != *c->d_libaio_op_prev) {
-    lsubdout(g_ceph_context, rgw_datacache, 5) << "D3nDataCache: " << __func__ << "(): Note: libaio callback out-of-order, reordering: key=" << c->key << ", d_libaio_op_seq= " << *c->d_libaio_op_seq << ", libaio_op_seq= " << c->libaio_op_seq << ", d_libaio_op_prev= " << *c->d_libaio_op_prev << dendl;
+    lsubdout(g_ceph_context, rgw_datacache, 5) << "D3nDataCache: " << __func__ << "(): Note: libaio callback out-of-order, reordering: key=" << c->key << ", d_libaio_op_seq= " << *c->d_libaio_op_curr << ", libaio_op_seq= " << c->libaio_op_seq << ", d_libaio_op_prev= " << *c->d_libaio_op_prev << dendl;
     c->d_libaio_op_cv->wait(lcv);
   }
 
@@ -74,7 +74,6 @@ void d3n_libaio_read_cbt(sigval_t sigval) {
     c->r->result = 0;
     c->aio->put(*(c->r));
   } else {
-    std::cerr << "  !!  #MK# " << __func__ << "()| result= " << c->r->result << ", key=" << c->key.substr(42) << ", d_libaio_op_seq= " << *c->d_libaio_op_seq << ", libaio_op_seq= " << c->libaio_op_seq << ", d_libaio_op_prev= " << *c->d_libaio_op_prev << ", thread id= 0x" << std::hex << std::this_thread::get_id() << std::dec << std::endl;
     std::this_thread::yield(); abort();
     c->r->result = -EINVAL;
     const std::unique_lock lrw(*c->d_rw_lock);

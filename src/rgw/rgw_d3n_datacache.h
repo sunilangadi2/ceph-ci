@@ -63,12 +63,10 @@ struct D3nCacheAioWriteRequest {
 struct D3nDataCache {
 
 private:
-  std::map<string, D3nChunkDataInfo*> cache_map;
-  std::list<string> outstanding_write_list;
-  int index;
-  std::mutex cache_lock;
-  std::mutex eviction_lock;
-  std::string cache_location;
+  std::unordered_map <string, D3nChunkDataInfo*> d3n_cache_map;
+  std::set<string> d3n_outstanding_write_list;
+  std::mutex d3n_cache_lock;
+  std::mutex d3n_eviction_lock;
 
   CephContext *cct;
   enum class _io_type {
@@ -95,6 +93,8 @@ public:
     while (lru_eviction() > 0);
   }
 
+  std::string cache_location;
+
   bool get(const string& oid, const off_t len);
   void put(bufferlist& bl, unsigned int len, string& obj_key);
   int d3n_io_write(bufferlist& bl, unsigned int len, std::string oid);
@@ -116,6 +116,7 @@ public:
     }
     head = o;
   }
+
   void lru_insert_tail(struct D3nChunkDataInfo* o) {
     lsubdout(g_ceph_context, rgw_datacache, 30) << "D3nDataCache: " << __func__ << "()" << dendl;
     o->lru_next = nullptr;
@@ -283,7 +284,7 @@ int D3nRGWDataCache<T>::get_obj_iterate_cb(const DoutPrefixProvider *dpp, const 
       d->d3n_cache_rw_state = d->e_d3n_cache_rw_state::READ;
       // Read From Cache
       ldpp_dout(dpp, 20) << "D3nDataCache: " << __func__ << "(): READ FROM CACHE: oid=" << read_obj.oid << ", obj-ofs=" << obj_ofs << ", read_ofs=" << read_ofs << ", len=" << len << dendl;
-      auto completed = d->aio->get(obj, rgw::Aio::d3n_cache_op(std::move(op), d->yield, obj_ofs, read_ofs, len, g_conf()->rgw_d3n_l1_datacache_persistent_path, &d->d3n_get_data), cost, id);
+      auto completed = d->aio->get(obj, rgw::Aio::d3n_cache_op(std::move(op), d->yield, obj_ofs, read_ofs, len, d3n_data_cache.cache_location, &d->d3n_get_data), cost, id);
       r = d->flush(std::move(completed));
       if (r < 0) {
         lsubdout(g_ceph_context, rgw, 0) << "D3nDataCache: " << __func__ << "(): Error: failed to drain/flush, r= " << r << dendl;
@@ -295,6 +296,7 @@ int D3nRGWDataCache<T>::get_obj_iterate_cb(const DoutPrefixProvider *dpp, const 
         lsubdout(g_ceph_context, rgw, 5) << "D3nDataCache: " << __func__ << "(): Note - cache write after cache read, switching cache to write state." << dendl;
       } else
         d->d3n_cache_rw_state = d->e_d3n_cache_rw_state::WRITE;
+
       // Write To Cache
       ldpp_dout(dpp, 20) << "D3nDataCache: " << __func__ << "(): WRITE TO CACHE: oid=" << read_obj.oid << ", obj-ofs=" << obj_ofs << ", read_ofs=" << read_ofs << " len=" << len << ", cache read state=" << d->d3n_cache_rw_state << dendl;
       auto completed = d->aio->get(obj, rgw::Aio::librados_op(std::move(op), d->yield), cost, id);

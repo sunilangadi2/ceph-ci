@@ -6377,7 +6377,7 @@ int RGWRados::flush_read_list(const DoutPrefixProvider *dpp, struct get_obj_data
 {
   ldpp_dout(dpp, 20) << "D3nDataCache: RGWRados::" << __func__ << "()" << dendl;
   const std::lock_guard l(d->d3n_get_data.d3n_lock);
-  list<bufferlist> lbl;
+  std::list<bufferlist> lbl;
   lbl.swap(d->d3n_read_list);
   d->d3n_read_list.clear();
 

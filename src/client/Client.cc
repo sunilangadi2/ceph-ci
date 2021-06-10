@@ -14964,6 +14964,7 @@ void Client::ms_handle_remote_reset(Connection *con)
 	  s = &p.second;
 	}
       }
+      ldout(cct, 0) << __func__ << " s=" << s << ", mds=" << mds << dendl;
       if (mds >= 0) {
 	assert (s != NULL);
 	switch (s->state) {
@@ -14985,9 +14986,10 @@ void Client::ms_handle_remote_reset(Connection *con)
 
 	case MetaSession::STATE_OPEN:
 	  {
+	    ldout(cct, 0) << __func__ << " state open" << dendl;
 	    objecter->maybe_request_map(); /* to check if we are blocklisted */
 	    if (cct->_conf.get_val<bool>("client_reconnect_stale")) {
-	      ldout(cct, 1) << "reset from mds we were open; close mds session for reconnect" << dendl;
+	      ldout(cct, 0) << "reset from mds we were open; close mds session for reconnect" << dendl;
 	      _closed_mds_session(s);
 	    } else {
 	      ldout(cct, 1) << "reset from mds we were open; mark session as stale" << dendl;

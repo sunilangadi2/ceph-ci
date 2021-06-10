@@ -1595,8 +1595,6 @@ struct get_obj_data {
   void d3n_add_pending_oid(std::string oid);
   std::string d3n_get_pending_oid(const DoutPrefixProvider *dpp);
   atomic_bool d3n_bypass_cache_write{false};
-  enum e_d3n_cache_rw_state {  UNSET=0, READ=1, WRITE=2  };
-  atomic_uint d3n_cache_rw_state{e_d3n_cache_rw_state::UNSET};
 
   int flush(rgw::AioResultList&& results) {
     int r = rgw::check_for_errors(results);

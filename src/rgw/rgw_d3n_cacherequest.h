@@ -17,8 +17,7 @@
 
 
 struct D3nGetObjData {
-  std::timed_mutex d3n_lock;
-  std::shared_mutex d3n_rw_lock;
+  std::mutex d3n_lock;
   Semaphore d3n_sem;
   atomic_ulong d3n_libaio_op_seq{0};
   atomic_ulong d3n_libaio_op_prev{0};
@@ -29,16 +28,15 @@ struct D3nGetObjData {
 class D3nCacheRequest {
   public:
     std::mutex lock;
-    int sequence;
-    buffer::list* bl;
+    buffer::list* bl{nullptr};
     std::string oid;
-    off_t ofs;
-    off_t len;
     std::string key;
-    off_t read_ofs;
-    rgw::AioResult* r = nullptr;
-    rgw::Aio* aio = nullptr;
-    D3nCacheRequest() : sequence(0), bl(nullptr), ofs(0), len(0), read_ofs(0) {};
+    off_t ofs{0};
+    off_t len{0};
+    off_t read_ofs{0};
+    rgw::AioResult* r{nullptr};
+    rgw::Aio* aio{nullptr};
+
     virtual ~D3nCacheRequest() {};
     virtual void d3n_libaio_release()=0;
     virtual void d3n_libaio_cancel_io()=0;
@@ -48,20 +46,17 @@ class D3nCacheRequest {
 
 struct D3nL1CacheRequest : public D3nCacheRequest {
   using sigval_cb = void (*) (sigval_t);
-  int stat;
-  int ret;
+  int stat{-1};
+  int ret{0};
   struct aiocb d3n_aiocb;
-  std::timed_mutex* d_lock;
-  std::shared_mutex* d_rw_lock;
+  std::mutex* d_lock{nullptr};
   Semaphore* d_sem;
-  atomic_ulong* d_libaio_op_seq;
-  atomic_ulong* d_libaio_op_prev;
+  atomic_ulong* d_libaio_op_curr{nullptr};
+  atomic_ulong* d_libaio_op_prev{nullptr};
   atomic_ulong libaio_op_seq{0};
-  std::condition_variable* d_libaio_op_cv;
-  std::mutex* d_libaio_op_cv_lock;
+  std::condition_variable* d_libaio_op_cv{nullptr};
+  std::mutex* d_libaio_op_cv_lock{nullptr};
 
-
-  D3nL1CacheRequest() :  D3nCacheRequest(), stat(-1) {}
   ~D3nL1CacheRequest() {
     const std::lock_guard l(lock);
     if (d3n_aiocb.aio_buf != nullptr) {
@@ -126,9 +121,8 @@ struct D3nL1CacheRequest : public D3nCacheRequest {
     len = read_len;
     stat = EINPROGRESS;
     d_lock = &d_d3n_data->d3n_lock;
-    d_rw_lock = &d_d3n_data->d3n_rw_lock;
     d_sem = &d_d3n_data->d3n_sem;
-    d_libaio_op_seq = &d_d3n_data->d3n_libaio_op_seq;
+    d_libaio_op_curr = &d_d3n_data->d3n_libaio_op_seq;
     d_libaio_op_prev = &d_d3n_data->d3n_libaio_op_prev;
     d_libaio_op_cv = &d_d3n_data->d3n_libaio_op_cv;
     d_libaio_op_cv_lock = &d_d3n_data->d3n_libaio_op_cv_lock;

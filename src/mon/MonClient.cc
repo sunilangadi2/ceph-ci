@@ -1567,11 +1567,14 @@ int MonClient::handle_auth_request(
       handle_authentication_dispatcher->ms_handle_authentication(con);
       return 1;
     }
+    lderr(cct) << __func__ << " empty payload on " << con << dendl;
     return -EACCES;
   }
   auth_meta->auth_mode = payload[0];
   if (auth_meta->auth_mode < AUTH_MODE_AUTHORIZER ||
       auth_meta->auth_mode > AUTH_MODE_AUTHORIZER_MAX) {
+    lderr(cct) << __func__ << " invalid auth_mode " << auth_meta->auth_mode
+	       << " on " << con << dendl;
     return -EACCES;
   }
   AuthAuthorizeHandler *ah = get_auth_authorize_handler(con->get_peer_type(),
@@ -1609,7 +1612,7 @@ int MonClient::handle_auth_request(
     ldout(cct,10) << __func__ << " added challenge on " << con << dendl;
     return 0;
   }
-  ldout(cct,10) << __func__ << " bad authorizer on " << con << dendl;
+  lderr(cct) << __func__ << " bad authorizer on " << con << dendl;
   // discard old challenge
   auth_meta->authorizer_challenge.reset();
   return -EACCES;

@@ -68,6 +68,10 @@ def install_packages(ctx, config):
         log.info('Removing packaged dependencies of Keycloak...')
         for client in config:
             ctx.cluster.only(client).run(
+                args=['cd', '{tdir}'.format(tdir=get_keycloak_dir(ctx,config)), run.Raw('&&'), 'ls'],
+            )
+
+            ctx.cluster.only(client).run(
                 args=['rm', '-rf', '{tdir}'.format(tdir=get_keycloak_dir(ctx,config))],
             )
 

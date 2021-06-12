@@ -436,7 +436,7 @@ unsigned int PgScrubber::scrub_requeue_priority(Scrub::scrub_prio_t with_priorit
 
 void PgScrubber::unregister_from_osd()
 {
-  dout(15) << __func__ << " was registered: " << registration_state() << dendl;
+  dout(15) << __func__ << " prev. state: " << registration_state() << dendl;
   if (m_scrub_job) {
     m_osds->get_scrub_services().remove_from_osd_queue(m_scrub_job);
   }
@@ -455,10 +455,11 @@ std::string_view PgScrubber::registration_state() const
   return "(no sched job)"sv;
 }
 
-void PgScrubber::final_rm_from_osd()
+void PgScrubber::rm_from_osd_scrubbing()
 {
+  dout(20) << __func__ << dendl;
   // make sure the OSD won't try to scrub this one just now
-  m_osds->get_scrub_services().final_rm_from_osd(m_scrub_job);
+  unregister_from_osd();
 }
 
 void PgScrubber::on_primary_change(const requested_scrub_t& request_flags)
@@ -1942,7 +1943,7 @@ PgScrubber::~PgScrubber()
 {
   if (m_scrub_job) {
     // make sure the OSD won't try to scrub this one just now
-    final_rm_from_osd();
+    rm_from_osd_scrubbing();
     m_scrub_job.reset();
   }
 }

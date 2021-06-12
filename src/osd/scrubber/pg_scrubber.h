@@ -257,7 +257,7 @@ class PgScrubber : public ScrubPgIF, public ScrubMachineListener {
 
   void update_scrub_job(const requested_scrub_t& request_flags) final;
 
-  void final_rm_from_osd() final;
+  void rm_from_osd_scrubbing() final;
 
   void on_primary_change(const requested_scrub_t& request_flags) final;
 
@@ -308,7 +308,7 @@ class PgScrubber : public ScrubPgIF, public ScrubMachineListener {
    *  should we requeue blocked ops?
    *  Applicable to the PrimaryLogScrub derived class.
    */
-  [[nodiscard]] virtual bool should_requeue_blocked_ops(
+  [[nodiscard]] bool should_requeue_blocked_ops(
     eversion_t last_recovery_applied) const override
   {
     return false;
@@ -319,7 +319,7 @@ class PgScrubber : public ScrubPgIF, public ScrubMachineListener {
   /**
    *  add to scrub statistics, but only if the soid is below the scrub start
    */
-  virtual void stats_of_handled_objects(const object_stat_sum_t& delta_stats,
+  void stats_of_handled_objects(const object_stat_sum_t& delta_stats,
 					const hobject_t& soid) override
   {
     ceph_assert(false);

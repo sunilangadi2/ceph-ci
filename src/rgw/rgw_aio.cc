@@ -69,14 +69,14 @@ void d3n_libaio_read_cbt(sigval_t sigval) {
   lsubdout(g_ceph_context, rgw_datacache, 30) << "D3nDataCache: " << __func__ << "(): Read From Cache, key=" << c->key << ", thread id=0x" << std::hex << std::this_thread::get_id() << dendl;
   int status = c->d3n_libaio_status();
   if (status == 0) {
-    const std::unique_lock lrw(*c->d_rw_lock);
+    const std::lock_guard lrw(*c->d_rw_lock);
     c->d3n_libaio_finish();
     c->r->result = 0;
     c->aio->put(*(c->r));
   } else {
     std::this_thread::yield(); abort();
     c->r->result = -EINVAL;
-    const std::unique_lock lrw(*c->d_rw_lock);
+    const std::lock_guard lrw(*c->d_rw_lock);
     c->aio->put(*(c->r));
     if (status != ECANCELED) {
       lsubdout(g_ceph_context, rgw, 1) << "D3nDataCache: " << __func__ << "(): Error: status!=ECANCELED, status=" << status << dendl;

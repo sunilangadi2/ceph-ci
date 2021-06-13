@@ -58,32 +58,23 @@ struct d3n_cache_state {
 
 void d3n_libaio_read_cbt(sigval_t sigval) {
   D3nL1CacheRequest* c = static_cast<D3nL1CacheRequest*>(sigval.sival_ptr);
-  // handle libaio requests callbacks re-ordering
-  std::unique_lock<std::mutex> lcv(*c->d_libaio_op_cv_lock);
-  while (c->libaio_op_seq-1 != *c->d_libaio_op_prev) {
-    lsubdout(g_ceph_context, rgw_datacache, 5) << "D3nDataCache: " << __func__ << "(): Note: libaio callback out-of-order, reordering: key=" << c->key << ", d_libaio_op_seq= " << *c->d_libaio_op_curr << ", libaio_op_seq= " << c->libaio_op_seq << ", d_libaio_op_prev= " << *c->d_libaio_op_prev << dendl;
-    c->d_libaio_op_cv->wait(lcv);
-  }
 
   const std::lock_guard ld(*c->d_lock);
   lsubdout(g_ceph_context, rgw_datacache, 30) << "D3nDataCache: " << __func__ << "(): Read From Cache, key=" << c->key << ", thread id=0x" << std::hex << std::this_thread::get_id() << dendl;
   int status = c->d3n_libaio_status();
   if (status == 0) {
-    const std::unique_lock lrw(*c->d_rw_lock);
     c->d3n_libaio_finish();
     c->r->result = 0;
     c->aio->put(*(c->r));
   } else {
     std::this_thread::yield(); abort();
     c->r->result = -EINVAL;
-    const std::unique_lock lrw(*c->d_rw_lock);
     c->aio->put(*(c->r));
     if (status != ECANCELED) {
       lsubdout(g_ceph_context, rgw, 1) << "D3nDataCache: " << __func__ << "(): Error: status!=ECANCELED, status=" << status << dendl;
     }
   }
   (*c->d_libaio_op_prev)++;
-  c->d_libaio_op_cv->notify_all();
   c->d_sem->Put();
   delete c;
   c = nullptr;

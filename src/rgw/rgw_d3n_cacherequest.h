@@ -17,8 +17,7 @@
 
 
 struct D3nGetObjData {
-  std::timed_mutex d3n_lock;
-  std::shared_mutex d3n_rw_lock;
+  std::mutex d3n_lock;
   Semaphore d3n_sem;
   atomic_ulong d3n_libaio_op_seq{0};
   atomic_ulong d3n_libaio_op_prev{0};
@@ -50,8 +49,7 @@ struct D3nL1CacheRequest : public D3nCacheRequest {
   int stat{-1};
   int ret{0};
   struct aiocb d3n_aiocb;
-  std::timed_mutex* d_lock{nullptr};
-  std::shared_mutex* d_rw_lock{nullptr};
+  std::mutex* d_lock{nullptr};
   Semaphore* d_sem;
   atomic_ulong* d_libaio_op_curr{nullptr};
   atomic_ulong* d_libaio_op_prev{nullptr};
@@ -123,7 +121,6 @@ struct D3nL1CacheRequest : public D3nCacheRequest {
     len = read_len;
     stat = EINPROGRESS;
     d_lock = &d_d3n_data->d3n_lock;
-    d_rw_lock = &d_d3n_data->d3n_rw_lock;
     d_sem = &d_d3n_data->d3n_sem;
     d_libaio_op_curr = &d_d3n_data->d3n_libaio_op_seq;
     d_libaio_op_prev = &d_d3n_data->d3n_libaio_op_prev;

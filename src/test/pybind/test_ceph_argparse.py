@@ -267,6 +267,21 @@ class TestAuth(TestArgparse):
 
     def test_get_or_create_key(self):
         self.check_1_or_more_string_args('auth', 'get-or-create-key')
+        prefix = 'auth get-or-create-key'
+        entity = 'client.test'
+        caps = ['mon',
+                'allow r',
+                'osd',
+                'allow rw pool=nfs-ganesha namespace=test, allow rw tag cephfs data=user_test_fs',
+                'mds',
+                'allow rw path=/']
+        cmd = prefix.split() + [entity] + caps
+        assert_equal(
+            {
+                'prefix': prefix,
+                'entity': entity,
+                'caps': caps
+            }, validate_command(sigdict, cmd))
 
     def test_get_or_create(self):
         self.check_1_or_more_string_args('auth', 'get-or-create')

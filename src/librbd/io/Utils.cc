@@ -158,11 +158,12 @@ void unsparsify(CephContext* cct, ceph::bufferlist* bl,
                 uint64_t out_bl_len) {
   Striper::StripedReadResult destriper;
   bufferlist out_bl;
-
+   ldout(cct, 20) << " data_buffer_before=" << bl->c_str() << dendl;
   destriper.add_partial_sparse_result(cct, std::move(*bl), extent_map, bl_off,
                                       {{0, out_bl_len}});
   destriper.assemble_result(cct, out_bl, true);
   *bl = out_bl;
+  ldout(cct, 20) << " data_buffer_after=" << bl->c_str() << dendl;
 }
 
 template <typename I>

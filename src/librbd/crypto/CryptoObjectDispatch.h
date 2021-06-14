@@ -104,6 +104,7 @@ public:
 private:
   ImageCtxT* m_image_ctx;
   ceph::ref_t<CryptoInterface> m_crypto;
+  ceph::mutex m_lock = ceph::make_mutex("librbd::crypto::CryptoObjectDispatch");
 
 };
 

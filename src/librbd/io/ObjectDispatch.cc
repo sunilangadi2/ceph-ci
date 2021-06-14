@@ -78,7 +78,8 @@ bool ObjectDispatch<I>::write(
     Context** on_finish, Context* on_dispatched) {
   auto cct = m_image_ctx->cct;
   ldout(cct, 20) << data_object_name(m_image_ctx, object_no) << " "
-                 << object_off << "~" << data.length() << dendl;
+                 << object_off << "~" << data.length()
+                 << data.c_str() << dendl;
 
   *dispatch_result = DISPATCH_RESULT_COMPLETE;
   auto req = new ObjectWriteRequest<I>(m_image_ctx, object_no, object_off,

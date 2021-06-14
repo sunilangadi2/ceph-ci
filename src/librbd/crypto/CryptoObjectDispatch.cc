@@ -319,10 +319,14 @@ struct C_UnalignedObjectWriteRequest : public Context {
     }
 
     void build_aligned_data() {
+      ceph::mutex m_lock = ceph::make_mutex("librbd::crypto::CryptoObjectDispatch");
+      std::lock_guard<ceph::mutex> lockGuard(m_lock);
       auto [pre_align, post_align] = crypto->get_pre_and_post_align(
               object_off, data.length());
+      ldout(image_ctx->cct, 20) << " pre align " << pre_align <<  " post align " << post_align << dendl;
       if (pre_align != 0) {
         auto &extent = extents.front();
+        ldout(image_ctx->cct, 20) << " aligning data=" << extent.bl.c_str() << dendl;
         io::util::unsparsify(image_ctx->cct, &extent.bl, extent.extent_map,
                              extent.offset, extent.length);
         extent.bl.splice(0, pre_align, &aligned_data);
@@ -372,6 +376,7 @@ struct C_UnalignedObjectWriteRequest : public Context {
       }
 
       build_aligned_data();
+      ldout(image_ctx->cct, 20) << "unaligned write data=" << aligned_data.c_str() << dendl;
 
       auto aligned_off = crypto->align(object_off, data.length()).first;
       auto new_write_flags = write_flags;
@@ -483,7 +488,8 @@ bool CryptoObjectDispatch<I>::write(
     Context** on_finish, Context* on_dispatched) {
   auto cct = m_image_ctx->cct;
   ldout(cct, 20) << data_object_name(m_image_ctx, object_no) << " "
-                 << object_off << "~" << data.length() << dendl;
+                 << object_off << "~" << data.length()
+                 << " data=" << data.c_str() << dendl;
   ceph_assert(m_crypto != nullptr);
 
   if (m_crypto->is_aligned(object_off, data.length())) {
@@ -495,6 +501,7 @@ bool CryptoObjectDispatch<I>::write(
     on_dispatched->complete(r);
   } else {
     *dispatch_result = io::DISPATCH_RESULT_COMPLETE;
+    ldout(cct, 20) << "data=" << data.c_str() << dendl;
     auto req = new C_UnalignedObjectWriteRequest<I>(
             m_image_ctx, m_crypto, object_no, object_off, std::move(data), {},
             nullptr, io_context, op_flags, write_flags, assert_version,

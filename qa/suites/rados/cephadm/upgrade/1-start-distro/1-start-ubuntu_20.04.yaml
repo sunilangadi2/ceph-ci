@@ -7,3 +7,7 @@ tasks:
     allow_ptrace: false
 os_type: ubuntu
 os_version: "20.04"
+overrides:
+  ceph:
+    log-ignorelist:
+      - 'Failed to load ceph-mgr modules: rook'

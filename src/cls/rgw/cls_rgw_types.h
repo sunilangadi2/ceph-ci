@@ -340,6 +340,10 @@ struct cls_rgw_obj_key {
   cls_rgw_obj_key(const std::string &_name) : name(_name) {}
   cls_rgw_obj_key(const std::string& n, const std::string& i) : name(n), instance(i) {}
 
+  operator std::string() const {
+    return name + '(' + instance + ')';
+  }
+
   void set(const std::string& _name) {
     name = _name;
   }

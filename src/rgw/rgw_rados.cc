@@ -6460,8 +6460,8 @@ int RGWRados::Object::Read::iterate(const DoutPrefixProvider *dpp, int64_t ofs, 
 
   int req_libaio_aio_num = (g_conf()->rgw_d3n_req_libaio_aio_num == 0) ? (g_conf()->rgw_get_obj_window_size / g_conf()->rgw_get_obj_max_req_size) - 1 : g_conf()->rgw_d3n_req_libaio_aio_num;
   ldpp_dout(dpp, 20) << "D3nDataCache: " << __func__ << "(): libaio cuncurrent aio operations per request = " << req_libaio_aio_num << dendl;
-  for (int i=0 ; i<req_libaio_aio_num ; i++)
-    data.d3n_get_data.d3n_sem.Put();
+  // for (int i=0 ; i<req_libaio_aio_num ; i++)
+  //   data.d3n_get_data.d3n_sem.Put();
 
   int r = store->iterate_obj(dpp, obj_ctx, source->get_bucket_info(), state.obj,
                              ofs, end, chunk_size, _get_obj_iterate_cb, &data, y);
@@ -6473,14 +6473,14 @@ int RGWRados::Object::Read::iterate(const DoutPrefixProvider *dpp, int64_t ofs, 
   }
 
   if (store->get_use_datacache()) {
-    for (int i=0 ; i<req_libaio_aio_num ; i++) {
-      lsubdout(g_ceph_context, rgw_datacache, 30) << "D3nDataCache: " << __func__ << "(): Get libaio semaphore callback slot #" << i << dendl;
-      data.d3n_get_data.d3n_sem.Get();
-    }
+    // for (int i=0 ; i<req_libaio_aio_num ; i++) {
+    //   lsubdout(g_ceph_context, rgw_datacache, 30) << "D3nDataCache: " << __func__ << "(): Get libaio semaphore callback slot #" << i << dendl;
+    //   data.d3n_get_data.d3n_sem.Get();
+    // }
 
-    if (data.d3n_get_data.d3n_libaio_op_seq != data.d3n_get_data.d3n_libaio_op_prev) {
-      ldpp_dout(dpp, 5) << "D3nDataCache: " << __func__ << "(): Warning: incomplete libio ops - libaio_op_seq=" << data.d3n_get_data.d3n_libaio_op_seq << ", libaio_op_prev=" << data.d3n_get_data.d3n_libaio_op_prev << dendl;
-    }
+    // if (data.d3n_get_data.d3n_libaio_op_seq != data.d3n_get_data.d3n_libaio_op_prev) {
+    //   ldpp_dout(dpp, 5) << "D3nDataCache: " << __func__ << "(): Warning: incomplete libio ops - libaio_op_seq=" << data.d3n_get_data.d3n_libaio_op_seq << ", libaio_op_prev=" << data.d3n_get_data.d3n_libaio_op_prev << dendl;
+    // }
 
     r = data.drain();
     if (r < 0) {

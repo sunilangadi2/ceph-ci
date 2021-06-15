@@ -12,3 +12,7 @@ tasks:
     - sudo apt update
     - sudo apt -y -o Dpkg::Options::="--force-confdef" -o Dpkg::Options::="--force-confold" install podman containernetworking-plugins
     - sudo cp /etc/containers/registries.conf.backup /etc/containers/registries.conf
+overrides:
+  ceph:
+    log-ignorelist:
+      - 'Failed to load ceph-mgr modules: rook'

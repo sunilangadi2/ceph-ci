@@ -6988,7 +6988,7 @@ next:
       string marker;
       do {
         entries.clear();
-        ret = reshard.list(i, marker, max_entries - count, entries, &is_truncated);
+        ret = reshard.list(dpp(), i, marker, max_entries - count, entries, &is_truncated);
         if (ret < 0) {
           cerr << "Error listing resharding buckets: " << cpp_strerror(-ret) << std::endl;
           return ret;

@@ -133,6 +133,7 @@ function TEST_import_after_merge_and_gap() {
     sleep 5
 
     kill_daemons $dir TERM osd.0 || return 1
+    sleep 5
 
     # this should fail.. 1.1 still doesn't exist
     ! ceph-objectstore-tool --data-path $dir/0 --op import --pgid 1.1 --file $dir/1.1 || return 1

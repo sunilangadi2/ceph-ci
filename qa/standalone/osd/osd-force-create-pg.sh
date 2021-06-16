@@ -38,7 +38,7 @@ function TEST_reuse_id() {
     activate_osd $dir 0 || return 1
     activate_osd $dir 1 || return 1
     activate_osd $dir 2 || return 1
-    sleep 10
+    sleep 20
     ceph pg ls | grep 1.0 | grep stale || return 1
 
     ceph osd force-create-pg 1.0 --yes-i-really-mean-it || return 1

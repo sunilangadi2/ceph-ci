@@ -63,6 +63,10 @@ class HostManger(ResourceManager):
         return hosts[0] if hosts else None
 
     @wait_api_result
+    def get_gather_facts(self, host: Optional[str] = None) -> List[Dict[str, Any]]:
+        return self.api.get_gather_facts(host)
+
+    @wait_api_result
     def add(self, hostname: str, addr: str, labels: List[str], status: str):
         return self.api.add_host(HostSpec(hostname, addr=addr, labels=labels, status=status))
 

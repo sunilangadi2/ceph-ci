@@ -149,6 +149,19 @@ class TestProgress(MgrTestCase):
         osd_map = self.mgr_cluster.mon_manager.get_osd_dump_json()
         return len(osd_map['osds'])
 
+    def _set_no_recovery_backfill(self, flag):
+        # Set recovery and backfill on or off
+        if flag:
+            self.mgr_cluster.mon_manager.raw_cluster_cmd(
+                'osd', 'set', 'norecover')
+            self.mgr_cluster.mon_manager.raw_cluster_cmd(
+                'osd', 'set', 'nobackfill')
+        else:
+            self.mgr_cluster.mon_manager.raw_cluster_cmd(
+                'osd', 'unset', 'norecover')
+            self.mgr_cluster.mon_manager.raw_cluster_cmd(
+                'osd', 'unset', 'nobackfill')
+            
     def setUp(self):
         super(TestProgress, self).setUp()
         # Ensure we have at least four OSDs
@@ -181,7 +194,7 @@ class TestProgress(MgrTestCase):
 
         self._setup_pool()
         self._write_some_data(self.WRITE_PERIOD)
-
+        self._set_no_recovery_backfill(True)
         for osd_id in osd_ids:
             self.mgr_cluster.mon_manager.raw_cluster_cmd(
                 'osd', 'out', str(osd_id))
@@ -190,12 +203,14 @@ class TestProgress(MgrTestCase):
         self.wait_until_equal(lambda: self._osd_in_out_events_count('out'), 1,
                               timeout=self.EVENT_CREATION_PERIOD*2,
                               period=1)
+        self._set_no_recovery_backfill(False)
         ev = self._get_osd_in_out_events('out')[0]
         log.info(json.dumps(ev, indent=1))
         self.assertIn("Rebalancing after osd.0 marked out", ev['message'])
         return ev
 
     def _simulate_back_in(self, osd_ids, initial_event):
+        self._set_no_recovery_backfill(True)
         for osd_id in osd_ids:
             self.mgr_cluster.mon_manager.raw_cluster_cmd(
                     'osd', 'in', str(osd_id))
@@ -208,6 +223,7 @@ class TestProgress(MgrTestCase):
             self.wait_until_equal(lambda: self._osd_in_out_events_count('in'), 1,
                                   timeout=self.EVENT_CREATION_PERIOD*2,
                                   period=1)
+            self._set_no_recovery_backfill(False)
         except RuntimeError as ex:
             if not "Timed out after" in str(ex):
                 raise ex
@@ -330,28 +346,29 @@ class TestProgress(MgrTestCase):
         # First do some failures that will result in a normal rebalance
         # (Assumption: we're in a test environment that is configured
         #  not to require replicas be on different hosts, like teuthology)
+        self._set_no_recovery_backfill(True)
         for osd_id in range(0, osd_count - pool_size):
             self.mgr_cluster.mon_manager.raw_cluster_cmd(
                 'osd', 'out', str(osd_id))
-
+        
         # We should see an event for each of the OSDs we took out
         self.wait_until_equal(
             lambda: self._osd_in_out_events_count('out'),
             osd_count - pool_size,
             timeout=self.EVENT_CREATION_PERIOD*(osd_count - pool_size))
-
+        self._set_no_recovery_backfill(False)
         # Those should complete cleanly
         self.wait_until_equal(
             lambda: self._osd_in_out_completed_events_count('out'),
             osd_count - pool_size,
             timeout=self.RECOVERY_PERIOD*(osd_count - pool_size)
         )
-
+        self._set_no_recovery_backfill(True)
         # Fail one last OSD, at the point the PGs have nowhere to go
         victim_osd = osd_count - pool_size
         self.mgr_cluster.mon_manager.raw_cluster_cmd(
                 'osd', 'out', str(victim_osd))
-
+        self._set_no_recovery_backfill(False)
         # Check that no event is created
         time.sleep(self.EVENT_CREATION_PERIOD)
 
@@ -373,15 +390,15 @@ class TestProgress(MgrTestCase):
         self._write_some_data(self.WRITE_PERIOD)
 
         self.mgr_cluster.mon_manager.raw_cluster_cmd("progress", "off")
-
+        self._set_no_recovery_backfill(True)
         self.mgr_cluster.mon_manager.raw_cluster_cmd(
                 'osd', 'out', '0')
-
+        self._set_no_recovery_backfill(False)
         time.sleep(self.EVENT_CREATION_PERIOD)
-
+        self._set_no_recovery_backfill(True)
         self.mgr_cluster.mon_manager.raw_cluster_cmd(
                     'osd', 'in', '0')
-
+        self._set_no_recovery_backfill(False)
         time.sleep(self.EVENT_CREATION_PERIOD)
 
         self.assertTrue(self._no_events_anywhere())
@@ -389,7 +406,7 @@ class TestProgress(MgrTestCase):
         self.mgr_cluster.mon_manager.raw_cluster_cmd("progress", "on")
 
         self._write_some_data(self.WRITE_PERIOD)
-
+        self._set_no_recovery_backfill(True)
         self.mgr_cluster.mon_manager.raw_cluster_cmd(
                 'osd', 'out', '0')
 
@@ -398,6 +415,7 @@ class TestProgress(MgrTestCase):
                               timeout=self.EVENT_CREATION_PERIOD*2,
                               period=1)
 
+        self._set_no_recovery_backfill(False)
         ev1 = self._get_osd_in_out_events('out')[0]
 
         log.info(json.dumps(ev1, indent=1))

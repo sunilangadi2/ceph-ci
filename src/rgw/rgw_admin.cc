@@ -2446,7 +2446,7 @@ static int sync_info(std::optional<rgw_zone_id> opt_target_zone, std::optional<r
   set<rgw_zone_id> source_zones;
   set<rgw_zone_id> target_zones;
 
-  zone_policy_handler->reflect(nullptr, nullptr,
+  zone_policy_handler->reflect(dpp(), nullptr, nullptr,
                                nullptr, nullptr,
                                &source_zones,
                                &target_zones,

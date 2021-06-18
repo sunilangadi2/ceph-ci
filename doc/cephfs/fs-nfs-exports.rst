@@ -211,7 +211,7 @@ Create CephFS Export
 
 .. code:: bash
 
-    $ ceph nfs export create cephfs <fsname> <clusterid> <binding> [--readonly] [--path=/path/in/cephfs]
+    $ ceph nfs export create cephfs <fsname> <clusterid> <pseudo-path> [--readonly] [--path=/path/in/cephfs]
 
 This creates export RADOS objects containing the export block, where
 
@@ -220,8 +220,7 @@ that will serve this export.
 
 ``<clusterid>`` is the NFS Ganesha cluster ID.
 
-``<binding>`` is the pseudo root path (must be an absolute path and unique).
-It specifies the export position within the NFS v4 Pseudo Filesystem.
+``<pseudo-path>`` is the export position within the NFS v4 Pseudo Filesystem where the export will be available on the server.  It must be an absolute path and unique.
 
 ``<path>`` is the path within cephfs. Valid path should be given and default
 path is '/'. It need not be unique. Subvolume path can be fetched using:
@@ -237,13 +236,13 @@ Delete CephFS Export
 
 .. code:: bash
 
-    $ ceph nfs export rm <clusterid> <binding>
+    $ ceph nfs export rm <clusterid> <pseudo-path>
 
 This deletes an export in an NFS Ganesha cluster, where:
 
 ``<clusterid>`` is the NFS Ganesha cluster ID.
 
-``<binding>`` is the pseudo root path (must be an absolute path).
+``<pseudo-path>`` is the pseudo root path (must be an absolute path).
 
 List CephFS Exports
 ===================
@@ -263,32 +262,40 @@ Get CephFS Export
 
 .. code:: bash
 
-    $ ceph nfs export get <clusterid> <binding>
+    $ ceph nfs export info <clusterid> <pseudo-path>
 
-This displays export block for a cluster based on pseudo root name (binding),
+This displays export block for a cluster based on pseudo root name,
 where:
 
 ``<clusterid>`` is the NFS Ganesha cluster ID.
 
-``<binding>`` is the pseudo root path (must be an absolute path).
+``<pseudo-path>`` is the pseudo root path (must be an absolute path).
 
 
-Update CephFS Export
-====================
+Create or update CephFS Export via JSON specification
+=====================================================
 
-.. code:: bash
+An existing export can be dumped in JSON format with:
 
-    $ ceph nfs export update -i <json_file>
+.. prompt:: bash #
 
-This updates the cephfs export specified in the json file. Export in json
-format can be fetched with above get command. For example::
+    ceph nfs export info *<pseudo-path>*
 
-   $ ceph nfs export get vstart /cephfs > update_cephfs_export.json
+An export can be created or modified by importing a JSON description in the
+same format:
+
+.. prompt:: bash #
+
+    ceph nfs export apply -i <json_file>
+
+For example,::
+
+   $ ceph nfs export info mynfs /cephfs > update_cephfs_export.json
    $ cat update_cephfs_export.json
    {
      "export_id": 1,
      "path": "/",
-     "cluster_id": "vstart",
+     "cluster_id": "mynfs",
      "pseudo": "/cephfs",
      "access_type": "RW",
      "squash": "no_root_squash",
@@ -301,19 +308,21 @@ format can be fetched with above get command. For example::
      ],
      "fsal": {
        "name": "CEPH",
-       "user_id": "vstart1",
+       "user_id": "nfs.mynfs.1",
        "fs_name": "a",
        "sec_label_xattr": ""
      },
      "clients": []
    }
-   # Here in the fetched export, pseudo and access_type is modified. Then the modified file is passed to update interface
-   $ ceph nfs export update -i update_cephfs_export.json
+
+The exported JSON can be modified and then reapplied::
+
+   $ ceph nfs export apply -i update_cephfs_export.json
    $ cat update_cephfs_export.json
    {
      "export_id": 1,
      "path": "/",
-     "cluster_id": "vstart",
+     "cluster_id": "mynfs",
      "pseudo": "/cephfs_testing",
      "access_type": "RO",
      "squash": "no_root_squash",
@@ -326,36 +335,13 @@ format can be fetched with above get command. For example::
      ],
      "fsal": {
        "name": "CEPH",
-       "user_id": "vstart1",
+       "user_id": "nfs.mynfs.1",
        "fs_name": "a",
        "sec_label_xattr": ""
      },
      "clients": []
    }
 
-
-Configuring NFS Ganesha to export CephFS with vstart
-====================================================
-
-1) Using ``cephadm``
-
-    .. code:: bash
-
-        $ MDS=1 MON=1 OSD=3 NFS=1 ../src/vstart.sh -n -d --cephadm
-
-    This will deploy a single NFS Ganesha daemon using ``vstart.sh``, where
-    the daemon will listen on the default NFS Ganesha port.
-
-2) Using test orchestrator
-
-    .. code:: bash
-
-       $ MDS=1 MON=1 OSD=3 NFS=1 ../src/vstart.sh -n -d
-
-    Environment variable ``NFS`` is the number of NFS Ganesha daemons to be
-    deployed, each listening on a random port.
-
-    .. note:: NFS Ganesha packages must be pre-installed for this to work.
 
 Mount
 =====

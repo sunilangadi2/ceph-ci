@@ -2142,6 +2142,10 @@ int OSD::mkfs(CephContext *cct,
 	   << "queue_transaction returned " << cpp_strerror(ret) << dendl;
       return ret;
     }
+    C_SaferCond waiter;
+    if (!ch->flush_commit(&waiter)) {
+      waiter.wait();
+    }
   }
 
   ret = write_meta(cct, store.get(), sb.cluster_fsid, sb.osd_fsid, whoami, osdspec_affinity);

@@ -24,7 +24,6 @@ POOL_SIZE=3
 function run() {
     local dir=$1
     shift
-    local SLEEP=0
     local CHUNK_MAX=5
 
     export CEPH_MON="127.0.0.1:7184" # git grep '\<7184\>' : there must be only one
@@ -32,7 +31,6 @@ function run() {
     CEPH_ARGS+="--fsid=$(uuidgen) --auth-supported=none "
     CEPH_ARGS+="--mon-host=$CEPH_MON "
     CEPH_ARGS+="--osd_max_scrubs=$MAX_SCRUBS "
-    CEPH_ARGS+="--osd_scrub_sleep=$SLEEP "
     CEPH_ARGS+="--osd_scrub_chunk_max=$CHUNK_MAX "
     CEPH_ARGS+="--osd_scrub_sleep=$SCRUB_SLEEP "
     CEPH_ARGS+="--osd_pool_default_size=$POOL_SIZE "
@@ -91,24 +89,37 @@ function TEST_recover_unexpected() {
     ceph pg dump pgs
 
     max=$(CEPH_ARGS='' ceph daemon $(get_asok_path osd.0) dump_scrub_reservations | jq '.osd_max_scrubs')
-    if [ $max != $MAX_SCRUBS];
-    then
-	echo "ERROR: Incorrect osd_max_scrubs from dump_scrub_reservations"
-	return 1
+    if [ $max != $MAX_SCRUBS ]; then
+        echo "ERROR: Incorrect osd_max_scrubs from dump_scrub_reservations"
+        return 1
     fi
 
     ceph osd unset noscrub
 
     ok=false
-    for i in $(seq 0 300)
-    do
-	ceph pg dump pgs
-	if ceph pg dump pgs | grep scrubbing; then
-	    ok=true
-	    break
-	fi
-	sleep 1
-    done
+    # Verify scrubbing from osd logs if mclock_scheduler is enabled
+    local scheduler=$(get_op_scheduler 0)
+    if [ "$scheduler" = "mclock_scheduler" ]; then
+        for i in $(seq 0 10)
+        do
+            local scrubosds=$(grep -l +scrubbing $dir/osd.*.log)
+            if [ "$(echo "$scrubosds" | wc -w)" != "0" ]; then
+                ok=true
+                break
+            fi
+            sleep 0.5
+        done
+    else
+        for i in $(seq 0 300)
+        do
+            ceph pg dump pgs
+            if ceph pg dump pgs | grep scrubbing; then
+                ok=true
+                break
+            fi
+            sleep 1
+        done
+    fi
     if test $ok = "false"; then
 	echo "ERROR: Test set-up failed no scrubbing"
 	return 1

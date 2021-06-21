@@ -170,17 +170,6 @@ class ExportMgr:
             log.info(f'unable to fetch f{cluster_id}')
             return None
 
-    def _delete_user(self, entity: str) -> None:
-        self.mgr.check_mon_command({
-            'prefix': 'auth rm',
-            'entity': 'client.{}'.format(entity),
-        })
-        log.info(f"Deleted export user {entity}")
-
-    def _delete_rgw_user(self, uid: str) -> None:
-        self._exec(['radosgw-admin', 'user', 'rm', '--uid', uid])
-        log.info(f"Deleted export RGW user {uid}")
-
     def _gen_export_id(self, cluster_id: str) -> int:
         exports = sorted([ex.export_id for ex in self.exports[cluster_id]])
         nid = 1
@@ -231,12 +220,18 @@ class ExportMgr:
                     NFSRados(self.mgr, cluster_id).remove_obj(
                         f'export-{export.export_id}', f'conf-nfs.{cluster_id}')
                 self.exports[cluster_id].remove(export)
-                if isinstance(export.fsal, CephFSFSAL) or isinstance(export.fsal, RGWFSAL):
+                if isinstance(export.fsal, CephFSFSAL):
                     assert export.fsal.user_id
-                    self._delete_user(export.fsal.user_id)
+                    self.mgr.check_mon_command({
+                        'prefix': 'auth rm',
+                        'entity': 'client.{}'.format(export.fsal.user_id),
+                    })
+                    log.info(f"Deleted export user {export.fsal.user_id}")
                 if isinstance(export.fsal, RGWFSAL):
                     assert export.fsal.user_id
-                    self._delete_rgw_user(f'nfs.{cluster_id}.{export.path}')
+                    uid = f'nfs.{cluster_id}.{export.path}'
+                    self._exec(['radosgw-admin', 'user', 'rm', '--uid', uid])
+                    log.info(f"Deleted export RGW user {uid}")
                 if not self.exports[cluster_id]:
                     del self.exports[cluster_id]
                 return 0, "Successfully deleted export", ""

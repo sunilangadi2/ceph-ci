@@ -91,10 +91,9 @@ function TEST_recover_unexpected() {
     ceph pg dump pgs
 
     max=$(CEPH_ARGS='' ceph daemon $(get_asok_path osd.0) dump_scrub_reservations | jq '.osd_max_scrubs')
-    if [ $max != $MAX_SCRUBS];
-    then
-	echo "ERROR: Incorrect osd_max_scrubs from dump_scrub_reservations"
-	return 1
+    if [ $max != $MAX_SCRUBS ]; then
+        echo "ERROR: Incorrect osd_max_scrubs from dump_scrub_reservations"
+        return 1
     fi
 
     ceph osd unset noscrub
@@ -102,6 +101,15 @@ function TEST_recover_unexpected() {
     ok=false
     for i in $(seq 0 300)
     do
+        # Verify scrubbing from osd logs if mclock_scheduler is enabled
+        local scheduler=$(get_op_scheduler $i)
+        if [ "$scheduler" = "mclock_scheduler" ]; then
+            local scrubosds=$(grep -l +scrubbing $dir/osd.*.log)
+            if [ "$(echo "$scrubosds" | wc -w)" != "0" ]; then
+                ok=true
+                break
+            fi
+        fi
 	ceph pg dump pgs
 	if ceph pg dump pgs | grep scrubbing; then
 	    ok=true

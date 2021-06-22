@@ -42,6 +42,8 @@ private:
   std::multimap<utime_t,LogEntry> pending_log;
   LogSummary pending_summary, summary;
 
+  map<string, int> channel_fds;
+
   struct log_channel_info {
 
     std::map<std::string,std::string> log_to_syslog;
@@ -158,6 +160,9 @@ private:
 
   void check_subs();
   void check_sub(Subscription *s);
+
+  void log_external_close_fds();
+  void log_external(const LogEntry& le);
 
   /**
    * translate log sub name ('log-info') to integer id

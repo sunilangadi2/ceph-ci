@@ -580,7 +580,7 @@ class TestNFS(MgrTestCase):
                                      "name": "CEPH",
                                      "fs_name": self.fs_name
                                  }
-                             })
+                             }))
         self._check_nfs_cluster_status('running', 'NFS Ganesha cluster restart failed')
         self._write_to_read_only_export(new_pseudo_path, port, ip)
         self._test_delete_cluster()

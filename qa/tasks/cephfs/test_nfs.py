@@ -551,7 +551,16 @@ class TestNFS(MgrTestCase):
         self._test_create_cluster()
         self.ctx.cluster.run(args=['sudo', 'ceph', 'nfs', 'export', 'apply',
                                    self.cluster_id, '-i', '-'],
-                             stdin=json.dumps(export_block))
+                             stdin=json.dumps({
+                                 "path": "/",
+                                 "pseudo": "/foo",
+                                 "squash": "none",
+                                 "protocols": [4],
+                                 "fsal": {
+                                     "name": "CEPH",
+                                     "fs_name": self.fs_name
+                                 }
+                             }))
         port, ip = self._get_port_ip_info()
         self._test_mnt(self.pseudo_path, port, ip)
         self._check_nfs_cluster_status('running', 'NFS Ganesha cluster restart failed')

@@ -41,7 +41,7 @@ class LogMonitor : public PaxosService,
 private:
   std::multimap<utime_t,LogEntry> pending_log;
   LogSummary pending_summary, summary;
-
+  version_t external_log_to = 0;
   map<string, int> channel_fds;
 
   struct log_channel_info {
@@ -163,6 +163,7 @@ private:
 
   void log_external_close_fds();
   void log_external(const LogEntry& le);
+  void log_external_backlog();
 
   /**
    * translate log sub name ('log-info') to integer id

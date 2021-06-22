@@ -242,6 +242,9 @@ void LogMonitor::update_from_paxos(bool *need_bootstrap)
   version_t version = get_last_committed();
   dout(10) << __func__ << " version " << version
            << " summary v " << summary.version << dendl;
+
+  log_external_backlog();
+
   if (version == summary.version)
     return;
   ceph_assert(version >= summary.version);
@@ -281,6 +284,8 @@ void LogMonitor::update_from_paxos(bool *need_bootstrap)
     summary.version++;
     summary.prune(g_conf()->mon_log_max_summary);
   }
+  external_log_to = version;
+  mon.store->write_meta("external_log_to", stringify(external_log_to));
 
   check_subs();
 }
@@ -372,6 +377,52 @@ void LogMonitor::log_external_close_fds()
     }
   }
   channel_fds.clear();
+}
+
+/// catch external logs up to summary.version
+void LogMonitor::log_external_backlog()
+{
+  if (!external_log_to) {
+    std::string cur_str;
+    int r = mon.store->read_meta("external_log_to", &cur_str);
+    if (r == 0) {
+      external_log_to = atoll(cur_str.c_str());
+      dout(10) << __func__ << " initialized external_log_to = " << external_log_to
+	       << " (recorded log_to position)" << dendl;
+    } else {
+      // pre-quincy, we assumed that anything through summary.version was
+      // logged externally.
+      external_log_to = summary.version;
+      dout(10) << __func__ << " initialized external_log_to = " << external_log_to
+	       << " (summary v " << summary.version << ")" << dendl;
+    }
+  }
+  assert(external_log_to <= get_last_committed());
+  if (external_log_to == get_last_committed()) {
+    return;
+  }
+  if (external_log_to < summary.version) {
+    derr << __func__ << " local logs at " << external_log_to
+	 << ", skipping to " << get_first_committed() << dendl;
+    // FIXME: write marker in each channel log file?
+  }
+  while (external_log_to < summary.version) {
+    bufferlist bl;
+    int err = get_version(external_log_to+1, bl);
+    ceph_assert(err == 0);
+    ceph_assert(bl.length());
+
+    auto p = bl.cbegin();
+    __u8 v;
+    decode(v, p);
+    while (!p.end()) {
+      LogEntry le;
+      le.decode(p);
+      log_external(le);
+    }
+    ++external_log_to;
+  }
+  mon.store->write_meta("external_log_to", stringify(external_log_to));
 }
 
 void LogMonitor::create_pending()

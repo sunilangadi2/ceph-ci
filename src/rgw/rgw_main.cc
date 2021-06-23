@@ -322,7 +322,7 @@ int radosgw_Main(int argc, const char **argv)
   rgw::curl::setup_curl(fe_map);
   rgw_http_client_init(g_ceph_context);
   rgw_kmip_client_init(*new RGWKMIPManagerImpl(g_ceph_context));
-
+  
   lsubdout(cct, rgw, 1) << "rgw_d3n: rgw_d3n_l1_local_datacache_enabled=" << cct->_conf->rgw_d3n_l1_local_datacache_enabled << dendl;
   if (cct->_conf->rgw_d3n_l1_local_datacache_enabled) {
     lsubdout(cct, rgw, 1) << "rgw_d3n: rgw_enable_ops_log=" << cct->_conf->rgw_enable_ops_log << dendl;
@@ -339,6 +339,10 @@ int radosgw_Main(int argc, const char **argv)
   }
   if (rgw_d3n_datacache_enabled && (cct->_conf->rgw_max_chunk_size != cct->_conf->rgw_obj_stripe_size)) {
     lsubdout(cct, rgw_datacache, 0) << "rgw_d3n:  WARNING: D3N DataCache disabling (D3N requires that the chunk_size equals stripe_size)" << dendl;
+    rgw_d3n_datacache_enabled = false;
+  }
+  if (rgw_d3n_datacache_enabled && !cct->_conf->rgw_beast_enable_async) {
+    lsubdout(cct, rgw_datacache, 0) << "rgw_d3n:  WARNING: D3N DataCache disabling (D3N requires yield context - rgw_beast_enable_async=true)" << dendl;
     rgw_d3n_datacache_enabled = false;
   }
   lsubdout(cct, rgw, 1) << "D3N datacache enabled: " << rgw_d3n_datacache_enabled << dendl;

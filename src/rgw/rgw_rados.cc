@@ -6386,29 +6386,7 @@ static int _get_obj_iterate_cb(const DoutPrefixProvider *dpp,
                                       is_head_obj, astate, arg);
 }
 
-int RGWRados::flush_read_list(const DoutPrefixProvider *dpp, struct get_obj_data* d)
-{
-  ldpp_dout(dpp, 20) << "D3nDataCache: RGWRados::" << __func__ << "()" << dendl;
-  const std::lock_guard l(d->d3n_get_data.d3n_lock);
-  std::list<bufferlist> lbl;
-  lbl.swap(d->d3n_read_list);
-  d->d3n_read_list.clear();
-
-  int r = 0;
-
-  list<bufferlist>::iterator iter;
-  for (iter = lbl.begin(); iter != lbl.end(); ++iter) {
-    bufferlist& bl = *iter;
-    r = d->client_cb->handle_data(bl, 0, bl.length());
-    if (r < 0) {
-      dout(0) << "ERROR: flush_read_list(): d->client_cb->handle_data() returned " << r << dendl;
-      break;
-    }
-  }
-
-  return r;
-}
-
+int RGWRados::flush_read_list(const DoutPrefixProvider *dpp, struct get_obj_data* d) { return 0; }
 
 int RGWRados::get_obj_iterate_cb(const DoutPrefixProvider *dpp,
                                  const rgw_raw_obj& read_obj, off_t obj_ofs,

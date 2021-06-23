@@ -167,7 +167,7 @@ class ExportMgr:
                     return ex
             return None
         except KeyError:
-            log.info(f'unable to fetch f{cluster_id}')
+            log.info(f'unable to fetch {cluster_id}')
             return None
 
     def _delete_export_user(self, export: Export) -> None:

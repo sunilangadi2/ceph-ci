@@ -693,7 +693,7 @@ int RGWRados::get_required_alignment(const DoutPrefixProvider *dpp, const rgw_po
   bool requires;
   r = ioctx.pool_requires_alignment2(&requires);
   if (r < 0) {
-    ldout(cct, 0) << "ERROR: ioctx.pool_requires_alignment2() returned " 
+    ldout(cct, 0) << "ERROR: ioctx.pool_requires_alignment2() returned "
       << r << dendl;
     return r;
   }
@@ -706,7 +706,7 @@ int RGWRados::get_required_alignment(const DoutPrefixProvider *dpp, const rgw_po
   uint64_t align;
   r = ioctx.pool_required_alignment2(&align);
   if (r < 0) {
-    ldout(cct, 0) << "ERROR: ioctx.pool_required_alignment2() returned " 
+    ldout(cct, 0) << "ERROR: ioctx.pool_required_alignment2() returned "
       << r << dendl;
     return r;
   }
@@ -1083,8 +1083,8 @@ void RGWRados::finalize()
 
   delete binfo_cache;
   delete obj_tombstone_cache;
-  if (d3n_datacache)
-    delete d3n_datacache;
+  if (d3n_data_cache)
+    delete d3n_data_cache;
 
   if (reshard_wait.get()) {
     reshard_wait->stop();
@@ -1123,11 +1123,12 @@ int RGWRados::init_rados()
   if (ret < 0) {
     return ret;
   }
+
   cr_registry = crs.release();
 
   if (use_datacache) {
-    d3n_datacache = new D3nDataCache();
-    d3n_datacache->init(cct);
+    d3n_data_cache = new D3nDataCache();
+    d3n_data_cache->init(cct);
   }
 
   return ret;
@@ -6344,23 +6345,41 @@ int RGWRados::Object::Read::read(int64_t ofs, int64_t end, bufferlist& bl, optio
   return bl.length();
 }
 
-
-void get_obj_data::d3n_add_pending_oid(std::string oid)
-{
-  const std::lock_guard l(d3n_get_data.d3n_lock);
-  d3n_pending_oid_list.push_back(oid);
-}
-
-string get_obj_data::d3n_get_pending_oid(const DoutPrefixProvider *dpp)
-{
-  ldpp_dout(dpp, 20) << "D3nDataCache: RGWRados::" << __func__ << "()" << dendl;
-  string str;
-  str.clear();
-  if (!d3n_pending_oid_list.empty()) {
-    str = d3n_pending_oid_list.front();
-    d3n_pending_oid_list.pop_front();
+int get_obj_data::flush(rgw::AioResultList&& results) {
+  int r = rgw::check_for_errors(results);
+  if (r < 0) {
+    return r;
   }
-  return str;
+  std::list<bufferlist> bl_list;
+
+  auto cmp = [](const auto& lhs, const auto& rhs) { return lhs.id < rhs.id; };
+  results.sort(cmp); // merge() requires results to be sorted first
+  completed.merge(results, cmp); // merge results in sorted order
+
+  while (!completed.empty() && completed.front().id == offset) {
+    auto bl = std::move(completed.front().data);
+
+    bl_list.push_back(bl);
+    offset += bl.length();
+    int r = client_cb->handle_data(bl, 0, bl.length());
+    if (r < 0) {
+      return r;
+    }
+
+    if (rgwrados->get_use_datacache()) {
+      const std::lock_guard l(d3n_get_data.d3n_lock);
+      auto oid = completed.front().obj.get_ref().obj.oid;
+      ldout(g_ceph_context, 20) << "D3nDataCache: " << __func__ << "(): bypass write to datacache : " << d3n_bypass_cache_write << dendl;
+      if (bl.length() <= g_conf()->rgw_get_obj_max_req_size && !d3n_bypass_cache_write) {
+        ldout(g_ceph_context, 20) << "D3nDataCache: " << __func__ << "(): bl.length <= rgw_get_obj_max_req_size (default 4MB) - write to datacache, bl.length=" << bl.length() << dendl;
+        rgwrados->d3n_data_cache->put(bl, bl.length(), oid);
+      } else {
+        ldout(g_ceph_context, 20) << "D3nDataCache: " << __func__ << "(): bl.length > rgw_get_obj_max_req_size (default 4MB), bl.length()=" << bl.length() << dendl;
+      }
+    }
+    completed.pop_front_and_dispose(std::default_delete<rgw::AioResultEntry>{});
+  }
+  return 0;
 }
 
 static int _get_obj_iterate_cb(const DoutPrefixProvider *dpp,
@@ -6372,8 +6391,6 @@ static int _get_obj_iterate_cb(const DoutPrefixProvider *dpp,
   return d->rgwrados->get_obj_iterate_cb(dpp, read_obj, obj_ofs, read_ofs, len,
                                       is_head_obj, astate, arg);
 }
-
-int RGWRados::flush_read_list(const DoutPrefixProvider *dpp, struct get_obj_data* d) { return 0; }
 
 int RGWRados::get_obj_iterate_cb(const DoutPrefixProvider *dpp,
                                  const rgw_raw_obj& read_obj, off_t obj_ofs,
@@ -6433,12 +6450,12 @@ int RGWRados::Object::Read::iterate(const DoutPrefixProvider *dpp, int64_t ofs, 
   RGWObjectCtx& obj_ctx = source->get_ctx();
   const uint64_t chunk_size = cct->_conf->rgw_get_obj_max_req_size;
   const uint64_t window_size = cct->_conf->rgw_get_obj_window_size;
+
   auto aio = rgw::make_throttle(window_size, y);
   get_obj_data data(store, cb, &*aio, ofs, y);
 
   int r = store->iterate_obj(dpp, obj_ctx, source->get_bucket_info(), state.obj,
                              ofs, end, chunk_size, _get_obj_iterate_cb, &data, y);
-
   if (r < 0) {
     ldpp_dout(dpp, 0) << "iterate_obj() failed with " << r << dendl;
     data.cancel(); // drain completions without writing back to client
@@ -6446,23 +6463,15 @@ int RGWRados::Object::Read::iterate(const DoutPrefixProvider *dpp, int64_t ofs, 
   }
 
   if (store->get_use_datacache()) {
-
     r = data.drain();
     if (r < 0) {
       ldpp_dout(dpp, 0) << "D3nDataCache: " << __func__ << "(): Error: data cache drain returned: " << r << dendl;
-      return r;
-    }
-    ldpp_dout(dpp, 20) << "D3nDataCache: " << __func__ << "(): flush read list" << dendl;
-    int rf = store->flush_read_list(dpp, &data);
-    if (rf < 0) {
-      ldpp_dout(dpp, 0) << "D3nDataCache: " << __func__ << "(): Error: flush read list returned: " << rf << dendl;
     }
     return r;
   } else {
     return data.drain();
   }
 }
-
 
 int RGWRados::iterate_obj(const DoutPrefixProvider *dpp, RGWObjectCtx& obj_ctx,
                           const RGWBucketInfo& bucket_info, const rgw_obj& obj,
@@ -6495,7 +6504,6 @@ int RGWRados::iterate_obj(const DoutPrefixProvider *dpp, RGWObjectCtx& obj_ctx,
     RGWObjManifest::obj_iterator obj_end = astate->manifest->obj_end(dpp);
 
     for (; iter != obj_end && ofs <= end; ++iter) {
-
       off_t stripe_ofs = iter.get_stripe_ofs();
       off_t next_stripe_ofs = stripe_ofs + iter.get_stripe_size();
 
@@ -6508,12 +6516,12 @@ int RGWRados::iterate_obj(const DoutPrefixProvider *dpp, RGWObjectCtx& obj_ctx,
           read_len = max_chunk_size;
         }
 
-        // Check if we have a head object or tail object
         reading_from_head = (read_obj == head_obj);
         r = cb(dpp, read_obj, ofs, read_ofs, read_len, reading_from_head, astate, arg);
 	if (r < 0) {
 	  return r;
         }
+
 	len -= read_len;
         ofs += read_len;
       }
@@ -7436,7 +7444,7 @@ int RGWRados::get_olh(const DoutPrefixProvider *dpp, const RGWBucketInfo& bucket
   return decode_olh_info(cct, iter->second, olh);
 }
 
-void RGWRados::check_pending_olh_entries(map<string, bufferlist>& pending_entries, 
+void RGWRados::check_pending_olh_entries(map<string, bufferlist>& pending_entries,
                                          map<string, bufferlist> *rm_pending_entries)
 {
   map<string, bufferlist>::iterator iter = pending_entries.begin();
@@ -9245,4 +9253,3 @@ int RGWRados::delete_obj_aio(const DoutPrefixProvider *dpp, const rgw_obj& obj,
   }
   return ret;
 }
-

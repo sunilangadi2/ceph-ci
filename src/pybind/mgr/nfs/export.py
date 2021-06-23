@@ -573,17 +573,16 @@ class ExportMgr:
             cluster_id: str,
             new_export_dict: Dict,
     ) -> Tuple[int, str, str]:
-        for k in ['cluster_id', 'path', 'pseudo']:
+        for k in ['path', 'pseudo']:
             if k not in new_export_dict:
                 raise NFSInvalidOperation(f'Export missing required field {k}')
-        if new_export_dict['cluster_id'] not in available_clusters(self.mgr):
+        if cluster_id not in available_clusters(self.mgr):
             raise ClusterNotFound()
 
         new_export_dict['path'] = self.format_path(new_export_dict['path'])
         new_export_dict['pseudo'] = self.format_path(new_export_dict['pseudo'])
 
-        old_export = self._fetch_export(new_export_dict['cluster_id'],
-                                        new_export_dict['pseudo'])
+        old_export = self._fetch_export(cluster_id, new_export_dict['pseudo'])
         if old_export:
             # Check if export id matches
             if new_export_dict.get('export_id'):

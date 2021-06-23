@@ -326,6 +326,10 @@ void LogMonitor::update_from_paxos(bool *need_bootstrap)
 		 << " pruned to " << p.second << dendl;
 	summary.channel_info[p.first].first = p.second;
       }
+      // zero out pre-quincy fields (encode_pending needs this to reliably detect
+      // upgrade)
+      summary.tail_by_channel.clear();
+      summary.keys.clear();
     }
 
     summary.version++;
@@ -515,6 +519,16 @@ void LogMonitor::encode_pending(MonitorDBStore::TransactionRef t)
   
   __u8 struct_v = 2;
   encode(struct_v, bl);
+
+  // first commit after upgrading to quincy?
+  if (!summary.tail_by_channel.empty()) {
+    // include past log entries
+    for (auto& p : summary.tail_by_channel) {
+      for (auto& q : p.second) {
+	pending_log.emplace(make_pair(q.second.stamp, q.second));
+      }
+    }
+  }
 
   // record new entries
   auto pending_channel_info = summary.channel_info;

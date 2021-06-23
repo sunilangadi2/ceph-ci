@@ -315,6 +315,16 @@ class ExportMgr:
             kwargs['squash'] = 'none'
         kwargs['clients'] = clients
 
+        if clients:
+            kwargs['access_type'] = "none"
+        elif kwargs['read_only']:
+            kwargs['access_type'] = "RO"
+        else:
+            kwargs['access_type'] = "RW"
+
+        if kwargs['cluster_id'] not in self.exports:
+            self.exports[kwargs['cluster_id']] = []
+
         try:
             fsal_type = kwargs.pop('fsal_type')
             if fsal_type == 'cephfs':
@@ -482,22 +492,14 @@ class ExportMgr:
                              read_only: bool,
                              path: str,
                              squash: str,
+                             access_type: str,
                              clients: list = []) -> Tuple[int, str, str]:
         if not check_fs(self.mgr, fs_name):
             raise FSNotFound(fs_name)
 
         pseudo_path = self.format_path(pseudo_path)
 
-        if cluster_id not in self.exports:
-            self.exports[cluster_id] = []
-
         if not self._fetch_export(cluster_id, pseudo_path):
-            if clients:
-                access_type = "none"
-            elif read_only:
-                access_type = "RO"
-            else:
-                access_type = "RW"
             export = self.create_export_from_dict(
                 cluster_id,
                 self._gen_export_id(cluster_id),
@@ -529,6 +531,7 @@ class ExportMgr:
                           bucket: str,
                           cluster_id: str,
                           pseudo_path: str,
+                          access_type: str,
                           read_only: bool,
                           squash: str,
                           realm: Optional[str] = None,
@@ -538,12 +541,6 @@ class ExportMgr:
         pseudo_path = self.format_path(pseudo_path)
 
         if not self._fetch_export(cluster_id, pseudo_path):
-            if clients:
-                access_type = "none"
-            elif read_only:
-                access_type = "RO"
-            else:
-                access_type = "RW"
             export = self.create_export_from_dict(
                 cluster_id,
                 self._gen_export_id(cluster_id),

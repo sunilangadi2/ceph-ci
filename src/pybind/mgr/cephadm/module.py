@@ -1708,6 +1708,7 @@ Then run the following:
     @handle_orch_error
     def describe_service(self, service_type: Optional[str] = None, service_name: Optional[str] = None,
                          refresh: bool = False) -> List[orchestrator.ServiceDescription]:
+        self.log.info(f'describe_service on type {service_type} name {service_name}')
         if refresh:
             self._invalidate_daemons_and_kick_serve()
             self.log.debug('Kicked serve() loop to refresh all services')
@@ -1782,6 +1783,7 @@ Then run the following:
                 ):
                     sm[n].last_refresh = dd.last_refresh
 
+        self.log.info(sm)
         return list(sm.values())
 
     @handle_orch_error

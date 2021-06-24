@@ -17,34 +17,29 @@ from teuthology.orchestra import run
 
 log = logging.getLogger(__name__)
 
+
 @contextlib.contextmanager
 def download(ctx, config):
-    """
-    Download the bucket notification tests from the git builder.
-    Remove downloaded test file upon exit.
-    The context passed in should be identical to the context
-    passed in to the main task.
-    """
     assert isinstance(config, dict)
-    log.info('Downloading bucket-notification-tests...')
+    log.info('Downloading bucket-notifications-tests...')
     testdir = teuthology.get_testdir(ctx)
+    actual_branch = 'master'
+    branch = ctx.config.get('suite_branch', actual_branch)
+    repo = ctx.config.get('suite_repo', None)
+    log.info('Using branch %s for bucket notifications tests', branch)
     for (client, client_config) in config.items():
-        bntests_branch = client_config.get('force-branch', None)
-        if not bntests_branch:
-            raise ValueError(
-                "Could not determine what branch to use for bn-tests. Please add 'force-branch: {bn-tests branch name}' to the .yaml config for this bucket notifications tests task.")
+        if repo is not None: 
+            ctx.cluster.only(client).run(
+                args=['git', 'clone', '-b', branch, repo + '.git', '{tdir}/ceph'.format(tdir=testdir)],
+                )
+        else:
+            repo = teuth_config.ceph_git_base_url
+            ctx.cluster.only(client).run(
+                args=['git', 'clone', '-b', branch, repo + 'ceph.git', '{tdir}/ceph'.format(tdir=testdir)],
+                )
 
-        log.info("Using branch '%s' for bucket notifications tests", bntests_branch)
         sha1 = client_config.get('sha1')
-        git_remote = client_config.get('git_remote', teuth_config.ceph_git_base_url)
-        ctx.cluster.only(client).run(
-            args=[
-                'git', 'clone',
-                '-b', bntests_branch,
-                git_remote + 'ceph.git',
-                '{tdir}/ceph'.format(tdir=testdir),
-                ],
-            )
+
         if sha1 is not None:
             ctx.cluster.only(client).run(
                 args=[
@@ -53,6 +48,7 @@ def download(ctx, config):
                     'git', 'reset', '--hard', sha1,
                     ],
                 )
+
     try:
         yield
     finally:
@@ -261,6 +257,7 @@ def task(ctx,config):
     tasks:
     - kafka:
         client.0:
+          kafka_version: 2.6.0
     - notification_tests:
         client.0:
           extra_attr: ["kafka_test"]

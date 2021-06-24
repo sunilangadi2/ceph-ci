@@ -25,45 +25,30 @@ struct D3nGetObjData {
   std::mutex d3n_lock;
 };
 
-class D3nCacheRequest {
-  public:
-    virtual ~D3nCacheRequest() {};
-    virtual void d3n_libaio_release()=0;
-    virtual void d3n_libaio_cancel_io()=0;
-    virtual void d3n_libaio_finish()=0;
-    virtual int d3n_libaio_status()=0;
-};
-
-struct D3nL1CacheRequest : public D3nCacheRequest {
+struct D3nL1CacheRequest {
   ~D3nL1CacheRequest() {
     lsubdout(g_ceph_context, rgw_datacache, 30) << "D3nDataCache: " << __func__ << "(): Read From Cache, comlete" << dendl;
   }
 
-  void d3n_libaio_release() {}
-  void d3n_libaio_cancel_io() {};
-  void d3n_libaio_finish() {};
-  int d3n_libaio_status() { return 0; };
-
-
   // unique_ptr with custom deleter for struct aiocb
   struct libaio_aiocb_deleter {
     void operator()(struct aiocb* c) {
-          if(c->aio_fildes > 0) ::close(c->aio_fildes);
-          delete c;
+      if(c->aio_fildes > 0)
+        ::close(c->aio_fildes);
+      delete c;
     }
   };
 
   using unique_aio_cb_ptr = std::unique_ptr<struct aiocb, libaio_aiocb_deleter>;
 
-  template <typename Result>
   struct AsyncFileReadOp {
 
     bufferlist result;
     unique_aio_cb_ptr aio_cb;
-    using Signature = void(boost::system::error_code, Result);
-    using Completion = ceph::async::Completion<Signature, AsyncFileReadOp<Result>>;
+    using Signature = void(boost::system::error_code, bufferlist);
+    using Completion = ceph::async::Completion<Signature, AsyncFileReadOp>;
 
-    int init(std::string file_path, off_t read_ofs, off_t read_len, void* arg) {
+    int init(const std::string& file_path, off_t read_ofs, off_t read_len, void* arg) {
       aio_cb.reset(new struct aiocb);
       memset(aio_cb.get(), 0, sizeof(struct aiocb));
       aio_cb->aio_fildes = TEMP_FAILURE_RETRY(::open(file_path.c_str(), O_RDONLY|O_CLOEXEC|O_BINARY));
@@ -111,7 +96,7 @@ struct D3nL1CacheRequest : public D3nCacheRequest {
   template <typename ExecutionContext, typename CompletionToken>
   auto async_read(ExecutionContext& ctx, const std::string& file_path,
                   off_t read_ofs, off_t read_len, CompletionToken&& token) {
-    using Op = AsyncFileReadOp<bufferlist>;
+    using Op = AsyncFileReadOp;
     using Signature = typename Op::Signature;
     boost::asio::async_completion<CompletionToken, Signature> init(token);
     auto p = Op::create(ctx.get_executor(), init.completion_handler);

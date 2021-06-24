@@ -18,7 +18,6 @@
 #include <cstdint>
 #include <memory>
 #include <type_traits>
-#include "common/Semaphore.h"
 
 #include <boost/intrusive/list.hpp>
 #include "include/rados/librados_fwd.hpp"

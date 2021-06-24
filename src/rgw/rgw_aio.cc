@@ -133,7 +133,6 @@ Aio::OpFunc Aio::librados_op(librados::ObjectWriteOperation&& op,
 Aio::OpFunc Aio::d3n_cache_op(optional_yield y,
                               off_t read_ofs, off_t read_len, std::string& location) {
   return d3n_cache_aio_abstract(y, read_ofs, read_len, location);
-  //return d3n_cache_aio_abstract(std::move(op), y, obj_ofs, read_ofs, read_len, location);
 }
 
 } // namespace rgw

@@ -3,6 +3,6 @@ tasks:
     client.0:
 - notification-tests:
     client.0:
-      force-branch: master
+      force-branch: wip-yuval-fix-51261
       extra_attr: ["amqp_test"]
       rgw_server: client.0

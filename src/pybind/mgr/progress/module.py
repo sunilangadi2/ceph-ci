@@ -210,7 +210,7 @@ class GlobalRecoveryEvent(Event):
             state = pg['state']
 
             states = state.split("+")
-            if pg['reported_epoch'] < self._start_epoch:
+            if int(pg['reported_epoch']) < self._start_epoch:
                 if "active" in states and "clean" in states:
                     log.debug("Skipping pg {0} since reported_epoch {1} < start_epoch {2}"
                               .format(pg['pgid'], pg['reported_epoch'], self._start_epoch))

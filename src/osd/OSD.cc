@@ -2068,6 +2068,7 @@ int OSD::mkfs(CephContext *cct,
 	   << "queue_transaction returned " << cpp_strerror(ret) << dendl;
       return ret;
     }
+    ch->flush();
   }
 
   ret = write_meta(cct, store.get(), sb.cluster_fsid, sb.osd_fsid, whoami, osdspec_affinity);

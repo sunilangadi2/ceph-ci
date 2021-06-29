@@ -2006,6 +2006,7 @@ bool RGWUserCaps::is_valid_cap_type(const string& tp)
                                     "users",
                                     "buckets",
                                     "metadata",
+                                    "info",
                                     "usage",
                                     "zone",
                                     "bilog",

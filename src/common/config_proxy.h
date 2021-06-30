@@ -344,6 +344,10 @@ public:
   const std::string& get_conf_path() const {
     return config.get_conf_path();
   }
+  int get_val_default(const std::string_view key, std::string *val) {
+    std::lock_guard l{lock};
+    return config.get_val_default(key, val);
+  }
 };
 
 }

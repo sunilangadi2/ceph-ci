@@ -194,6 +194,7 @@ void ReadResult::C_ObjectReadRequest::finish(int r) {
                      << " for " << extent.buffer_extents
                      << " bl " << extent.bl.length()
 		     << " bl_val " << extent.bl.c_str() << dendl;
+         ceph_assert(std::strlen( extent.bl.c_str() ) > 0);
 
       aio_completion->read_result.m_destriper.add_partial_sparse_result(
               cct, std::move(extent.bl), extent.extent_map, extent.offset,

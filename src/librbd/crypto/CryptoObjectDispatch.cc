@@ -318,26 +318,33 @@ struct C_UnalignedObjectWriteRequest : public Context {
       return true;
     }
 
+    // block alignment
     void build_aligned_data() {
-      ceph::mutex m_lock = ceph::make_mutex("librbd::crypto::CryptoObjectDispatch");
-      std::lock_guard<ceph::mutex> lockGuard(m_lock);
-      auto [pre_align, post_align] = crypto->get_pre_and_post_align(
-              object_off, data.length());
-      ldout(image_ctx->cct, 20) << " pre align " << pre_align <<  " post align " << post_align << dendl;
+      auto [pre_align, post_align] =
+          crypto->get_pre_and_post_align(object_off, data.length());
+      ldout(image_ctx->cct, 20) << " pre align length=" << pre_align
+                                << " post align length=" << post_align << dendl;
       if (pre_align != 0) {
         auto &extent = extents.front();
-        ldout(image_ctx->cct, 20) << " aligning data=" << extent.bl.c_str() << dendl;
+        ldout(image_ctx->cct, 20)
+            << " extent bl=" << extent.bl.c_str() << dendl;
         io::util::unsparsify(image_ctx->cct, &extent.bl, extent.extent_map,
                              extent.offset, extent.length);
         extent.bl.splice(0, pre_align, &aligned_data);
       }
       aligned_data.append(data);
+      ldout(image_ctx->cct, 20)
+          << " aligned append= " << aligned_data.c_str() << dendl;
       if (post_align != 0) {
         auto &extent = extents.back();
         io::util::unsparsify(image_ctx->cct, &extent.bl, extent.extent_map,
                              extent.offset, extent.length);
         extent.bl.splice(0, post_align, &aligned_data);
+        ldout(image_ctx->cct, 20)
+            << " extent bl=" << extent.bl.c_str() << dendl;
       }
+      ldout(image_ctx->cct, 20)
+          << " after post align= " << aligned_data.c_str() << dendl;
     }
 
     void handle_copyup(int r) {

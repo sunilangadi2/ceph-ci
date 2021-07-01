@@ -443,10 +443,10 @@ class Module(MgrModule):
             runtime=True
         ),
         Option(
-            'persist_interval',
+            'sleep_interval',
             default=5,
             type='secs',
-            desc='how frequently to persist completed events',
+            desc='how long the module is going to sleep',
             runtime=True
         ),
         Option(
@@ -477,7 +477,7 @@ class Module(MgrModule):
         # only for mypy
         if TYPE_CHECKING:
             self.max_completed_events = 0
-            self.persist_interval = 0
+            self.sleep_interval = 0
             self.enabled = True
 
     def config_notify(self):
@@ -627,45 +627,41 @@ class Module(MgrModule):
             ev.global_event_update_progress(self.get('pg_stats'), self.log)
             self._events[ev.id] = ev
 
-    def notify(self, notify_type, notify_data):
-        self._ready.wait()
-        if not self.enabled:
+    def _process_osdmap(self):
+        old_osdmap = self._latest_osdmap
+        self._latest_osdmap = self.get_osdmap()
+        assert old_osdmap
+        assert self._latest_osdmap
+        self.log.info(("Processing OSDMap change %d..%d"),
+            old_osdmap.get_epoch(), self._latest_osdmap.get_epoch())
+
+        self._osdmap_changed(old_osdmap, self._latest_osdmap)
+
+    def _process_pg_summary(self):
+        # if there are no events we will skip this here to avoid
+        # expensive get calls
+        if len(self._events) == 0:
             return
-        if notify_type == "osd_map":
-            old_osdmap = self._latest_osdmap
-            self._latest_osdmap = self.get_osdmap()
-            assert old_osdmap
-            assert self._latest_osdmap
 
-            self.log.info(("Processing OSDMap change %d..%d"),
-                old_osdmap.get_epoch(), self._latest_osdmap.get_epoch())
+        global_event = False
+        data = self.get("pg_stats")
+        ready = self.get("pg_ready")
+        for ev_id in list(self._events):
+            ev = self._events[ev_id]
+            # Check for types of events
+            # we have to update
+            if isinstance(ev, PgRecoveryEvent):
+                ev.pg_update(data, ready, self.log)
+                self.maybe_complete(ev)
+            elif isinstance(ev, GlobalRecoveryEvent):
+                global_event = True
+                ev.global_event_update_progress(data, self.log)
+                self.maybe_complete(ev)
 
-            self._osdmap_changed(old_osdmap, self._latest_osdmap)
-        elif notify_type == "pg_summary":
-            # if there are no events we will skip this here to avoid
-            # expensive get calls
-            if len(self._events) == 0:
-                return
-
-            global_event = False
-            data = self.get("pg_stats")
-            ready = self.get("pg_ready")
-            for ev_id in list(self._events):
-                ev = self._events[ev_id]
-                # Check for types of events
-                # we have to update
-                if isinstance(ev, PgRecoveryEvent):
-                    ev.pg_update(data, ready, self.log)
-                    self.maybe_complete(ev)
-                elif isinstance(ev, GlobalRecoveryEvent):
-                    global_event = True
-                    ev.global_event_update_progress(data, self.log)
-                    self.maybe_complete(ev)
-
-            if not global_event:
-                # If there is no global event
-                # we create one
-                self._pg_state_changed(data)
+        if not global_event:
+            # If there is no global event
+            # we create one
+            self._pg_state_changed(data)
 
     def maybe_complete(self, event):
         # type: (Event) -> None
@@ -736,7 +732,11 @@ class Module(MgrModule):
                 self._save()
                 self._dirty = False
 
-            self._shutdown.wait(timeout=self.persist_interval)
+            if self.enabled:
+                self._process_osdmap()
+                self._process_pg_summary()
+
+            self._shutdown.wait(timeout=self.sleep_interval)
 
         self._shutdown.wait()
 

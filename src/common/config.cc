@@ -1024,6 +1024,16 @@ void md_config_t::get_config_bl(
   }
 }
 
+int md_config_t::get_val_default(const std::string_view key,
+                                 std::string *val)
+{
+  const Option *o = find_option(key);
+  if (!o) {
+    return -ENOENT;
+  }
+  return conf_stringify(_get_val_default(*o), val);
+}
+
 int md_config_t::get_val(const ConfigValues& values,
 			 const std::string_view key, char **buf, int len) const
 {

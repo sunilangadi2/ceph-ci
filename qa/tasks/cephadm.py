@@ -741,7 +741,9 @@ def ceph_osds(ctx, config):
             log.info('Deploying %s on %s with %s...' % (
                 osd, remote.shortname, dev))
             _shell(ctx, cluster_name, remote, [
-                'ceph-volume', 'lvm', 'zap', dev])
+                'ceph', 'orch', 'device', 'zap', remote.shortname, short_dev,
+                '--force',
+            ])
             _shell(ctx, cluster_name, remote, [
                 'ceph', 'orch', 'daemon', 'add', 'osd',
                 remote.shortname + ':' + short_dev
@@ -1042,7 +1044,7 @@ def shell(ctx, config):
 def apply(ctx, config):
     """
     Apply spec
-    
+
       tasks:
         - cephadm.apply:
             specs:
@@ -1480,4 +1482,3 @@ def task(ctx, config):
 
         finally:
             log.info('Teardown begin')
-

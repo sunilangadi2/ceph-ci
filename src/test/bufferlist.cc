@@ -2369,6 +2369,20 @@ TEST(BufferList, splice) {
     EXPECT_EQ((unsigned)11, bl.length());
     EXPECT_EQ(0, ::memcmp("fghi", other.c_str(), other.length()));
   }
+
+  {
+    bufferlist bl1, bl;
+    std::vector<int> data(30);
+    // must use create_aligned
+    bufferptr ptr(buffer::create_aligned(16384, 4096));
+
+    encode(data, bl);
+    bl.append_zero(4096 - bl.length());
+    bl.append(ptr);
+    bl.splice(0, 8192, &bl1);
+    bl.rebuild_aligned_size_and_memory(4096, 4096, 1024);
+  }
+
 }
 
 TEST(BufferList, write) {

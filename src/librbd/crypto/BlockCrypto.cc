@@ -42,6 +42,7 @@ int BlockCrypto<T>::crypt(ceph::bufferlist* data, uint64_t image_offset,
                  << " not aligned to block size: " << m_block_size << dendl;
     return -EINVAL;
   }
+  ldout(m_cct, 20) << __func__ << " data=" << data->c_str() << dendl;
   if (data->length() % m_block_size != 0) {
     lderr(m_cct) << "data length: " << data->length()
                  << " not aligned to block size: " << m_block_size << dendl;
@@ -72,8 +73,9 @@ int BlockCrypto<T>::crypt(ceph::bufferlist* data, uint64_t image_offset,
         auto block_offset_le = ceph_le64(sector_number);
         memcpy(iv, &block_offset_le, sizeof(block_offset_le));
         auto r = m_data_cryptor->init_context(ctx, iv, m_iv_size);
+
         if (r != 0) {
-          lderr(m_cct) << "unable to init cipher's IV" << dendl;
+          lderr(m_cct) << "unable to init cipher's Intialization Vector(IV)" << dendl;
           return r;
         }
 

@@ -357,9 +357,9 @@ void read_test_data(rbd_image_t image, const char *expected, uint64_t off, size_
   else
     read = rbd_read(image, off, len, result);
   printf("read: %d\n", (int) read);
-  printf("read: %s\nexpected: %s\n", result, expected);
   ASSERT_EQ(len, static_cast<size_t>(read));
   result[len] = '\0';
+  printf("read: %s\nexpected: %s\n", result, expected);
   if (memcmp(result, expected, len)) {
     for (int i = 0; i < 5; i++) {
       if (memcmp(result, expected, len)) {

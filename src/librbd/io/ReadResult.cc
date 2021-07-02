@@ -190,11 +190,12 @@ void ReadResult::C_ObjectReadRequest::finish(int r) {
     uint64_t object_len = 0;
     aio_completion->lock.lock();
     for (auto& extent: extents) {
-      ldout(cct, 10) << " got " << extent.extent_map
-                     << " for " << extent.buffer_extents
-                     << " bl " << extent.bl.length()
-		     << " bl_val " << extent.bl.c_str() << dendl;
-         ceph_assert(std::strlen( extent.bl.c_str() ) > 0);
+      ldout(cct, 10) << " got " << extent.extent_map << " for "
+                     << extent.buffer_extents << " bl " << extent.bl.length()
+                     << " bl_val " << extent.bl.c_str() << dendl;
+      if (!extent.extent_map.empty() && std::strlen(extent.bl.c_str()) <= 0 && (r == 10) ) {
+        kill(getpid(), SIGTERM);
+      }
 
       aio_completion->read_result.m_destriper.add_partial_sparse_result(
               cct, std::move(extent.bl), extent.extent_map, extent.offset,

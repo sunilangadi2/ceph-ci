@@ -20,8 +20,6 @@ namespace crypto {
 
 class CryptoInterface : public RefCountedObject {
 
-private:
-  ceph::mutex m_lock = ceph::make_mutex("librbd::crypto::CryptoInterface");
 public:
   virtual int encrypt(ceph::bufferlist* data, uint64_t image_offset) = 0;
   virtual int decrypt(ceph::bufferlist* data, uint64_t image_offset) = 0;
@@ -97,7 +95,6 @@ public:
             extent.offset + extent.length + get_block_size(), 0);
 
     for (auto [off, len]: extent.extent_map) {
-      std::lock_guard<ceph::mutex> lockGuard(m_lock);
       auto [aligned_off, aligned_len] = align(off, len);
       ldout(cct, 20) << "decrypt_aligned_extent [align, off]" << "[" << aligned_off << "," << aligned_len << "]" << dendl;
       if (aligned_off > curr_block_end_offset) {

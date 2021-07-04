@@ -6380,12 +6380,11 @@ int get_obj_data::flush(rgw::AioResultList&& results) {
     if (rgwrados->get_use_datacache()) {
       const std::lock_guard l(d3n_get_data.d3n_lock);
       auto oid = completed.front().obj.get_ref().obj.oid;
-      ldout(g_ceph_context, 20) << "D3nDataCache: " << __func__ << "(): bypass write to datacache : " << d3n_bypass_cache_write << dendl;
       if (bl.length() <= g_conf()->rgw_get_obj_max_req_size && !d3n_bypass_cache_write) {
-        ldout(g_ceph_context, 20) << "D3nDataCache: " << __func__ << "(): bl.length <= rgw_get_obj_max_req_size (default 4MB) - write to datacache, bl.length=" << bl.length() << dendl;
+        lsubdout(g_ceph_context, rgw_datacache, 10) << "D3nDataCache: " << __func__ << "(): bl.length <= rgw_get_obj_max_req_size (default 4MB) - write to datacache, bl.length=" << bl.length() << dendl;
         rgwrados->d3n_data_cache->put(bl, bl.length(), oid);
       } else {
-        ldout(g_ceph_context, 20) << "D3nDataCache: " << __func__ << "(): bl.length > rgw_get_obj_max_req_size (default 4MB), bl.length()=" << bl.length() << dendl;
+        lsubdout(g_ceph_context, rgw_datacache, 10) << "D3nDataCache: " << __func__ << "(): not writing to datacache - bl.length > rgw_get_obj_max_req_size (default 4MB), bl.length=" << bl.length() << " or d3n_bypass_cache_write=" << d3n_bypass_cache_write << dendl;
       }
     }
     completed.pop_front_and_dispose(std::default_delete<rgw::AioResultEntry>{});
@@ -6473,15 +6472,7 @@ int RGWRados::Object::Read::iterate(const DoutPrefixProvider *dpp, int64_t ofs, 
     return r;
   }
 
-  if (store->get_use_datacache()) {
-    r = data.drain();
-    if (r < 0) {
-      ldpp_dout(dpp, 0) << "D3nDataCache: " << __func__ << "(): Error: data cache drain returned: " << r << dendl;
-    }
-    return r;
-  } else {
-    return data.drain();
-  }
+  return data.drain();
 }
 
 int RGWRados::iterate_obj(const DoutPrefixProvider *dpp, RGWObjectCtx& obj_ctx,

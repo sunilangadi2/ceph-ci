@@ -642,7 +642,7 @@ function run_osd() {
     ceph_args+=" --osd-scrub-load-threshold=2000"
     ceph_args+=" --osd-data=$osd_data"
     ceph_args+=" --osd-journal=${osd_data}/journal"
-    #ceph_args+=" --osd-op-queue=wpq"
+    ceph_args+=" --osd-op-queue=wpq"
     ceph_args+=" --chdir="
     ceph_args+=$EXTRA_OPTS
     ceph_args+=" --run-dir=$dir"
@@ -698,7 +698,7 @@ function run_osd_filestore() {
     ceph_args+=" --osd-scrub-load-threshold=2000"
     ceph_args+=" --osd-data=$osd_data"
     ceph_args+=" --osd-journal=${osd_data}/journal"
-    #ceph_args+=" --osd-op-queue=wpq"
+    ceph_args+=" --osd-op-queue=wpq"
     ceph_args+=" --chdir="
     ceph_args+=$EXTRA_OPTS
     ceph_args+=" --run-dir=$dir"
@@ -866,7 +866,7 @@ function activate_osd() {
     ceph_args+=" --osd-scrub-load-threshold=2000"
     ceph_args+=" --osd-data=$osd_data"
     ceph_args+=" --osd-journal=${osd_data}/journal"
-    #ceph_args+=" --osd-op-queue=wpq"
+    ceph_args+=" --osd-op-queue=wpq"
     ceph_args+=" --chdir="
     ceph_args+=$EXTRA_OPTS
     ceph_args+=" --run-dir=$dir"

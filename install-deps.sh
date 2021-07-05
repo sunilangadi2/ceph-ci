@@ -59,10 +59,6 @@ function munge_debian_control {
 	    grep -v babeltrace debian/control > $control
 	    ;;
     esac
-    if $with_jaeger; then
-	sed -i -e 's/^# Jaeger[[:space:]]//g' $control
-	sed -i -e 's/^# Crimson      libyaml-cpp-dev,/d' $control
-    fi
     echo $control
 }
 
@@ -352,6 +348,9 @@ else
 	fi
 	if $with_seastar; then
 	    build_profiles+=",pkg.ceph.crimson"
+	fi
+ 	if $with_jaeger; then
+	    build_profiles+=",pkg.ceph.jaeger"
 	fi
 	$SUDO env DEBIAN_FRONTEND=noninteractive mk-build-deps \
 	      --build-profiles "${build_profiles#,}" \

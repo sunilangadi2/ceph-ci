@@ -85,7 +85,7 @@
 %endif
 %endif
 %bcond_with seastar
-%bcond_with jaeger
+%bcond_without jaeger
 %if 0%{?fedora} || 0%{?suse_version} >= 1500
 # distros that ship cmd2 and/or colorama
 %bcond_without cephfs_shell
@@ -2289,8 +2289,8 @@ fi
 
 %if %{with jaeger}
 %files -n libjaeger
-%{_libdir}/libopentracing.so.*
-%{_libdir}/libjaegertracing.so.*
+$RPM_BUILD_ROOT%{_libdir}/libopentracing.so.*
+$RPM_BUILD_ROOT%{_libdir}/libjaegertracing.so.*
 %post -n libjaeger -p /sbin/ldconfig
 %postun -n libjaeger -p /sbin/ldconfig
 %endif

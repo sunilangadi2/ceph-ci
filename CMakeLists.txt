@@ -398,9 +398,10 @@ if(WITH_BLKIN)
   include_directories(SYSTEM src/blkin/blkin-lib)
 endif(WITH_BLKIN)
 
-option(WITH_JAEGER "Enable jaegertracing and it's dependent libraries" OFF)
+option(WITH_JAEGER "Enable jaegertracing and it's dependent libraries" ON)
 if(WITH_JAEGER)
   set(HAVE_JAEGER TRUE)
+  execute_process(COMMAND bash -c "export WITH_JAEGER=true")
 endif()
 
 #option for RGW

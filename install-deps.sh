@@ -20,6 +20,7 @@ if test $(id -u) != 0 ; then
     SUDO=sudo
 fi
 export LC_ALL=C # the following is vulnerable to i18n
+export WITH_JAEGER=true
 
 ARCH=$(uname -m)
 

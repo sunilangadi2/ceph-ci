@@ -341,10 +341,13 @@ bool is_unmanaged_snap_op_permitted(CephContext* cct,
 
 } // anonymous namespace
 
-void LastEpochClean::Lec::report(ps_t ps, epoch_t last_epoch_clean)
+void LastEpochClean::Lec::report(ps_t ps, epoch_t last_epoch_clean, const size_t pg_num)
 {
   if (epoch_by_pg.size() <= ps) {
     epoch_by_pg.resize(ps + 1, 0);
+  }
+  if (epoch_by_pg.size() > pg_num) {
+    epoch_by_pg.resize(pg_num, 0);
   }
   const auto old_lec = epoch_by_pg[ps];
   if (old_lec >= last_epoch_clean) {
@@ -377,10 +380,10 @@ void LastEpochClean::remove_pool(uint64_t pool)
   report_by_pool.erase(pool);
 }
 
-void LastEpochClean::report(const pg_t& pg, epoch_t last_epoch_clean)
+void LastEpochClean::report(const pg_t& pg, epoch_t last_epoch_clean, const size_t pg_num)
 {
   auto& lec = report_by_pool[pg.pool()];
-  return lec.report(pg.ps(), last_epoch_clean);
+  return lec.report(pg.ps(), last_epoch_clean, pg_num);
 }
 
 epoch_t LastEpochClean::get_lower_bound(const OSDMap& latest) const
@@ -4385,7 +4388,8 @@ bool OSDMonitor::prepare_beacon(MonOpRequestRef op)
   osd_epochs[from] = beacon->version;
 
   for (const auto& pg : beacon->pgs) {
-    last_epoch_clean.report(pg, beacon->min_last_epoch_clean);
+    auto pg_num = osdmap.get_pg_pool(pg.pool())->get_pg_num();
+    last_epoch_clean.report(pg, beacon->min_last_epoch_clean, pg_num);
   }
 
   if (osdmap.osd_xinfo[from].last_purged_snaps_scrub <

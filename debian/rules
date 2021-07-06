@@ -17,7 +17,7 @@ else
   export CEPH_OSD_BASENAME = crimson-osd
 endif
 ifeq ($(filter pkg.ceph.jaeger,$(DEB_BUILD_PROFILES)),)
-  extraopts += -DWITH_JAEGER=OFF
+  extraopts += -DWITH_JAEGER=ON
 else
   extraopts += -DWITH_JAEGER=ON
 endif

@@ -44,7 +44,7 @@ function(build_jaeger)
 			-DOpenTracing_DIR=${CMAKE_SOURCE_DIR}/src/jaegertracing/opentracing-cpp
       -DBoost_DIR=${CMAKE_BINARY_DIR}/boost
 			-Dnlohmann_json_DIR=/usr/lib
-			-DCMAKE_FIND_ROOT_PATH=${CMAKE_BINARY_DIR}/external\;${CMAKE_BINARY_DIR}/boost\;${CMAKE_BINARY_DIR}/boost/include
+			-DCMAKE_FIND_ROOT_PATH=${CMAKE_BINARY_DIR}/boost\;${CMAKE_BINARY_DIR}/external\;${CMAKE_BINARY_DIR}/boost/include
 			-DCMAKE_INSTALL_PREFIX=${CMAKE_BINARY_DIR}/boost\;${CMAKE_BINARY_DIR}/boost/include\;${CMAKE_BINARY_DIR}/external
 			-DCMAKE_INSTALL_LIBDIR=${CMAKE_BINARY_DIR}/external/lib
 			-Dthrift_HOME=${CMAKE_BINARY_DIR}/external

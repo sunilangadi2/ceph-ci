@@ -266,7 +266,7 @@ BuildRequires:  libzbd-devel
 %if 0%{with jaeger}
 BuildRequires:  bison
 BuildRequires:  flex
-BuildRequires:  thrift-devel >= 0.13.0
+BuildRequires:  thrift >= 0.13.0
 %if 0%{?fedora} || 0%{?rhel}
 BuildRequires:  json-devel
 %endif

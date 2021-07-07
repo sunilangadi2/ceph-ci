@@ -7148,7 +7148,7 @@ int BlueStore::_mount()
       return -EIO;
     }
 
-#if 1
+#if 0
     // force allocation check to exercise recovery code
     dout(1) << __func__ << "::NCB::calling read_allocation_from_drive_for_fsck()" << dendl;
     if (read_allocation_from_drive_for_fsck() != 0) {
@@ -7274,50 +7274,53 @@ static uint32_t    s_serial         = 0x01;
 // 48 Bytes header for on-disk alloator image
 const uint64_t ALLOCATOR_IMAGE_VALID_SIGNATURE = 0x1FACE0FF;
 struct allocator_image_header {
-  utime_t  timestamp;		// 0x00
-  uint32_t valid_signature;	// 0x08
-  uint32_t format_version;	// 0x0C
+  uint32_t format_version;	// 0x00
+  uint32_t valid_signature;	// 0x04
+  utime_t  timestamp;		// 0x08
   uint32_t serial;		// 0x10
   uint32_t pad[0x7];		// 0x14
 
   allocator_image_header() {
     memset((char*)this, 0, sizeof(allocator_image_header));
   }
-
+  
   // create header in CEPH format
   allocator_image_header(utime_t timestamp, uint32_t format_version, uint32_t serial) {
+    this->format_version  = format_version;
     this->timestamp       = timestamp;
     this->valid_signature = ALLOCATOR_IMAGE_VALID_SIGNATURE;
-    this->format_version  = format_version;
     this->serial          = serial;
     memset(this->pad, 0, sizeof(this->pad));
   }
 
-  // convert header from host format to CEPH format
-  void encode(char *buff) {
-    allocator_image_header temp;
-    temp.timestamp.tv.tv_sec  = HTOCEPH_32(this->timestamp.tv.tv_sec);
-    temp.timestamp.tv.tv_nsec = HTOCEPH_32(this->timestamp.tv.tv_nsec);
-    temp.valid_signature      = HTOCEPH_32(ALLOCATOR_IMAGE_VALID_SIGNATURE);
-    temp.format_version       = HTOCEPH_32(this->format_version);
-    temp.serial               = HTOCEPH_32(this->serial);    
-    memcpy(temp.pad, this->pad, sizeof(temp.pad));
-    memcpy((byte*)buff, (byte*)&temp, sizeof(temp));
+  friend std::ostream& operator<<(std::ostream& out, const allocator_image_header& header) {
+    out << "NCB::format_version  = " << header.format_version << std::endl;
+    out << "NCB::valid_signature = " << header.valid_signature << "/" << ALLOCATOR_IMAGE_VALID_SIGNATURE << std::endl;
+    out << "NCB::timestamp       = " << header.timestamp << std::endl;
+    out << "NCB::serial          = " << header.serial << std::endl;
+    for (unsigned i = 0; i < sizeof(header.pad)/sizeof(uint32_t); i++) {
+      if (header.pad[i]) {
+	out << "NCB::header.pad[" << i << "] = " << header.pad[i] << std::endl;
+      }
+    }
+    return out;
   }
 
-  // convert header from CEPH format to Host format
-  void decode(const char *buff) {
-    memcpy((byte*)this, (byte*)buff, sizeof(allocator_image_header));
-
-    this->timestamp.tv.tv_sec  = CEPHTOH_32(this->timestamp.tv.tv_sec);
-    this->timestamp.tv.tv_nsec = CEPHTOH_32(this->timestamp.tv.tv_nsec);
-    this->valid_signature      = CEPHTOH_32(this->valid_signature);
-    this->format_version       = CEPHTOH_32(this->format_version);
-    this->serial               = CEPHTOH_32(this->serial);
+  DENC(allocator_image_header, v, p) {
+    denc(v.format_version, p);
+    denc(v.valid_signature, p);
+    denc(v.timestamp.tv.tv_sec, p);
+    denc(v.timestamp.tv.tv_nsec, p);
+    denc(v.serial, p);
+    for (auto& pad: v.pad) {
+      denc(pad, p);
+    }
   }
 
+  
   int verify(CephContext* cct, const std::string &path) {
     if (valid_signature == ALLOCATOR_IMAGE_VALID_SIGNATURE) {
+#if 0
       if (this->serial <= s_serial) {
 	dout(1) << __func__ << "::NCB::header->serial=" << this->serial << ", s_serial=" << s_serial << dendl;
       }
@@ -7325,7 +7328,7 @@ struct allocator_image_header {
 	derr << __func__ << "::NCB::Illegal Header: header->serial(" << this->serial << ") > s_serial(" << s_serial << ")" << dendl;
 	return -1;
       }
-      
+#endif 
       for (unsigned i = 0; i < (sizeof(pad) / sizeof(uint32_t)); i++) {
 	if (this->pad[i]) {
 	  derr << __func__ << "::NCB::Illegal Header - pad[" << i << "]="<< pad[i] << dendl;
@@ -7340,67 +7343,128 @@ struct allocator_image_header {
     }
   }
 };
+WRITE_CLASS_DENC(allocator_image_header)
 
 struct extent_t {
   uint64_t offset;
   uint64_t length;
 
   //extent_t(uint64_t _offset, uint64_t _length) : offset(_offset), length(_length) {}
-}__attribute__((packed));
+};
 
-// 48 Bytes trailer for on-disk alloator image
+// 56 Bytes trailer for on-disk alloator image
 struct allocator_image_trailer {
   extent_t null_extent;         // 0x00
+
+  uint32_t format_version;	// 0x10 
+  uint32_t valid_signature;	// 0x14
   
-  utime_t  timestamp;		// 0x10 
-  uint32_t valid_signature;	// 0x18 
-  uint32_t format_version;	// 0x1C 
+  utime_t  timestamp;		// 0x18 
   
-  uint32_t serial;		// 0x20  
-  uint32_t entries_count;	// 0x24 
-  uint32_t pad[0x2];		// 0x28
+  uint32_t serial;		// 0x20
+  uint32_t pad;  		// 0x24
+  uint64_t entries_count;	// 0x28
+  uint64_t allocation_size;	// 0x30 
 
   // trailer is created in CEPH format
-  allocator_image_trailer(utime_t timestamp, uint32_t format_version, uint32_t serial, uint32_t entries_count) {
+  allocator_image_trailer(utime_t timestamp, uint32_t format_version, uint32_t serial, uint64_t entries_count, uint64_t allocation_size) {
     memset((char*)&(this->null_extent), 0, sizeof(this->null_extent));
-    this->timestamp       = timestamp;
     this->format_version  = format_version;
     this->valid_signature = ALLOCATOR_IMAGE_VALID_SIGNATURE;
+    this->timestamp       = timestamp;
     this->serial          = serial;
+    this->pad             = 0;
     this->entries_count   = entries_count;
-    memset(this->pad, 0, sizeof(this->pad));
+    this->allocation_size = allocation_size;
   }
 
   allocator_image_trailer() {
     memset((char*)this, 0, sizeof(allocator_image_trailer));
   }
 
-  // convert trailer from host format to CEPH format
-  void encode(char *buff) {
-    allocator_image_trailer temp;
-    temp.null_extent          = this->null_extent;
-    temp.timestamp.tv.tv_sec  = HTOCEPH_32(this->timestamp.tv.tv_sec);
-    temp.timestamp.tv.tv_nsec = HTOCEPH_32(this->timestamp.tv.tv_nsec);
-    temp.valid_signature      = HTOCEPH_32(ALLOCATOR_IMAGE_VALID_SIGNATURE);
-    temp.format_version       = HTOCEPH_32(this->format_version);
-    temp.serial               = HTOCEPH_32(this->serial);
-    temp.entries_count        = HTOCEPH_32(this->entries_count);
-    memcpy(temp.pad, this->pad, sizeof(temp.pad));
-    memcpy((byte*)buff, (byte*)&temp, sizeof(temp));
-
+  friend std::ostream& operator<<(std::ostream& out, const allocator_image_trailer& trailer) {
+    if (trailer.null_extent.offset || trailer.null_extent.length) {
+      out << "NCB::trailer.null_extent.offset = " << trailer.null_extent.offset << std::endl;
+      out << "NCB::trailer.null_extent.length = " << trailer.null_extent.length << std::endl;
+    }
+    out << "NCB::format_version  = " << trailer.format_version << std::endl;
+    out << "NCB::valid_signature = " << trailer.valid_signature << "/" << ALLOCATOR_IMAGE_VALID_SIGNATURE << std::endl;
+    out << "NCB::timestamp       = " << trailer.timestamp << std::endl;
+    out << "NCB::serial          = " << trailer.serial << std::endl;
+    if (trailer.pad) {
+      out << "NCB::trailer.pad= " << trailer.pad << std::endl;
+    }    
+    out << "NCB::entries_count   = " << trailer.entries_count   << std::endl;
+    out << "NCB::allocation_size = " << trailer.allocation_size << std::endl;
+    return out;
   }
+
+  int verify(CephContext* cct, const std::string &path, const allocator_image_header *p_header, uint64_t entries_count, uint64_t allocation_size) {
+    if (valid_signature == ALLOCATOR_IMAGE_VALID_SIGNATURE) {
+
+      // trailer must starts with null extents (both fields set to zero) [no need to convert formats for zero)
+      if (null_extent.offset || null_extent.length) {
+	derr << __func__ << "::NCB::illegal trailer - null_extent = [" << null_extent.offset << "," << null_extent.length << "]"<< dendl;
+	return -1;
+      }
+
+      if (serial != p_header->serial) {
+	derr << __func__ << "::NCB::Illegal trailer: header->serial(" << p_header->serial << ") != trailer->serial(" << serial << ")" << dendl;
+	return -1;
+      }
   
-  // convert trailer from CEPH format to Host format
-  void decode(const char *buff) {
-    memcpy((byte*)this, (byte*)buff, sizeof(allocator_image_trailer));
-    this->timestamp.tv.tv_sec  = CEPHTOH_32(this->timestamp.tv.tv_sec);
-    this->timestamp.tv.tv_nsec = CEPHTOH_32(this->timestamp.tv.tv_nsec);
-    this->valid_signature      = CEPHTOH_32(this->valid_signature);
-    this->format_version       = CEPHTOH_32(this->format_version);
-    this->serial               = CEPHTOH_32(this->serial);
-    this->entries_count        = CEPHTOH_32(this->entries_count);
+      if (format_version != p_header->format_version) {
+	derr << __func__ << "::NCB::Illegal trailer: header->format_version(" << p_header->format_version
+	     << ") != trailer->format_version(" << format_version << ")" << dendl;
+	return -1;
+      }
+  
+      if (timestamp != p_header->timestamp) {
+	derr << __func__ << "::NCB::Illegal trailer: header->timestamp(" << p_header->timestamp
+	     << ") != trailer->timestamp(" << timestamp << ")" << dendl;
+	return -1;
+      }
+  
+      if (this->entries_count != entries_count) {
+	derr << __func__ << "::NCB::Illegal trailer: entries_count(" << entries_count << ") != trailer->entries_count("
+	     << this->entries_count << ")" << dendl;
+	return -1;
+      }
+  
+      if (this->allocation_size != allocation_size) {
+	derr << __func__ << "::NCB::Illegal trailer: allocation_size(" << allocation_size << ") != trailer->allocation_size("
+	     << this->allocation_size << ")" << dendl;
+	return -1;
+      }
+      
+      if (pad) {
+	derr << __func__ << "::NCB::Illegal Trailer - pad="<< pad << dendl;
+	return -1;
+      }
+
+      // if arrived here -> trailer is valid !!
+      return 0;
+    } else {
+      derr << __func__ << "::NCB::Illegal Trailer - signature="<< valid_signature << "(" << ALLOCATOR_IMAGE_VALID_SIGNATURE << ")" << dendl;
+      return -1;
+    }
+  }
+
+  DENC(allocator_image_trailer, v, p) {
+    denc(v.null_extent.offset, p);
+    denc(v.null_extent.length, p);
+    denc(v.format_version, p);
+    denc(v.valid_signature, p);
+    denc(v.timestamp.tv.tv_sec, p);
+    denc(v.timestamp.tv.tv_nsec, p);
+    denc(v.serial, p);
+    denc(v.pad, p);    
+    denc(v.entries_count, p);
+    denc(v.allocation_size, p);
   }
 };
+WRITE_CLASS_DENC(allocator_image_trailer)
+
 
 //-------------------------------------------------------------------------------------
 // invalidate old allocation file if exists so will go directly to recovery after failure
@@ -7541,19 +7605,24 @@ int BlueStore::copy_allocator(Allocator* src_alloc, Allocator* dest_alloc, uint6
   return 0;
 }
 
-static const uint64_t header_count_in_extents  = sizeof(allocator_image_header)  / sizeof(extent_t);
-static const uint64_t trailer_count_in_extents = sizeof(allocator_image_trailer) / sizeof(extent_t);
-const unsigned MAX_EXTENTS_IN_BUFFER = 16 * 1024; // 16K extents
+//-----------------------------------------------------------------------------------
+static uint32_t flush_extent_buffer_with_crc(BlueFS::FileWriter *p_handle, const char* buffer, const char *p_curr, uint32_t crc)
+{
+  std::ptrdiff_t length = p_curr - buffer;
+  p_handle->append(buffer, length);
+  
+  crc = ceph_crc32c(crc, (const uint8_t*)buffer, length);
+  uint32_t encoded_crc = HTOCEPH_32(crc);
+  p_handle->append((byte*)&encoded_crc, sizeof(encoded_crc));
 
-// write the allocator to a flat bluefs file - 16k extents at a time
+  return crc;
+}
+
+const unsigned MAX_EXTENTS_IN_BUFFER = 4 * 1024; // 4K extents = 64KB of data
+// write the allocator to a flat bluefs file - 4K extents at a time
 //-----------------------------------------------------------------------------------
 int BlueStore::store_allocator(Allocator* src_allocator)
 {
-  extent_t buffer[MAX_EXTENTS_IN_BUFFER + trailer_count_in_extents]; // 192KB
-  uint64_t file_offset = 0;
-  static_assert(sizeof(allocator_image_header) == sizeof(allocator_image_trailer));
-  static_assert(sizeof(allocator_image_header) %  sizeof(extent_t) == 0);
-  uint64_t stored_alloc_size = 0;
   utime_t  start_time = ceph_clock_now();
   BlueFS::FileWriter *p_handle = nullptr;
   int ret = 0;
@@ -7579,67 +7648,90 @@ int BlueStore::store_allocator(Allocator* src_allocator)
 
   uint64_t file_size = p_handle->file->fnode.size;
   uint64_t allocated = p_handle->file->fnode.get_allocated();
-  dout(1) << __func__ << "::NCB(2)::file_size=" << file_size << ", allocated=" << allocated << ",p_handle->pos="<< p_handle->pos<< dendl;
+  dout(1) << __func__ << "::NCB(2)::file_size=" << file_size << ", allocated=" << allocated << dendl;
   
   Allocator *allocator = clone_allocator_without_bluefs(src_allocator);
   if (allocator == nullptr) {
-    return -1;
+    bluefs->close_writer(p_handle); return -1;
   }
 
   // store all extents (except for the bluefs extents we removed) in a single flat file
-  uint64_t        extent_count  = 0, failure_count = 0;
-  extent_t       *p_curr        = buffer;
-  const extent_t *p_end         = buffer + MAX_EXTENTS_IN_BUFFER;
-  utime_t         timestamp     = ceph_clock_now();
-  allocator_image_header  header(timestamp, s_format_version, s_serial);
-  //memcpy((byte*)p_curr, (byte*)&header, sizeof(header));
-  header.encode((char*)p_curr);
-  p_curr += header_count_in_extents;
+  utime_t                 timestamp = ceph_clock_now();
+  uint32_t                crc       = -1;
+  {
+    allocator_image_header  header(timestamp, s_format_version, s_serial);
+    bufferlist              header_bl;
+    //dout(1) << __func__ << "::NCB:: header = \n" << header << dendl;
+    encode(header, header_bl);
+    crc = header_bl.crc32c(crc);
+    encode(crc, header_bl);
+    p_handle->append(header_bl); 
+  }
+
+  crc = -1;					 // reset crc
+  extent_t        buffer[MAX_EXTENTS_IN_BUFFER]; // 64KB
+  extent_t       *p_curr          = buffer;
+  const extent_t *p_end           = buffer + MAX_EXTENTS_IN_BUFFER;
+  uint64_t        extent_count    = 0;
+  uint64_t        allocation_size = 0;
   auto iterated_allocation = [&](uint64_t extent_offset, uint64_t extent_length) {
-    //dout(1) <<  __func__ << "::NCB" << extent_count << "::[" << extent_offset << "," << extent_length << "]" << dendl;
-    if (extent_length == 0 && failure_count++ < 5 ) {
+    if (extent_length == 0) {
       derr <<  __func__ << "::NCB" << extent_count << "::[" << extent_offset << "," << extent_length << "]" << dendl;
+      ret = -1;
+      return;
     }
+    //dout(1) <<  __func__ << "::NCB" << extent_count << "::[" << extent_offset << "," << extent_length << "]" << dendl;
     p_curr->offset = HTOCEPH_64(extent_offset);
     p_curr->length = HTOCEPH_64(extent_length);
     extent_count++;
-    stored_alloc_size += extent_length;
+    allocation_size += extent_length;
     p_curr++;
 
     if (p_curr == p_end) {
-      size_t length = (byte*)p_curr - (byte*)buffer;
-      p_handle->append((byte*)buffer, length);
-      file_offset += length;
-      p_curr = buffer;
+      crc = flush_extent_buffer_with_crc(p_handle, (const char*)buffer, (const char*)p_curr, crc);
+      //dout(1) <<  __func__ << "::NCB:: extent_count=" << extent_count << ", crc=" << crc << dendl;
+      p_curr = buffer; // recycle the buffer
     }
   };
   allocator->dump(iterated_allocation);
+  // if got null extent -> fail the operation
+  if (ret != 0) {
+    derr << __func__ << "::NCB::Illegal extent, fail store operation" << dendl;
+    derr << __func__ << "::NCB::invalidate using bluefs->truncate(p_handle, 0)" << dendl;
+    bluefs->truncate(p_handle, 0);
+    bluefs->close_writer(p_handle);
+    delete allocator;
+    return -1;
+  }
 
-  allocator_image_trailer trailer(timestamp, s_format_version, s_serial, extent_count);
-  //memcpy((byte*)p_curr, (byte*)&trailer, sizeof(trailer));
-  trailer.encode((char*)p_curr);
-  p_curr += trailer_count_in_extents;
-  // write leftover bytes + trailer (we reserved an extra space for the trailer so no need to check bounderies)
-  size_t length = (byte*)p_curr - (byte*)buffer;
-  p_handle->append((byte*)buffer, length);
+  // if we got any leftovers -> add crc and append to file
+  if (p_curr > buffer) {
+    crc = flush_extent_buffer_with_crc(p_handle, (const char*)buffer, (const char*)p_curr, crc);
+    //dout(1) <<  __func__ << "::NCB:: extent_count=" << extent_count << ", crc=" << crc << dendl;
+  }
+
+  {
+    allocator_image_trailer trailer(timestamp, s_format_version, s_serial, extent_count, allocation_size);
+    bufferlist trailer_bl;
+    //dout(1) << __func__ << "::NCB::trailer=\n" << trailer << dendl;
+    encode(trailer, trailer_bl);
+    uint32_t crc = -1;
+    crc = trailer_bl.crc32c(crc);
+    encode(crc, trailer_bl);
+    p_handle->append(trailer_bl);
+  }
+  
   bluefs->fsync(p_handle);  
-  file_offset += length;
-  //std::cout << __func__ << "::file_offset="<<file_offset<<" p_handle->pos="<<p_handle->pos<< std::endl;
-  bluefs->truncate(p_handle, file_offset);  
+  bluefs->truncate(p_handle, p_handle->pos);
+
+  utime_t duration = ceph_clock_now() - start_time;
+  dout(1) << __func__<<"::NCB::WRITE-extent_count=" << extent_count << ", file_size=" << p_handle->file->fnode.size << dendl;
+  dout(1) << __func__<<"::NCB::p_handle->pos=" << p_handle->pos << " WRITE-duration=" << duration << " seconds" << dendl;
 
   delete allocator;
   allocator = nullptr;
-  
-  //file_size = p_handle->file->fnode.size;
-  //allocated = p_handle->file->fnode.get_allocated();
-  //dout(1) << __func__ << "::NCB(3)::file_size=" << file_size << ", allocated=" << allocated << ",p_handle->pos="<< p_handle->pos<< dendl;
   bluefs->close_writer(p_handle);
 
-  utime_t duration = ceph_clock_now() - start_time;
-  dout(1) << __func__<<"::NCB::WRITE-extent_count=" << extent_count << ", stored_alloc_size=" << stored_alloc_size << ", file_size=" << file_offset << dendl;
-  dout(1) << __func__<<"::NCB::WRITE-duration=" << duration << " seconds" << dendl;
-  //delete p_handle;
-  
   return 0;
 }
 
@@ -7668,99 +7760,6 @@ Allocator* BlueStore::create_allocator(uint64_t bdev_size, string type) {
 }
 
 //-----------------------------------------------------------------------------------
-static int restore_and_check_allocator_header( BlueFS                 *bluefs,
-					       BlueFS::FileReader     *p_handle,
-					       allocator_image_header *p_header,
-					       uint64_t                offset,
-					       CephContext*            cct,
-					       const std::string      &path)
-
-{
-  char buff[sizeof(allocator_image_header)];
-  unsigned read_bytes = bluefs->read(p_handle, offset, sizeof(buff), nullptr, (char*)buff);
-  if (read_bytes == sizeof(allocator_image_header)) {
-    p_header->decode(buff);
-    return p_header->verify(cct, path);
-  } else {
-    derr << __func__ << "::NCB::read_bytes=" << read_bytes << ", sizeof(allocator_image_header)=" << sizeof(allocator_image_header) << dendl;
-  }
-
-  return -1;
-}
-
-//-----------------------------------------------------------------------------------
-static int report_illegal_allocator_trailer(const allocator_image_header  *p_header, // Host-Foramt
-					    const allocator_image_trailer *p_trailer,// CEPH-format				       
-					    uint64_t                       entries_count,
-					    CephContext*                   cct,
-					    const std::string             &path)
-{
-  //std::cout << __func__ << "::p_trailer->extent_count=" << trailer2.entries_count  << "(" << extent_count << ")"<< std::endl;
-  // trailer must starts with null extents (both fields set to zero) [no need to convert formats for zero)
-  if (p_trailer->null_extent.offset || p_trailer->null_extent.length) {
-    derr << __func__ << "::NCB::illegal trailer - p_trailer->null_extent = [" << p_trailer->null_extent.offset
-	 << "," << p_trailer->null_extent.length << "]"<< dendl;
-    return -1;
-  }
-
-  if (p_trailer->serial != p_header->serial) {
-    derr << __func__ << "::NCB::Illegal trailer: header->serial(" << p_header->serial << ") != trailer->serial(" << p_trailer->serial << ")" << dendl;
-  }
-  
-  if (p_trailer->format_version != p_header->format_version) {
-    derr << __func__ << "::NCB::Illegal trailer: header->format_version(" << p_header->format_version
-	 << ") != trailer->format_version(" << p_trailer->format_version << ")" << dendl;
-  }
-  
-  if (p_trailer->timestamp != p_header->timestamp) {
-    derr << __func__ << "::NCB::Illegal trailer: header->timestamp(" << p_header->timestamp
-	 << ") != trailer->timestamp(" << p_trailer->timestamp << ")" << dendl;
-  }
-  
-  if (p_trailer->entries_count != entries_count) {
-    derr << __func__ << "::NCB::Illegal trailer: entries_count(" << entries_count << ") != trailer->entries_count("
-	 << p_trailer->entries_count << ")" << dendl;
-  }
-  
-  for (unsigned i = 0; i < (sizeof(p_trailer->pad) / sizeof(uint32_t)); i++) {
-    if (p_trailer->pad[i]) {
-      derr << __func__ << "::NCB::illegal trailer - p_trailer->pad[" << i << "]="<< p_trailer->pad[i] << dendl;
-    }
-  }
-
-  return -1;
-}
-
-//-----------------------------------------------------------------------------------
-static int restore_and_check_allocator_trailer(BlueFS                       *bluefs,
-					       BlueFS::FileReader           *p_handle,
-					       const allocator_image_header *p_header, // Host Format
-					       uint64_t                      offset,
-					       uint64_t                      entries_count,
-					       CephContext*                  cct,
-					       const std::string            &path)
-{
-  // build expected trailer based on header and entries_count read from file
-  allocator_image_trailer trailer1(p_header->timestamp, p_header->format_version, p_header->serial, entries_count);
-  allocator_image_trailer trailer2(p_header->timestamp, p_header->format_version, p_header->serial, entries_count);
-
-  char buff[sizeof(allocator_image_trailer)];
-  unsigned read_bytes = bluefs->read(p_handle, offset, sizeof(buff), nullptr, buff);
-  if (read_bytes == sizeof(allocator_image_trailer)) {
-    trailer2.decode(buff);
-    if (memcmp(&trailer1, &trailer2, sizeof(allocator_image_trailer)) == 0) {
-      return 0;
-    }    
-    // if arrives here -> trailer is illegal !
-    return report_illegal_allocator_trailer(p_header, &trailer2, entries_count, cct, path);
-  } else {
-    derr << __func__ << "::NCB::failed !! read_bytes=" << read_bytes << ", sizeof(allocator_image_trailer)=" << sizeof(allocator_image_trailer) << dendl;
-  }
-  
-  return -1;
-}
-
-//-----------------------------------------------------------------------------------
 int BlueStore::allocator_add_restored_entries(Allocator          *allocator,
 					      const void         *v_buff,
 					      unsigned            extent_count,
@@ -7782,31 +7781,8 @@ int BlueStore::allocator_add_restored_entries(Allocator          *allocator,
       (*p_extent_count) ++;
     } else {
       dout(1) << __func__ << "::NCB::extent with zero length at idx=" << *p_extent_count << dendl;
-
-      char trailer[sizeof(allocator_image_trailer)];
-      size_t bytes = ((byte*)end) - ((byte*)p);
-      memcpy(trailer, (char*)p, std::min(bytes, sizeof(allocator_image_trailer)));
-      if (bytes < sizeof(allocator_image_trailer)) {
-	unsigned missing_bytes = sizeof(allocator_image_trailer) - bytes;
-	unsigned read_bytes    = bluefs->read(p_handle, offset, missing_bytes, nullptr, trailer+bytes);
-	if (read_bytes < missing_bytes) {
-	  derr << __func__ << "::NCB::failed !! read_bytes=" << read_bytes << ", missing_bytes=" << missing_bytes << dendl;
-	  return -1;
-	}
-      }
-      allocator_image_header  *p_header = (allocator_image_header*)v_header;
-      allocator_image_trailer trailer2(p_header->timestamp, p_header->format_version, p_header->serial, *p_extent_count);
-      // both trailers are in CEPH format (LE) so can perfrom byte compare
-      if (memcmp(&trailer, &trailer2, sizeof(allocator_image_trailer)) == 0) {
-	dout(1) << __func__ << "::NCB::Trailer was found to be legal" << dendl;
-	return 0;
-      }    
-      // if arrives here -> trailer is illegal !
-      return report_illegal_allocator_trailer(p_header, (allocator_image_trailer*)trailer, *p_extent_count, cct, path);
-
       derr << __func__ << "::NCB::failed restore at idx=" << *p_extent_count << " [" << offset << "," << length << "]" << dendl;
       derr << __func__ << "::NCB************Early termination********"<< dendl;
-
       return -1;
     }
   }
@@ -7815,9 +7791,38 @@ int BlueStore::allocator_add_restored_entries(Allocator          *allocator,
 }
 
 //-----------------------------------------------------------------------------------
-int BlueStore::restore_allocator(Allocator* allocator, uint64_t *num, uint64_t *bytes) {
-  extent_t buffer[MAX_EXTENTS_IN_BUFFER]; // 192KB
+size_t calc_allocator_image_header_size()
+{
+  utime_t                 timestamp = ceph_clock_now();
+  allocator_image_header  header(timestamp, s_format_version, s_serial);
+  bufferlist              header_bl;
+  encode(header, header_bl);
+  uint32_t crc = -1;
+  crc = header_bl.crc32c(crc);
+  encode(crc, header_bl);
   
+  return header_bl.length();
+}
+
+//-----------------------------------------------------------------------------------
+int calc_allocator_image_trailer_size()
+{
+  utime_t                 timestamp       = ceph_clock_now();
+  uint64_t                extent_count    = -1;
+  uint64_t                allocation_size = -1;
+  uint32_t                crc             = -1;
+  bufferlist              trailer_bl;
+  allocator_image_trailer trailer(timestamp, s_format_version, s_serial, extent_count, allocation_size);
+
+  encode(trailer, trailer_bl);
+  crc = trailer_bl.crc32c(crc);
+  encode(crc, trailer_bl);
+  return trailer_bl.length();
+}
+
+//-----------------------------------------------------------------------------------
+int BlueStore::restore_allocator(Allocator* allocator, uint64_t *num, uint64_t *bytes)
+{
   utime_t start_time = ceph_clock_now();
   BlueFS::FileReader *p_handle = nullptr;
   int ret = bluefs->open_for_read(allocator_dir, allocator_file, &p_handle, false);
@@ -7825,74 +7830,140 @@ int BlueStore::restore_allocator(Allocator* allocator, uint64_t *num, uint64_t *
     derr << __func__ << "::NCB::Failed open_for_read with error-code " << ret << dendl;
     return -1;
   }
-  uint64_t read_bytes;
   uint64_t read_alloc_size = 0;
   uint64_t file_size = p_handle->file->fnode.size;
   dout(1) << __func__ << "::NCB::file_size=" << file_size << ",sizeof(extent_t)=" << sizeof(extent_t) << dendl;
 
   // make sure we were able to store a valid copy 
   if (file_size == 0) {
-    derr << __func__ << "::NCB::No Valid allocation info on disk" << dendl;
-    delete p_handle; return -1;
-  }
-  
-  ceph_assert(file_size % sizeof(extent_t) == 0);
-  uint64_t header_plus_trailer_size = sizeof(allocator_image_header) + sizeof(allocator_image_trailer);
-  ceph_assert(file_size >= header_plus_trailer_size);
-  uint64_t left_extents_in_file = (file_size - header_plus_trailer_size) / sizeof(extent_t);
-  allocator_image_header  header;
-  if ((ret=restore_and_check_allocator_header(bluefs, p_handle, &header, 0, cct, path)) == 0) {
-    dout(1) << __func__ << "::NCB::successfully restore_and_check_allocator_header()" << dendl;
-  } else {
-    derr << __func__ << "::NCB::Failed restore_and_check_allocator_header" << dendl;
-    delete p_handle; return -1;
-  }
-  
-  uint64_t read_extent_count = 0;
-  uint64_t offset   = sizeof(allocator_image_header);
-  uint64_t buff_cnt = 0, extent_count = 0;
-  for (buff_cnt = 0; buff_cnt < left_extents_in_file / MAX_EXTENTS_IN_BUFFER; buff_cnt++) {
-    read_bytes = bluefs->read(p_handle, offset, sizeof(buffer), nullptr, (char*)buffer);
-    if (read_bytes != sizeof(buffer)) {
-      derr << __func__ << "::NCB::(1)Failed bluefs->read()::read_bytes" << read_bytes << dendl;
-      delete p_handle; return -1;
-    }
-    offset += sizeof(buffer);
-    ret = allocator_add_restored_entries(allocator, buffer, MAX_EXTENTS_IN_BUFFER, &read_alloc_size, &read_extent_count, &header, p_handle, offset);
-    if (ret != 0) {
-      delete p_handle; return -1;
-    }
-    extent_count += MAX_EXTENTS_IN_BUFFER;
-  }
-
-  left_extents_in_file -= (buff_cnt * MAX_EXTENTS_IN_BUFFER);
-  if (left_extents_in_file) {
-    //std::cout << "Read left_extents_in_file:: offset=" << offset << " length=" << left_extents_in_file << std::endl;
-    uint64_t len = left_extents_in_file * sizeof(extent_t);
-    read_bytes = bluefs->read(p_handle, offset, len, nullptr, (char*)buffer);
-    if (read_bytes != len) {
-      derr << __func__ << "::NCB::(2)Failed bluefs->read()::read_bytes" << read_bytes << " len=" << len << dendl;
-      delete p_handle; return -1;
-    }
-
-    extent_count += left_extents_in_file;
-    offset += (left_extents_in_file*sizeof(extent_t));
-
-    ret = allocator_add_restored_entries(allocator, buffer, left_extents_in_file, &read_alloc_size, &read_extent_count, &header, p_handle, offset);
-    if (ret != 0) {
-      delete p_handle; return -1;
-    }
-
-  }
-
-  if ((ret=restore_and_check_allocator_trailer(bluefs, p_handle, &header, offset, extent_count, cct, path)) != 0) {
-    derr << __func__ << "::NCB::Failed restore_and_check_allocator_trailer" << dendl;
+    derr << __func__ << "::NCB::No Valid allocation info on disk (empty file)" << dendl;
     delete p_handle; return -1;
   }
 
-  // increment version for next store
-  s_serial = header.serial++;
+  // first read the header
+  size_t                 offset = 0;
+  allocator_image_header header;
+  int                    header_size = calc_allocator_image_header_size();
+  {
+    bufferlist header_bl,temp_bl;
+    int        read_bytes = bluefs->read(p_handle, offset, header_size, &temp_bl, nullptr);
+    if (read_bytes != header_size) {
+      derr << __func__ << "::NCB::Failed bluefs->read() for header::read_bytes=" << read_bytes << ", req_bytes=" << header_size << dendl;
+      delete p_handle; return -1;
+    }      
 
+    offset += read_bytes;
+
+    header_bl.claim_append(temp_bl);
+    auto p = header_bl.cbegin();
+    decode(header, p);
+    //dout(1) << __func__ << "::NCB:: header = \n" << header << dendl;
+    if (header.verify(cct, path) != 0 ) {
+      derr << __func__ << "::NCB:: header = \n" << header << dendl;
+      delete p_handle; return -1;
+    }
+
+    uint32_t crc_calc = -1, crc;
+    crc_calc = header_bl.cbegin().crc32c(p.get_off(), crc_calc); //crc from begin to current pos
+    decode(crc, p);
+    if (crc != crc_calc) {
+      derr << __func__ << "::NCB::crc mismatch!!! crc=" << crc << ", crc_calc=" << crc_calc << dendl;
+      derr << __func__ << "::NCB::header = \n" << header << dendl;
+      delete p_handle; return -1;
+    }
+
+    // increment version for next store
+    s_serial = header.serial + 1;
+  }
+
+  // then read the payload (extents list) using a recycled buffer
+  extent_t        buffer[MAX_EXTENTS_IN_BUFFER]; // 64KB
+  uint32_t        crc                = -1;
+  int             trailer_size       = calc_allocator_image_trailer_size();
+  uint64_t        extent_count       = 0;
+  uint64_t        extents_bytes_left = file_size - (header_size + trailer_size + sizeof(crc));
+  while (extents_bytes_left) {
+    int req_bytes  = std::min(extents_bytes_left, sizeof(buffer));
+    int read_bytes = bluefs->read(p_handle, offset, req_bytes, nullptr, (char*)buffer);
+    //dout(1) << __func__ << "::NCB:: bluefs->read()::read_bytes=" << read_bytes << ", req_bytes=" << req_bytes << dendl;
+    if (read_bytes != req_bytes) {
+      derr << __func__ << "::NCB::Failed bluefs->read()::read_bytes=" << read_bytes << ", req_bytes=" << req_bytes << dendl;
+      delete p_handle; return -1;
+    }      
+
+    //dout(1) <<  __func__ << "::NCB::extents_bytes_left=" << extents_bytes_left << ", offset=" << offset << ", extent_count=" << extent_count << dendl;
+    offset             += read_bytes;
+    extents_bytes_left -= read_bytes;
+
+    const unsigned  num_extent_in_buffer = read_bytes/sizeof(extent_t);
+    const extent_t *p_end                = buffer + num_extent_in_buffer;
+    for (const extent_t *p_ext = buffer; p_ext < p_end; p_ext++) {
+      uint64_t offset = CEPHTOH_64(p_ext->offset);
+      uint64_t length = CEPHTOH_64(p_ext->length);
+      //dout(1) <<  __func__ << "::NCB::" << extent_count << "::[" << offset << "," << length << "]" << dendl;
+      read_alloc_size += length;
+   
+      if (length > 0) {
+	allocator->init_add_free(offset, length);
+	extent_count ++;
+      } else {
+	derr << __func__ << "::NCB::extent with zero length at idx=" << extent_count << dendl;
+	delete p_handle; return -1;
+      }
+    }
+
+    uint32_t calc_crc = ceph_crc32c(crc, (const uint8_t*)buffer, read_bytes);
+    read_bytes        = bluefs->read(p_handle, offset, sizeof(crc), nullptr, (char*)&crc);
+    //dout(1) <<  __func__ << "::NCB::read-crc::read_bytes=" << read_bytes << ", offset=" << offset << dendl; 
+    if (read_bytes == sizeof(crc) ) {
+      crc     = CEPHTOH_32(crc);
+      if (crc != calc_crc) {
+	derr << __func__ << "::NCB::data crc mismatch!!! crc=" << crc << ", calc_crc=" << calc_crc << dendl;
+	derr << __func__ << "::NCB::extents_bytes_left=" << extents_bytes_left << ", offset=" << offset << ", extent_count=" << extent_count << dendl;
+	delete p_handle; return -1;
+      }
+
+      offset += read_bytes;
+      if (extents_bytes_left) {
+	extents_bytes_left -= read_bytes;
+      }
+    } else {
+      derr << __func__ << "::NCB::Failed bluefs->read() for crc::read_bytes=" << read_bytes << ", req_bytes=" << sizeof(crc) << dendl;
+      delete p_handle; return -1;
+    }
+    
+  }
+
+  // finally, read teh trailer and verify it is in good shape and that we got all the extents
+  {
+    bufferlist trailer_bl,temp_bl;
+    int        read_bytes = bluefs->read(p_handle, offset, trailer_size, &temp_bl, nullptr);
+    if (read_bytes != trailer_size) {
+      derr << __func__ << "::NCB::Failed bluefs->read() for trailer::read_bytes=" << read_bytes << ", req_bytes=" << trailer_size << dendl;
+      delete p_handle; return -1;
+    }
+    offset += read_bytes;
+    
+    trailer_bl.claim_append(temp_bl);
+    uint32_t crc_calc = -1;
+    uint32_t crc;
+    allocator_image_trailer trailer;
+    auto p = trailer_bl.cbegin();
+    decode(trailer, p);
+    if (trailer.verify(cct, path, &header, extent_count, read_alloc_size) != 0 ) {
+      derr << __func__ << "::NCB::trailer=\n" << trailer << dendl;
+      delete p_handle; return -1;
+    }
+
+    crc_calc = trailer_bl.cbegin().crc32c(p.get_off(), crc_calc); //crc from begin to current pos
+    decode(crc, p);
+    if (crc != crc_calc) {
+      derr << __func__ << "::NCB::trailer crc mismatch!::crc=" << crc << ", crc_calc=" << crc_calc << dendl;
+      derr << __func__ << "::NCB::trailer=\n" << trailer << dendl;
+      delete p_handle; return -1;
+    }
+  }
+ 
   utime_t duration = ceph_clock_now() - start_time;
   dout(1) << __func__ << "::NCB::READ--extent_count=" << extent_count << ", read_alloc_size=  "
 	    << read_alloc_size << ", file_size=" << file_size << dendl;
@@ -8329,6 +8400,13 @@ int BlueStore::read_allocation_from_drive_for_bluestore_tool(bool test_store_and
       int ret = restore_allocator(alloc2, &num, &bytes);
       if (ret == 0) {
 	// verify that we can store and restore allocator to/from drive
+#if 1
+	// add allocation space used by the bluefs itself
+	ret = add_existing_bluefs_allocation(alloc2, stats);
+	if (ret < 0) {
+	  _close_db_and_around(false); return ret;
+	}
+#endif	
 	ret = compare_allocators(alloc2, shared_alloc.a, stats.insert_count, memory_target);
 	if (ret == 0) {
 	  dout(1) << __func__ << "::NCB::SUCCESS!!! compare(alloc2, shared_alloc.a)" << dendl;

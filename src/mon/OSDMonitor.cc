@@ -345,6 +345,10 @@ void LastEpochClean::Lec::report(unsigned pg_num, ps_t ps,
 				 epoch_t last_epoch_clean)
 {
   epoch_by_pg.resize(pg_num, 0);
+  if (ps >= pg_num) {
+    // removed PG
+    return;
+  }
   const auto old_lec = epoch_by_pg[ps];
   if (old_lec >= last_epoch_clean) {
     // stale lec
@@ -4385,8 +4389,10 @@ bool OSDMonitor::prepare_beacon(MonOpRequestRef op)
   osd_epochs[from] = beacon->version;
 
   for (const auto& pg : beacon->pgs) {
-    auto pg_num = osdmap.get_pg_pool(pg.pool())->get_pg_num();
-    last_epoch_clean.report(pg_num, pg, beacon->min_last_epoch_clean);
+    if (auto* pool = osdmap.get_pg_pool(pg.pool()); pool != nullptr) {
+      unsigned pg_num = pool->get_pg_num();
+      last_epoch_clean.report(pg_num, pg, beacon->min_last_epoch_clean);
+    }
   }
 
   if (osdmap.osd_xinfo[from].last_purged_snaps_scrub <

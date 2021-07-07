@@ -193,8 +193,12 @@ void ReadResult::C_ObjectReadRequest::finish(int r) {
       ldout(cct, 10) << " got " << extent.extent_map << " for "
                      << extent.buffer_extents << " bl " << extent.bl.length()
                      << " bl_val " << extent.bl.c_str() << dendl;
-      if (!extent.extent_map.empty() && std::strlen(extent.bl.c_str()) <= 0 && (r == 10) ) {
-        kill(getpid(), SIGTERM);
+      ldout(cct, 20) << "data: ";
+      extent.bl.hexdump(*_dout);
+      *_dout << dendl;
+      if (!extent.extent_map.empty() && std::strlen(extent.bl.c_str()) <= 0 &&
+          (r == 10)) {
+        kill(getpid(), SIGSEGV);
       }
 
       aio_completion->read_result.m_destriper.add_partial_sparse_result(

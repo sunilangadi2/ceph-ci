@@ -101,6 +101,9 @@ public:
         curr_block_bl.append_zero(curr_block_end_offset - curr_offset);
         auto curr_block_length = curr_block_bl.length();
         if (curr_block_length > 0) {
+          ldout(cct, 20) << "data going to decrypt: ";
+          curr_block_bl.hexdump(*_dout);
+          *_dout << dendl;
           auto r = decrypt(
                   &curr_block_bl,
                   image_offset + curr_block_start_offset - extent.offset);
@@ -108,7 +111,9 @@ public:
             ldout(cct, 20) << "decrypt_aligned_extent r=" << r << dendl;
             return r;
           }
-
+          ldout(cct, 20) << "data going to after decrypt: ";
+          curr_block_bl.hexdump(*_dout);
+          *_dout << dendl;
           curr_block_bl.splice(0, curr_block_length, &result_bl);
           result_extent_map.emplace_back(
                   curr_block_start_offset, curr_block_length);

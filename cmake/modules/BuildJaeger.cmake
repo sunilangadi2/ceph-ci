@@ -40,12 +40,13 @@ function(build_jaeger)
 			-DJAEGERTRACING_BUILD_EXAMPLES=OFF
 			-DCMAKE_INSTALL_RPATH=${CMAKE_BINARY_DIR}/external
 			-DCMAKE_INSTALL_RPATH_USE_LINK_PATH=TRUE
+      -DCMAKE_PREFIX_PATH=${CMAKE_BINARY_DIR}/boost;${CMAKE_BINARY_DIR}/external
 			-DOpenTracing_DIR=${CMAKE_SOURCE_DIR}/src/jaegertracing/opentracing-cpp
+      -DBoost_DIR=${CMAKE_BINARY_DIR}/boost
 			-Dnlohmann_json_DIR=/usr/lib
 			-DCMAKE_FIND_ROOT_PATH=${CMAKE_BINARY_DIR}/external\;${CMAKE_BINARY_DIR}/boost\;${CMAKE_BINARY_DIR}/boost/include
 			-DCMAKE_INSTALL_PREFIX=${CMAKE_BINARY_DIR}/boost\;${CMAKE_BINARY_DIR}/boost/include\;${CMAKE_BINARY_DIR}/external
 			-DCMAKE_INSTALL_LIBDIR=${CMAKE_BINARY_DIR}/external/lib
-			-DBOOST_INCLUDEDIR=${CMAKE_BINARY_DIR}/boost/include
 			-Dthrift_HOME=${CMAKE_BINARY_DIR}/external
 			-DOpenTracing_HOME=${CMAKE_BINARY_DIR}/external)
 
@@ -83,6 +84,8 @@ function(build_jaeger)
     DEPENDS "${dependencies}"
     BUILD_BYPRODUCTS ${CMAKE_BINARY_DIR}/external/lib/libjaegertracing.so
     )
+    execute_process(COMMAND bash -c "cat external/Jaeger/CMakeFiles/CMakeError.log"
+		    WORKING_DIRECTORY ${CMAKE_BINARY_DIR})
 endfunction()
 
 build_jaeger()

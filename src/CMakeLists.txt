@@ -425,7 +425,7 @@ add_library(common-objs OBJECT ${libcommon_files})
 add_dependencies(common-objs legacy-option-headers)
 
 if(WITH_JAEGER)
-
+  include(BuildJaeger)
   find_package(yaml-cpp 0.6.0)
   if(NOT yaml-cpp_FOUND)
     include(Buildyaml-cpp)
@@ -440,7 +440,6 @@ if(WITH_JAEGER)
     set(jaeger_base yaml-cpp::yaml-cpp)
   endif()
 
-  include(BuildJaeger)
   set(jaeger_base ${jaeger_base}
   opentracing::libopentracing
   jaegertracing::libjaegertracing)

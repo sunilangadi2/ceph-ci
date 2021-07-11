@@ -3,7 +3,8 @@ set(mgr_module_install_excludes
   PATTERN ".gitignore" EXCLUDE
   PATTERN "tox.ini" EXCLUDE
   PATTERN "requirements*.txt" EXCLUDE
-  PATTERN "constraints*.txt" EXCLUDE)
+  PATTERN "constraints*.txt" EXCLUDE
+  PATTERN "tests" EXCLUDE)
 
 if(WITH_MGR_DASHBOARD_FRONTEND)
   add_subdirectory(dashboard)
@@ -14,6 +15,7 @@ install(DIRECTORY dashboard
   ${mgr_module_install_excludes}
   PATTERN "frontend/node_modules" EXCLUDE
   PATTERN "frontend/cypress*" EXCLUDE
+  PATTERN "frontend/src" EXCLUDE
   PATTERN ".*" EXCLUDE)
 
 if(WITH_MGR_ROOK_CLIENT)

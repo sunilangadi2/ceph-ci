@@ -439,7 +439,7 @@ Note:
 Start E2E tests by running::
 
   $ cd <your/ceph/repo/dir>
-  $ sudo chown -R $(id -un) src/pybind/mgr/dashboard/frontend/dist src/pybind/mgr/dashboard/frontend/node_modules
+  $ sudo chown -R $(id -un) build/src/pybind/mgr/dashboard/frontend/dist src/pybind/mgr/dashboard/frontend/node_modules
   $ ./src/pybind/mgr/dashboard/ci/cephadm/run-cephadm-e2e-tests.sh
   $ kcli delete plan -y ceph  # After tests finish.
 

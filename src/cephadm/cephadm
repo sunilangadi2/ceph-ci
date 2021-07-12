@@ -3017,6 +3017,8 @@ def install_sysctl(ctx: CephadmContext, fsid: str, daemon_type: str) -> None:
 
     # apply the sysctl settings
     if lines:
+        if not Path(ctx.sysctl_dir).exists():
+            Path(ctx.sysctl_dir).mkdir(mode=0o755)
         _write(conf, lines)
         call_throws(ctx, ['sysctl', '--system'])
 

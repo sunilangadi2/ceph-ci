@@ -321,7 +321,9 @@ void Io<I>::aio_write_same(I &image_ctx, io::AioCompletion *aio_comp,
                  << "completion=" << aio_comp << ", off=" << off << ", "
                  << "len=" << len << ", data_len = " << bl.length() << ", "
                  << "flags=" << op_flags << dendl;
-  ldout(cct, 10) << __func__ << bl.c_str() << dendl;
+  ldout(cct, 20) << "original testdata: " << bl.c_str() << dendl;
+      bl.hexdump(*_dout);
+      *_dout << dendl;
 
   if (native_async && image_ctx.event_socket.is_valid()) {
     aio_comp->set_event_notify(true);

@@ -115,7 +115,7 @@ int BlockCrypto<T>::crypt(ceph::bufferlist* data, uint64_t image_offset,
      /*  ldout(m_cct, 20) << "data: ";
       out_buf_ptr.hexdump(*_dout);
       *_dout << dendl; */
-      ldout(m_cct, 20) << "out_buf_ptr: " << *out_buf_ptr << dendl;
+     // ldout(m_cct, 20) << "out_buf_ptr: " << *out_buf_ptr << dendl;
     }
   }
 

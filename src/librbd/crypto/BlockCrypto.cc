@@ -126,7 +126,10 @@ int BlockCrypto<T>::crypt(ceph::bufferlist* data, uint64_t image_offset,
 
 template <typename T>
 int BlockCrypto<T>::encrypt(ceph::bufferlist* data, uint64_t image_offset) {
-  ldout(m_cct, 20) << __func__ << " data=" << data->c_str() << dendl;
+  ldout(m_cct, 20) << __func__ << " data: " << data->c_str() << dendl;
+  ldout(m_cct, 20) << "encrypt data: " << dendl;
+    data.hexdump(*_dout);
+    *_dout << dendl;
   return crypt(data, image_offset, CipherMode::CIPHER_MODE_ENC);
 }
 

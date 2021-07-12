@@ -101,7 +101,7 @@ public:
         curr_block_bl.append_zero(curr_block_end_offset - curr_offset);
         auto curr_block_length = curr_block_bl.length();
         if (curr_block_length > 0) {
-          ldout(cct, 20) << "data going to decrypt: ";
+          ldout(cct, 20) << "data going to decrypt: " << dendl;
           curr_block_bl.hexdump(*_dout);
           *_dout << dendl;
           auto r = decrypt(
@@ -111,7 +111,7 @@ public:
             ldout(cct, 20) << "decrypt_aligned_extent r=" << r << dendl;
             return r;
           }
-          ldout(cct, 20) << "data going to after decrypt: ";
+          ldout(cct, 20) << "data after decrypt encrypt/decrypt: " << dendl;
           curr_block_bl.hexdump(*_dout);
           *_dout << dendl;
           curr_block_bl.splice(0, curr_block_length, &result_bl);

@@ -7,4 +7,4 @@ tasks:
 - workunit:
     clients:
       all:
-        - fs/misc
+        - fs/misc/kern-failures

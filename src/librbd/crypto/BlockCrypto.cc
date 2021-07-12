@@ -52,8 +52,8 @@ int BlockCrypto<T>::crypt(ceph::bufferlist* data, uint64_t image_offset,
   unsigned char* iv = (unsigned char*)alloca(m_iv_size);
   memset(iv, 0, m_iv_size);
 
-  ldout(m_cct, 20) << "encrypt data in crypt function: " << dendl;
-  data.hexdump(*_dout);
+  ldout(m_cct, 20) << "encrypt data in crypt function: \n";
+  data->hexdump(*_dout);
   *_dout << dendl;
 
   bufferlist src = *data;
@@ -116,9 +116,8 @@ int BlockCrypto<T>::crypt(ceph::bufferlist* data, uint64_t image_offset,
       }
 
       out_buf_ptr += crypto_output_length;
-     ldout(m_cct, 20) << "data: " << dendl;
-      buf.hexdump(*_dout);
-      *_dout << dendl;
+      ldout(m_cct, 20) << " crypt data in_buf: " << in_buf_ptr << dendl;
+      ldout(m_cct, 20) << " crypt data out_buf: " << out_buf_ptr << dendl;
     }
   }
 
@@ -129,9 +128,8 @@ int BlockCrypto<T>::crypt(ceph::bufferlist* data, uint64_t image_offset,
 
 template <typename T>
 int BlockCrypto<T>::encrypt(ceph::bufferlist* data, uint64_t image_offset) {
-  ldout(m_cct, 20) << __func__ << " data: " << data->c_str() << dendl;
-  ldout(m_cct, 20) << "encrypt data: " << dendl;
-    data.hexdump(*_dout);
+  ldout(m_cct, 20) << "encrypt data: \n";
+    data->hexdump(*_dout);
     *_dout << dendl;
   return crypt(data, image_offset, CipherMode::CIPHER_MODE_ENC);
 }

@@ -194,6 +194,7 @@ void ReadResult::C_ObjectReadRequest::finish(int r) {
                      << extent.buffer_extents << " bl " << extent.bl.length()
                      << " bl_val " << extent.bl.c_str() << dendl;
       ldout(cct, 20) << "data: " << dendl;
+      ldout(cct, 20) << "\nread data hexdump\n";
       extent.bl.hexdump(*_dout);
       *_dout << dendl;
       if (!extent.extent_map.empty() && std::strlen(extent.bl.c_str()) <= 0 &&

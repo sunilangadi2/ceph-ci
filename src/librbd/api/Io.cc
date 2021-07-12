@@ -322,6 +322,7 @@ void Io<I>::aio_write_same(I &image_ctx, io::AioCompletion *aio_comp,
                  << "len=" << len << ", data_len = " << bl.length() << ", "
                  << "flags=" << op_flags << dendl;
   ldout(cct, 20) << "original testdata: " << bl.c_str() << dendl;
+  ldout(cct, 20) << "\noriginal testdata hexdump\n";
       bl.hexdump(*_dout);
       *_dout << dendl;
 

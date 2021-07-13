@@ -25,7 +25,7 @@ tasks:
       - sleep 90
       - mkdir /mnt/foo
       - sleep 15
-      - mount -t nfs $(hostname):/fake /mnt/foo
+      - mount -t nfs $(hostname):/fake /mnt/foo -o sync
       - echo test > /mnt/foo/testfile
       - sync
 

@@ -17,7 +17,7 @@ import datetime
 import os
 import random
 import tempfile
-import multiprocessing.pool
+from concurrent.futures import ThreadPoolExecutor
 import subprocess
 from prettytable import PrettyTable
 
@@ -411,7 +411,7 @@ class CephadmOrchestrator(orchestrator.Orchestrator, MgrModule,
 
         self.cephadm_binary_path = self._get_cephadm_binary_path()
 
-        self._worker_pool = multiprocessing.pool.ThreadPool(10)
+        self._worker_pool = ThreadPoolExecutor(max_workers=10)
 
         self._reconfig_ssh()
 

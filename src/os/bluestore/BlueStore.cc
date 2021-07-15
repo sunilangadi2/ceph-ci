@@ -5816,6 +5816,7 @@ int BlueStore::_open_bluefs(bool create, bool read_only)
     derr << __func__ << " failed bluefs mount: " << cpp_strerror(r) << dendl;
   }
   ceph_assert_always(bluefs->maybe_verify_layout(bluefs_layout) == 0);
+
   return r;
 }
 
@@ -7035,6 +7036,9 @@ int BlueStore::_mount()
   if (r < 0)
     goto out_coll;
 
+  dout(1) << __func__ << "::NCB::calling read_allocation_from_onodes()" << dendl;
+  read_allocation_from_onodes();
+
   _kv_start();
 
 #ifdef HAVE_LIBZBD
@@ -7092,6 +7096,9 @@ int BlueStore::umount()
 
   _osr_drain_all();
 
+  dout(1) << __func__ << "::NCB::calling read_allocation_from_onodes()" << dendl;
+  read_allocation_from_onodes();
+  
   mounted = false;
   if (!_kv_only) {
     mempool_thread.shutdown();
@@ -8209,6 +8216,9 @@ int BlueStore::_fsck(BlueStore::FSCKDepth depth, bool repair)
   r = _open_collections();
   if (r < 0)
     goto out_db;
+
+  dout(1) << __func__ << "::NCB::calling read_allocation_from_onodes()" << dendl;
+  read_allocation_from_onodes();
 
   mempool_thread.init();
 
@@ -16532,6 +16542,209 @@ void RocksDBBlueFSVolumeSelector::dump(ostream& sout) {
       sout << std::endl;
     }
   }
+}
+
+//===================================================================================================================
+//===================================================================================================================
+//===================================================================================================================
+
+//-------------------------------------------------------------------------
+void BlueStore::ExtentMap::provide_shard_info_to_onode(bufferlist v, uint32_t shard_id)
+{
+  auto cct  = onode->c->store->cct;
+  auto path = onode->c->store->path;
+  if (shard_id < shards.size()) {
+    auto p = &shards[shard_id];
+    if (!p->loaded) {
+      dout(30) << __func__ << " opening shard 0x" << std::hex << p->shard_info->offset << std::dec << dendl;
+      p->extents = decode_some(v);
+      p->loaded = true;
+      dout(20) << __func__ << " open shard 0x" << std::hex << p->shard_info->offset << dendl;
+      ceph_assert(p->dirty == false);
+      ceph_assert(v.length() == p->shard_info->bytes);
+      onode->c->store->logger->inc(l_bluestore_onode_shard_misses);
+    } else {
+      onode->c->store->logger->inc(l_bluestore_onode_shard_hits);
+    }
+  } else {
+    derr << "illegal shard-id=" << shard_id << " shards.size()=" << shards.size() << dendl;
+    ceph_assert(shard_id < shards.size());
+  }
+}
+
+
+#undef dout_prefix
+#define dout_prefix *_dout << "bluestore::NCB::" << __func__ << "::"
+//---------------------------------------------------------
+// Process all physical extents from a given Onode (including all its shards)
+void BlueStore::read_allocation_from_single_onode(BlueStore::OnodeRef& onode_ref)
+{
+  // create a map holding all physical-extents of this Onode to prevent duplication from being added twice and more
+  std::unordered_map<uint64_t, uint32_t> lcl_extnt_map;
+  uint64_t pos = 0;
+
+  // first iterate over all logical-extents
+  for (struct Extent& l_extent : onode_ref->extent_map.extent_map) {
+    ceph_assert(l_extent.logical_offset >= pos);
+
+    pos = l_extent.logical_offset + l_extent.length;
+    ceph_assert(l_extent.blob);
+    const bluestore_blob_t& blob         = l_extent.blob->get_blob();
+    const PExtentVector&    p_extent_vec = blob.get_extents();
+    
+    // process all physical extent in this blob
+    for (auto p_extent = p_extent_vec.begin(); p_extent != p_extent_vec.end(); p_extent++) {
+      auto offset = p_extent->offset;
+      auto length = p_extent->length;
+
+      // Offset of -1 means that the extent was removed (and it is only a place holder) and can be safely skipped
+      if (offset == (uint64_t)-1) {
+	continue;
+      }
+
+      // skip repeating extents
+      auto lcl_itr = lcl_extnt_map.find(offset);
+      if (lcl_itr != lcl_extnt_map.end()) {
+	// repeated extents must have the same length!
+	ceph_assert(lcl_extnt_map[offset] == length);
+      } else {
+	lcl_extnt_map[offset] = length;
+      }
+    }
+  }
+  
+}
+
+//-------------------------------------------------------------------------
+int BlueStore::read_allocation_from_onodes()
+{
+  if (coll_map.empty()) {
+    dout(1) << " calling open_collection()" << dendl;
+    int ret = _open_collections();
+    if (ret < 0) {
+      _close_db_and_around(false); return ret;
+    }
+  } else {
+    dout(1) << " collection already open" << dendl;
+  }
+
+  // finally add all space take by user data
+  auto it = db->get_iterator(PREFIX_OBJ, KeyValueDB::ITERATOR_NOCACHE);
+  if (!it) {
+    // TBD - find a better error code
+    derr << "failed db->get_iterator(PREFIX_OBJ)" << dendl;
+    return -1;
+  }
+  
+  CollectionRef       collection_ref;
+  spg_t               pgid;
+  BlueStore::OnodeRef onode_ref;
+  bool                has_open_onode = false;
+  uint32_t            shard_id       = 0;
+  uint64_t            kv_count       = 0;
+  //uint64_t            count_interval = 1'000'000;
+  uint64_t            count_interval = 4*1024;
+  // iterate over all ONodes stored in RocksDB 
+  for (it->lower_bound(string()); it->valid(); it->next(), kv_count++) {
+    // trace an even after every million processed objects (typically every 5-10 seconds)
+    if (kv_count % count_interval == 0) {
+      dout(1) << "processed objects count = " << kv_count << dendl;
+    }
+
+    // Shards - Code
+    // add the extents from the shards to the main Obj
+    if (is_extent_shard_key(it->key())) {
+      // shards must follow a valid main object
+      if (has_open_onode) {
+	// shards keys must start with the main object key
+	if (it->key().find(onode_ref->key) == 0) {
+	  // shards count can't exceed declared shard-count in the main-object
+	  if (shard_id < onode_ref->extent_map.shards.size()) {
+	    onode_ref->extent_map.provide_shard_info_to_onode(it->value(), shard_id);
+	    shard_id++;
+	  } else {
+	    derr << "illegal shard_id=" << shard_id << ", shards.size()=" << onode_ref->extent_map.shards.size() << dendl;
+	    derr << "shard->key=" << pretty_binary_string(it->key()) << dendl;
+	    ceph_assert(shard_id < onode_ref->extent_map.shards.size());
+	  }
+	} else {
+	  derr << "illegal shard-key::onode->key=" << pretty_binary_string(onode_ref->key) << " shard->key=" << pretty_binary_string(it->key()) << dendl;
+	  ceph_assert(it->key().find(onode_ref->key) == 0);
+	}	  
+      } else {
+	derr << "error::shard without main objects for key=" << pretty_binary_string(it->key()) << dendl;
+	ceph_assert(has_open_onode);
+      }
+
+    } else {
+      // Main Object Code
+    
+      if (has_open_onode) {
+	// make sure we got all shards of this object
+	if (shard_id == onode_ref->extent_map.shards.size()) {
+	  // We completed an Onode Object -> pass it to be processed
+	  read_allocation_from_single_onode(onode_ref);
+	} else {
+	  derr << "Missing shards! shard_id=" << shard_id << ", shards.size()=" << onode_ref->extent_map.shards.size() << dendl;
+	  ceph_assert(shard_id == onode_ref->extent_map.shards.size());
+	}
+      } else {
+	// We opened a new Object 
+	has_open_onode =  true;
+      }
+      
+      // The main Obj is always first in RocksDB so we can start with shard_id set to zero
+      shard_id = 0;    
+      ghobject_t oid;
+      int ret = get_key_object(it->key(), &oid);
+      if (ret < 0) {
+	derr << "bad object key " << pretty_binary_string(it->key()) << dendl;
+	ceph_assert(ret == 0);
+	continue;
+      }
+
+      // fill collection_ref if doesn't exist yet
+      // We process all the obejcts in a given collection and then move to the next collection
+      // This means we only search once for every given collection
+      if (!collection_ref                                     ||
+	  oid.shard_id                != pgid.shard           ||
+	  oid.hobj.get_logical_pool() != (int64_t)pgid.pool() ||
+	  !collection_ref->contains(oid)) {
+	collection_ref = nullptr;
+
+	for (auto& p : coll_map) {
+	  if (p.second->contains(oid)) {
+	    collection_ref = p.second;
+	    break;
+	  }
+	}
+	
+	if (!collection_ref) {
+	  derr << "stray object " << oid << " not owned by any collection" << dendl;
+	  ceph_assert(collection_ref);
+	  continue;
+	}
+
+	collection_ref->cid.is_pg(&pgid);	
+      }
+    
+      onode_ref.reset(BlueStore::Onode::decode(collection_ref, oid, it->key(), it->value()));
+    }
+  }
+  
+  // process the last object
+  if (has_open_onode) {
+    // make sure we got all shards of this object
+    if (shard_id == onode_ref->extent_map.shards.size()) {
+      // We completed an Onode Object -> pass it to be processed
+      read_allocation_from_single_onode(onode_ref);
+    } else {
+      derr << "Last Object is missing shards! shard_id=" << shard_id << ", shards.size()=" << onode_ref->extent_map.shards.size() << dendl;
+      ceph_assert(shard_id == onode_ref->extent_map.shards.size());
+    }    
+  }
+
+  return 0;
 }
 
 // =======================================================

@@ -848,6 +848,7 @@ public:
 		     unsigned *pn);
     unsigned decode_some(ceph::buffer::list& bl);
 
+    void provide_shard_info_to_onode(bufferlist v, uint32_t shard_id);
     void bound_encode_spanning_blobs(size_t& p);
     void encode_spanning_blobs(ceph::buffer::list::contiguous_appender& p);
     void decode_spanning_blobs(ceph::buffer::ptr::const_iterator& p);
@@ -2621,6 +2622,9 @@ public:
   }
   int umount() override;
 
+  void read_allocation_from_single_onode(BlueStore::OnodeRef& onode_ref);
+  int  read_allocation_from_onodes();
+  
   int open_db_environment(KeyValueDB **pdb, bool to_repair);
   int close_db_environment();
 

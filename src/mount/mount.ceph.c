@@ -461,10 +461,10 @@ static int parse_options(const char *data, struct ceph_mount_info *cmi,
 			/* Only legacy ms_mode needs v1 addrs */
 			v2_addrs = strcmp(value, "legacy");
 			skip = false;
-		} else if (strcmp(data, "mon_host") == 0) {
+		} else if (strcmp(data, "mon_addr") == 0) {
 			/* monitor address to use for mounting */
 			if (!value || !*value) {
-				fprintf(stderr, "mount option mon_host requires a value.\n");
+				fprintf(stderr, "mount option mon_addr requires a value.\n");
 				return -EINVAL;
 			}
 			cmi->cmi_mons = strdup(value);

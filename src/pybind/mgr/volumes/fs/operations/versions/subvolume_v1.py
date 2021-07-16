@@ -111,7 +111,7 @@ class SubvolumeV1(SubvolumeBase, SubvolumeTemplate):
         except (VolumeException, MetadataMgrException, cephfs.Error) as e:
             try:
                 log.info("cleaning up subvolume with path: {0}".format(self.subvolname))
-                self.remove()
+                self.remove(internal_cleanup=True)
             except VolumeException as ve:
                 log.info("failed to cleanup subvolume '{0}' ({1})".format(self.subvolname, ve))
 
@@ -168,7 +168,7 @@ class SubvolumeV1(SubvolumeBase, SubvolumeTemplate):
         except (VolumeException, MetadataMgrException, cephfs.Error) as e:
             try:
                 log.info("cleaning up subvolume with path: {0}".format(self.subvolname))
-                self.remove()
+                self.remove(internal_cleanup=True)
             except VolumeException as ve:
                 log.info("failed to cleanup subvolume '{0}' ({1})".format(self.subvolname, ve))
 
@@ -674,7 +674,7 @@ class SubvolumeV1(SubvolumeBase, SubvolumeTemplate):
         if flush:
             self.metadata_mgr.flush()
 
-    def remove(self, retainsnaps=False):
+    def remove(self, retainsnaps=False, internal_cleanup=False):
         if retainsnaps:
             raise VolumeException(-errno.EINVAL, "subvolume '{0}' does not support snapshot retention on delete".format(self.subvolname))
         if self.list_snapshots():

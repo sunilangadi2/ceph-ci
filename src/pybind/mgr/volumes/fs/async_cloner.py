@@ -329,10 +329,11 @@ class Cloner(AsyncJobs):
                         if not track_idx:
                             log.warning("cannot lookup clone tracking index for {0}".format(clone_subvolume.base_path))
                             raise VolumeException(-errno.EINVAL, "error canceling clone")
-                        if SubvolumeOpSm.is_init_state(SubvolumeTypes.TYPE_CLONE, clone_state):
-                            # clone has not started yet -- cancel right away.
-                            self._cancel_pending_clone(fs_handle, clone_subvolume, clonename, groupname, status, track_idx)
-                            return
+                        with lock_timeout_log(self.lock):
+                            if SubvolumeOpSm.is_init_state(SubvolumeTypes.TYPE_CLONE, clone_state) and not job in self.jobs[volname]:
+                                # clone has not started yet -- cancel right away.
+                                self._cancel_pending_clone(fs_handle, clone_subvolume, clonename, groupname, status, track_idx)
+                                return
             # cancelling an on-going clone would persist "canceled" state in subvolume metadata.
             # to persist the new state, async cloner accesses the volume in exclusive mode.
             # accessing the volume in exclusive mode here would lead to deadlock.

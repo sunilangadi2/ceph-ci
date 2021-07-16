@@ -343,6 +343,10 @@ class SubvolumeV2(SubvolumeV1):
                 raise VolumeException(-errno.ENOTEMPTY, "subvolume '{0}' has snapshots".format(self.subvolname))
         else:
             if not self.has_pending_purges:
+                if self.state not in [SubvolumeStates.STATE_COMPLETE, SubvolumeStates.STATE_CANCELED]:
+                    raise VolumeException(-errno.EAGAIN,
+                                          "subvolume '{0}' is a clone and not complete/cancelled. Please cancel the clone and try again".format(
+                                          self.subvolname))
                 self.trash_base_dir()
                 # Delete the volume meta file, if it's not already deleted
                 self.auth_mdata_mgr.delete_subvolume_metadata_file(self.group.groupname, self.subvolname)

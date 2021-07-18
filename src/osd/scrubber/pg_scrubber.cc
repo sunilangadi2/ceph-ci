@@ -2137,9 +2137,11 @@ namespace Scrub {
 
 void ReplicaReservations::release_replica(pg_shard_t peer, epoch_t epoch)
 {
+  dout(10) << __func__ << " st " << peer << dendl;
   auto m = new MOSDScrubReserve(spg_t(m_pg->info.pgid.pgid, peer.shard), epoch,
 				MOSDScrubReserve::RELEASE, m_pg->pg_whoami);
   m_osds->send_message_osd_cluster(peer.osd, m, epoch);
+  dout(10) << __func__ << " dn " << peer << dendl;
 }
 
 ReplicaReservations::ReplicaReservations(PG* pg, pg_shard_t whoami, ScrubQueue::ScrubJobRef scrubjob)
@@ -2192,6 +2194,8 @@ void ReplicaReservations::discard_all()
 
 ReplicaReservations::~ReplicaReservations()
 {
+  dout(10) << __func__ << dendl;
+
   m_had_rejections = true;  // preventing late-coming responses from triggering events
 
   // send un-reserve messages to all reserved replicas. We do not wait for answer (there
@@ -2211,6 +2215,8 @@ ReplicaReservations::~ReplicaReservations()
     release_replica(p, epoch);
   }
   m_waited_for_peers.clear();
+
+  dout(10) << __func__ << dendl;
 }
 
 /**
@@ -2239,6 +2245,7 @@ void ReplicaReservations::handle_reserve_grant(OpRequestRef op, pg_shard_t from)
 	     m_reserved_peers.end()) {
 
     dout(10) << " already had osd." << from << " reserved" << dendl;
+
 
   } else {
 

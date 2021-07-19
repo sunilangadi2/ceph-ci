@@ -549,6 +549,8 @@ status()
 
                 echo "${cluster} ${image_pool} ${image_ns} rbd_mirroring omap vals"
                 rados --cluster ${cluster} -p ${image_pool} --namespace "${image_ns}" listomapvals rbd_mirroring
+                echo "${cluster} ${image_pool} ${image_ns} rbd_mirror_leader omap vals"
+                rados --cluster ${cluster} -p ${image_pool} --namespace "${image_ns}" listomapvals rbd_mirror_leader
                 echo
             done
         done

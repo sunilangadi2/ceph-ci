@@ -63,8 +63,6 @@ function(build_jaeger)
     include(Buildthrift)
     build_thrift()
     list(APPEND dependencies thrift)
-    execute_process(COMMAND bash -c "grep -q 'thrift' debian/libjaeger.install || echo 'usr/lib/libthrift.so.*' >> debian/libjaeger.install"
-		    WORKING_DIRECTORY ${CMAKE_SOURCE_DIR})
   endif()
 
   if(CMAKE_MAKE_PROGRAM MATCHES "make")

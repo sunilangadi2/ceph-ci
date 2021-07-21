@@ -9,6 +9,29 @@
   that were storing state in RADOS omap, especially without striping which
   limits scalability.
 
+* The ``device_health_metrics`` pool has been renamed ``.mgr``. It is now
+  used as a common store for all ``ceph-mgr`` modules.
+* fs: A file system can be renamed using the `fs rename` command. Any cephx
+  credentials authorized for the old file system name will need to be
+  reauthorized to the new file system name. Since the operations of the clients
+  using these re-authorized IDs may be disrupted, this command requires the
+  "--yes-i-really-mean-it" flag. Also, mirroring is expected to be disabled
+  on the file system.
+
+* RGW: `radosgw-admin realm delete` is now renamed to `radosgw-admin realm rm`. This
+  is consistent with the help message.
+
+* OSD: Ceph now uses mclock_scheduler as its default osd_op_queue to provide QoS.
+
+* RGW: S3 bucket notification events now contain an `eTag` key instead of `etag`,
+  and eventName values no longer carry the `s3:` prefix, fixing deviations from
+  the message format observed on AWS.
+
+* RGW: It is possible to specify ssl options and ciphers for beast frontend now.
+  The default ssl options setting is "no_sslv2:no_sslv3:no_tlsv1:no_tlsv1_1".
+  If you want to return back the old behavior add 'ssl_options=' (empty) to
+  ``rgw frontends`` configuration.
+
 >=16.0.0
 --------
 

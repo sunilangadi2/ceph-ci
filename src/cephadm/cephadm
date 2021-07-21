@@ -67,7 +67,7 @@ LOG_DIR_MODE = 0o770
 DATA_DIR_MODE = 0o700
 CONTAINER_INIT = True
 MIN_PODMAN_VERSION = (2, 0, 2)
-CGROUPS_SPLIT_PODMAN_VERSION = (2, 1, 0)
+CGROUPS_SPLIT_PODMAN_VERSION = (4, 1, 0)
 CUSTOM_PS1 = r'[ceph: \u@\h \W]\$ '
 DEFAULT_TIMEOUT = None  # in seconds
 DEFAULT_RETRY = 15
@@ -1204,10 +1204,13 @@ class FileLock(object):
                 lock_id = id(self)
                 lock_filename = self._lock_file
 
-                logger.debug('Releasing lock %s on %s', lock_id, lock_filename)
+                # Can't log in shutdown:
+                #  File "/usr/lib64/python3.9/logging/__init__.py", line 1175, in _open
+                #    NameError: name 'open' is not defined
+                # logger.debug('Releasing lock %s on %s', lock_id, lock_filename)
                 self._release()
                 self._lock_counter = 0
-                logger.debug('Lock %s released on %s', lock_id, lock_filename)
+                # logger.debug('Lock %s released on %s', lock_id, lock_filename)
 
         return None
 

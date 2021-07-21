@@ -30,6 +30,8 @@ function munge_ceph_spec_in {
     shift
     local for_make_check=$1
     shift
+    local with_jaeger=$1
+    shift
     local OUTFILE=$1
     sed -e 's/@//g' < ceph.spec.in > $OUTFILE
     # http://rpm.org/user_doc/conditional_builds.html
@@ -350,6 +352,9 @@ else
 	fi
 	if $with_seastar; then
 	    build_profiles+=",pkg.ceph.crimson"
+	fi
+	if $with_jaeger; then
+	    build_profiles+=",pkg.ceph.jaeger"
 	fi
 	$SUDO env DEBIAN_FRONTEND=noninteractive mk-build-deps \
 	      --build-profiles "${build_profiles#,}" \

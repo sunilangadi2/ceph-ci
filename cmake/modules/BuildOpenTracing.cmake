@@ -15,11 +15,11 @@ function(build_opentracing)
 
   if(CMAKE_MAKE_PROGRAM MATCHES "make")
     # try to inherit command line arguments passed by parent "make" job
-    set(make_cmd $(MAKE) )
+    set(make_cmd $(MAKE) opentracing)
   else()
     set(make_cmd ${CMAKE_COMMAND} --build <BINARY_DIR> --target opentracing)
   endif()
-  set(install_cmd $(MAKE) install DESTDIR=)
+  set(install_cmd DESTDIR= ${CMAKE_MAKE_PROGRAM} install)
 
   include(ExternalProject)
   ExternalProject_Add(opentracing

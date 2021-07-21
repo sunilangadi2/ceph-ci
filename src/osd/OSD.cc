@@ -4763,6 +4763,8 @@ void OSD::register_pg(PGRef pg)
 
 bool OSD::try_finish_pg_delete(PG *pg, unsigned old_pg_num)
 {
+  dout(10) << __func__ << " " << pg->pg_id << " RRR cp0" << dendl;
+
   auto sdata = pg->osd_shard;
   ceph_assert(sdata);
   {
@@ -4781,9 +4783,13 @@ bool OSD::try_finish_pg_delete(PG *pg, unsigned old_pg_num)
     sdata->_detach_pg(p->second.get());
   }
 
+  dout(10) << __func__ << " " << pg->pg_id << " RRR cp1" << dendl;
+
   for (auto shard : shards) {
     shard->unprime_split_children(pg->pg_id, old_pg_num);
   }
+
+  dout(10) << __func__ << " " << pg->pg_id << " RRR cp2" << dendl;
 
   // update pg count now since we might not get an osdmap any time soon.
   if (pg->is_primary())
@@ -4792,6 +4798,8 @@ bool OSD::try_finish_pg_delete(PG *pg, unsigned old_pg_num)
     service.logger->dec(l_osd_pg_replica); // misnomver
   else
     service.logger->dec(l_osd_pg_stray);
+
+  dout(10) << __func__ << " " << pg->pg_id << " RRR cp3" << dendl;
 
   return true;
 }
@@ -7487,6 +7495,8 @@ void OSD::sched_scrub()
 {
   auto& scrub_scheduler = service.get_scrub_services();
 
+  dout(20) << "sched_scrub starting" << dendl;
+
   // fail fast if no resources are available
   if (!scrub_scheduler.can_inc_scrubs()) {
     dout(20) << __func__ << ": OSD cannot inc scrubs" << dendl;
@@ -7520,6 +7530,8 @@ void OSD::sched_scrub()
       dout(20) << "sched_scrub scrub-queue jobs: " << *sj << dendl;
     }
   }
+
+  dout(20) << "sched_scrub cp1" << dendl;
 
   auto was_started = scrub_scheduler.select_pg_and_scrub(env_conditions);
   dout(20) << "sched_scrub done (" << ScrubQueue::attempt_res_text(was_started) << ")"

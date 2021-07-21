@@ -2674,6 +2674,7 @@ std::pair<ghobject_t, bool> PG::do_delete_work(
       running = false;
     }
   }
+  dout(10) << __func__ << " RRR cp10" << dendl;
   return {next, running};
 }
 

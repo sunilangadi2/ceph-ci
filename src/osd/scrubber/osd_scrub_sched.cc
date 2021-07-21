@@ -29,6 +29,7 @@ ScrubQueue::ScrubJob::ScrubJob(CephContext* cct, const spg_t& pg, int node_id)
 // debug usage only
 ostream& operator<<(ostream& out, const ScrubQueue::ScrubJob& sjob)
 {
+  return out;
   out << sjob.pgid << ",  " << sjob.sched_time
       << " dead: " << sjob.deadline << " - " << sjob.registration_state()
       << " / failure: " << sjob.resources_failure

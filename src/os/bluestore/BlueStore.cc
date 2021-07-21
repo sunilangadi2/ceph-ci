@@ -3116,28 +3116,6 @@ unsigned BlueStore::ExtentMap::decode_some(bufferlist& bl)
   return num;
 }
 
-//-------------------------------------------------------------------------
-void BlueStore::ExtentMap::provide_shard_info_to_onode(bufferlist v, uint32_t shard_id)
-{
-  if (shard_id < shards.size()) {
-    auto p = &shards[shard_id];
-    if (!p->loaded) {
-      dout(30) << __func__ << " opening shard 0x" << std::hex << p->shard_info->offset << std::dec << dendl;
-      p->extents = decode_some(v);
-      p->loaded = true;
-      dout(20) << __func__ << " open shard 0x" << std::hex << p->shard_info->offset << dendl;
-      ceph_assert(p->dirty == false);
-      ceph_assert(v.length() == p->shard_info->bytes);
-      onode->c->store->logger->inc(l_bluestore_onode_shard_misses);
-    } else {
-      onode->c->store->logger->inc(l_bluestore_onode_shard_hits);
-    }
-  } else {
-    derr << "illegal shard-id=" << shard_id << " shards.size()=" << shards.size() << dendl;
-    ceph_assert(shard_id < shards.size());
-  }
-}
-
 void BlueStore::ExtentMap::bound_encode_spanning_blobs(size_t& p)
 {
   // Version 2 differs from v1 in blob's ref_map
@@ -5315,7 +5293,7 @@ int BlueStore::_open_fm(KeyValueDB::Transaction t, bool read_only, bool fm_resto
 {
   int r;
 
-  dout(5) << __func__ << "::NCB::freelist_type=" << freelist_type << dendl;
+  dout(5) << __func__ << "::NCB::freelist_type=" << freelist_type << ", cct->_conf->bluestore_debug_prefill=" << cct->_conf->bluestore_debug_prefill <<dendl;
   ceph_assert(fm == NULL);
   // fm_restore means we are transitioning from null-fm to bitmap-fm
   ceph_assert(!fm_restore || (freelist_type != "null"));
@@ -5325,7 +5303,6 @@ int BlueStore::_open_fm(KeyValueDB::Transaction t, bool read_only, bool fm_resto
   // When allocation-info is stored in a single file we set freelist_type to "null"
   bool set_null_freemap = false;
   if (freelist_type == "null") {
-    dout(5) << __func__ << "::NCB::NULL Freelist_Type, cct->_conf->bluestore_debug_prefill=" << cct->_conf->bluestore_debug_prefill << dendl;
     // use BitmapFreelistManager with the null option to stop allocations from going to RocksDB
     // we will store the allocation info in a single file during umount()
     freelist_type = "bitmap";
@@ -5338,7 +5315,7 @@ int BlueStore::_open_fm(KeyValueDB::Transaction t, bool read_only, bool fm_resto
   }
   if (t) {
     // create mode. initialize freespace
-    dout(5) << __func__ << "::NCB:: initializing freespace" << dendl;
+    dout(20) << __func__ << " initializing freespace" << dendl;
     {
       bufferlist bl;
       bl.append(freelist_type);
@@ -5513,8 +5490,8 @@ int BlueStore::_init_alloc()
   
   uint64_t num = 0, bytes = 0;
   utime_t start_time = ceph_clock_now();
-  // This is the original path - loading allocation map from RocksDB and feeding into the allocator
   if (!fm->is_null_manager()) {
+    // This is the original path - loading allocation map from RocksDB and feeding into the allocator
     dout(5) << __func__ << "::NCB::loading allocation from FM -> shared_alloc" << dendl;
     // initialize from freelist
     fm->enumerate_reset();
@@ -5542,14 +5519,14 @@ int BlueStore::_init_alloc()
       dout(5) << __func__ << "::NCB:;restore_allocator() completed successfully shared_alloc.a=" << shared_alloc.a << dendl;
     } else {
       // This must mean that we had an unplanned shutdown and didn't manage to destage the allocator
-      derr << __func__ << "::NCB::restore_allocator() failed!" << dendl;
-      derr << __func__ << "::NCB::Run Full Recovery from ONodes (might take a while) ..." << dendl;
+      dout(1) << __func__ << "::NCB::restore_allocator() failed!" << dendl;
+      dout(1) << __func__ << "::NCB::Run Full Recovery from ONodes (might take a while) ..." << dendl;
       // if failed must recover from on-disk ONode internal state
       if (read_allocation_from_drive_on_startup() != 0) {
 	derr << __func__ << "::NCB::Failed Recovery" << dendl;
 	derr << __func__ << "::NCB::Ceph-OSD won't start, make sure your drives are connected and readable" << dendl;
 	derr << __func__ << "::NCB::If no HW fault is found, please redeploy OSD and report failure to the developers" << dendl;
-	return -1;
+	return -EIO;
       }
     }
   }  
@@ -6557,8 +6534,6 @@ int BlueStore::mkfs()
   }
 
   freelist_type = "bitmap";
-  //freelist_type = "null";
-  dout(5) << __func__ << "::(3)freelist_type=" << freelist_type << dendl;
   
   r = _open_path();
   if (r < 0)
@@ -7106,16 +7081,6 @@ int BlueStore::_mount()
       derr << __func__ << " fsck found " << rc << " errors" << dendl;
       return -EIO;
     }
-
-#if 0
-    // force allocation check to exercise recovery code
-    dout(5) << __func__ << "::NCB::calling read_allocation_from_drive_for_fsck()" << dendl;
-    if (read_allocation_from_drive_for_fsck() != 0) {
-      derr << __func__ << "::NCB::Failed read_allocation_from_drive_for_fsck()" << dendl;
-      return -1;
-    }
-#endif
-
   }
 
   if (cct->_conf->osd_max_object_size > OBJECT_MAX_SIZE) {
@@ -8065,7 +8030,6 @@ void BlueStore::_fsck_check_objects(FSCKDepth depth,
     CollectionRef c;
     int64_t pool_id = -1;
     spg_t pgid;
-    //unsigned onode_num = 0;
     for (it->lower_bound(string()); it->valid(); it->next()) {
       dout(30) << __func__ << " key "
         << pretty_binary_string(it->key()) << dendl;
@@ -8959,10 +8923,7 @@ int BlueStore::_fsck_on_open(BlueStore::FSCKDepth depth, bool repair)
 
     dout(1) << __func__ << " checking freelist vs allocated" << dendl;
     // skip freelist vs allocated compare when we have Null fm
-    if (fm->is_null_manager()) {
-      
-    }
-    else {
+    if (!fm->is_null_manager()) {
       fm->enumerate_reset();
       uint64_t offset, length;
       while (fm->enumerate_next(db, &offset, &length)) {
@@ -16716,8 +16677,8 @@ void RocksDBBlueFSVolumeSelector::dump(ostream& sout) {
 #undef dout_prefix
 #define dout_prefix *_dout << "bluestore::NCB::" << __func__ << "::"
 
-static const std::string allocator_dir    = "ALLOCATOR_DIR_NCB";
-static const std::string allocator_file   = "ALLOCATOR_FILE_NCB";
+static const std::string allocator_dir    = "ALLOCATOR_NCB_DIR";
+static const std::string allocator_file   = "ALLOCATOR_NCB_FILE";
 static uint32_t    s_format_version = 0x01; // support future changes to allocator-map file
 static uint32_t    s_serial         = 0x01;
 
@@ -16939,11 +16900,6 @@ int BlueStore::invalidate_allocation_file_on_bluefs()
     return 0;
   }
 
-#if 0
-  bluefs->unlink(allocator_dir, allocator_file);
-  return 0;
-#endif
-
   
   ret = bluefs->open_for_write(allocator_dir, allocator_file, &p_handle, true);
   if (ret != 0) {
@@ -16951,19 +16907,13 @@ int BlueStore::invalidate_allocation_file_on_bluefs()
     return -1;
   }
   
-#if 0
-  byte buffer[sizeof(allocator_image_header)];
-  memset(buffer, 0, sizeof(buffer));
-  dout(5) << "invalidate header only, write_length=0x" << std::hex << sizeof(buffer) << dendl;
-  p_handle->append(buffer, sizeof(buffer));
-#else
   dout(5) << "invalidate using bluefs->truncate(p_handle, 0)" << dendl;
   ret = bluefs->truncate(p_handle, 0);
   if (ret != 0) {
     derr << "Failed truncate with error-code " << ret << dendl;
     return -1;
   }
-#endif
+
   bluefs->fsync(p_handle);
   bluefs->close_writer(p_handle);
 
@@ -17174,7 +17124,8 @@ int BlueStore::store_allocator(Allocator* src_allocator)
   
   bluefs->fsync(p_handle.get());  
   bluefs->truncate(p_handle.get(), p_handle->pos);
-
+  bluefs->fsync(p_handle.get());
+  
   utime_t duration = ceph_clock_now() - start_time;
   dout(5) <<"WRITE-extent_count=" << extent_count << ", file_size=" << p_handle->file->fnode.size << dendl;
   dout(5) <<"p_handle->pos=" << p_handle->pos << " WRITE-duration=" << duration << " seconds" << dendl;
@@ -17204,36 +17155,6 @@ Allocator* BlueStore::create_allocator(uint64_t bdev_size, string type) {
     return nullptr;
   }
 
-}
-
-//-----------------------------------------------------------------------------------
-int BlueStore::allocator_add_restored_entries(Allocator          *allocator,
-					      const void         *v_buff,
-					      unsigned            extent_count,
-					      uint64_t           *p_read_alloc_size,
-					      uint64_t           *p_extent_count,
-					      const void         *v_header, // header in Host Format
-					      BlueFS::FileReader *p_handle,
-					      uint64_t            offset)
-{
-  const extent_t *buff = (extent_t*)v_buff;
-  const extent_t *end = buff+extent_count;
-  for( const extent_t *p = buff; p < end; p++) {
-    uint64_t offset = CEPHTOH_64(p->offset);
-    uint64_t length = CEPHTOH_64(p->length);
-    *p_read_alloc_size += length;
-    if (length > 0) {
-      allocator->init_add_free(offset, length);
-      (*p_extent_count) ++;
-    } else {
-      dout(5) << "extent with zero length at idx=" << *p_extent_count << dendl;
-      derr << "failed restore at idx=" << *p_extent_count << " [" << offset << "," << length << "]" << dendl;
-      derr << "************Early termination********"<< dendl;
-      return -1;
-    }
-  }
-
-  return 0;
 }
 
 //-----------------------------------------------------------------------------------
@@ -17418,6 +17339,27 @@ int BlueStore::restore_allocator(Allocator* allocator, uint64_t *num, uint64_t *
   *num   = extent_count;
   *bytes = read_alloc_size;
   return 0;
+}
+
+//-------------------------------------------------------------------------
+void BlueStore::ExtentMap::provide_shard_info_to_onode(bufferlist v, uint32_t shard_id)
+{
+  auto cct  = onode->c->store->cct;
+  auto path = onode->c->store->path;
+  if (shard_id < shards.size()) {
+    auto p = &shards[shard_id];
+    if (!p->loaded) {
+      dout(30) << "opening shard 0x" << std::hex << p->shard_info->offset << std::dec << dendl;
+      p->extents = decode_some(v);
+      p->loaded = true;
+      dout(20) << "open shard 0x" << std::hex << p->shard_info->offset << std::dec << dendl;
+      ceph_assert(p->dirty == false);
+      ceph_assert(v.length() == p->shard_info->bytes);
+    }
+  } else {
+    derr << "illegal shard-id=" << shard_id << " shards.size()=" << shards.size() << dendl;
+    ceph_assert(shard_id < shards.size());
+  }
 }
 
 //---------------------------------------------------------

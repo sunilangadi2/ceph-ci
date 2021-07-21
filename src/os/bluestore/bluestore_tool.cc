@@ -522,7 +522,7 @@ int main(int argc, char **argv)
 #endif
   }
   else if (action == "allocmap") {
-#ifndef CEPH_BLUESTORE_TOOL_RESTORE_ALLOCATION
+#ifndef CEPH_BLUESTORE_TOOL_ENABLE_ALLOCMAP
     cerr << action << " bluestore.allocmap is not supported!!! " << std::endl;
     exit(EXIT_FAILURE);
 #else

@@ -153,7 +153,7 @@ class HealthTest(DashboardTestCase):
                         'max_avail': int,
                         'quota_objects': int,
                         'quota_bytes': int,
-                        'dirty': int,
+                        'dirty': JAny(none=True),
                         'rd': int,
                         'rd_bytes': int,
                         'wr': int,

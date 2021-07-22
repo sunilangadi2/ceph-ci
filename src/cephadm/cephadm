@@ -7546,7 +7546,7 @@ WantedBy=ceph-{fsid}.target
         # When __file__ is <stdin> we're being invoked over remoto via the orchestrator, so
         # we pick up the file from where the orchestrator placed it - otherwise we'll
         # copy it to the binary location for this cluster
-        if not __file__ == '<stdin>':
+        if not __file__ == '<stdin>' and __file__ != self.binary_path:
             shutil.copy(__file__,
                         self.binary_path)
 

@@ -1490,6 +1490,11 @@ public:
 	}
       }
     }
+    if (on_disk_rollback_info_trimmed_to == eversion_t()) {
+      // is either a new pg or replicated pool pg
+      assert(info.is_empty() || info.pgid.is_no_shard());
+      on_disk_rollback_info_trimmed_to = info.last_update;
+    }
     log = IndexedLog(
       info.last_update,
       info.log_tail,

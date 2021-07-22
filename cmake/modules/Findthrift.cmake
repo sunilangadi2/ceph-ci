@@ -17,14 +17,11 @@ find_library(
   HINTS ${thrift_HOME} ENV thrift_HOME /usr/local /opt/local
   PATH_SUFFIXES lib lib64)
 
-if(thrift_FOUND AND NOT (TARGET thrift::libthrift))
-  add_library(thrift::libthrift UNKNOWN IMPORTED)
-
-  set_target_properties(
-    thrift::libthrift
-    PROPERTIES IMPORTED_LOCATION ${thrift_LIBRARIES}
-               INTERFACE_INCLUDE_DIRECTORIES ${thrift_INCLUDE_DIR})
-endif()
+add_library(thrift::libthrift UNKNOWN IMPORTED)
+set_target_properties(
+  thrift::libthrift
+  PROPERTIES IMPORTED_LOCATION ${thrift_LIBRARIES}
+	     INTERFACE_INCLUDE_DIRECTORIES ${thrift_INCLUDE_DIR})
 
 include(FindPackageHandleStandardArgs)
 find_package_handle_standard_args(thrift DEFAULT_MSG thrift_LIBRARIES

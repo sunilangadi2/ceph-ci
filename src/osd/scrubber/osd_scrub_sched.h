@@ -139,6 +139,7 @@ class ScrubQueue {
     }
 
     friend ostream& operator<<(ostream& out, const ScrubJob& pg);
+    ScrubJob(const ScrubJob&) = delete;
   };
 
   friend class TestOSDScrub;

@@ -27,11 +27,33 @@ using namespace std::chrono_literals;
 #define dout_context (m_pg->cct)
 #define dout_subsys ceph_subsys_osd
 #undef dout_prefix
-#define dout_prefix _prefix(_dout, this->m_pg)
+//#define dout_prefix _prefix(_dout, this->m_pg)
+#define dout_prefix _prefix(_dout, this)
 
 template <class T> static ostream& _prefix(std::ostream* _dout, T* t)
 {
-  return t->gen_prefix(*_dout) << " scrubber pg(" << t->pg_id << ") ";
+  //return t->gen_prefix(*_dout) << " scrubber pg(" << t->pg_id << ") ";
+  return t->gen_prefix(*_dout);
+}
+
+/**
+ *  Note: when destructed, the PG we are serving might already be half-way dead.
+ *  And if so - PG::gen_prefix() that was used here before might crash.
+ */
+std::ostream& PgScrubber::gen_prefix(std::ostream& out) const
+{
+  if (false /* pg is locked by me - expose that interface */) {
+    //OSDMapRef mapref = m_pg->get_recovery_state().get_osdmap();
+    out << "osd." << m_osds->whoami
+      //<< " pg_epoch: " << (mapref ? mapref->get_epoch():0)
+      << " scrubber pg(" << m_pg_id << ") "
+      << " [" << *m_pg << "] ";
+  } else {
+    out << "osd." << m_osds->whoami
+    << " scrubber pg(" << m_pg_id << ") ";
+  }
+
+  return out;
 }
 
 ostream& operator<<(ostream& out, const scrub_flags_t& sf)
@@ -457,7 +479,6 @@ std::string_view PgScrubber::registration_state() const
 
 void PgScrubber::rm_from_osd_scrubbing()
 {
-  dout(20) << __func__ << dendl;
   // make sure the OSD won't try to scrub this one just now
   unregister_from_osd();
 }
@@ -1948,11 +1969,13 @@ void PgScrubber::handle_query_state(ceph::Formatter* f)
 
 PgScrubber::~PgScrubber()
 {
+  dout(20) << __func__ << dendl;
   if (m_scrub_job) {
     // make sure the OSD won't try to scrub this one just now
     rm_from_osd_scrubbing();
     m_scrub_job.reset();
   }
+  dout(19) << __func__ << dendl;
 }
 
 PgScrubber::PgScrubber(PG* pg)
@@ -2131,7 +2154,6 @@ void PgScrubber::preemption_data_t::reset()
   m_size_divisor = 1;
 }
 
-
 // ///////////////////// ReplicaReservations //////////////////////////////////
 namespace Scrub {
 
@@ -2288,6 +2310,14 @@ void ReplicaReservations::handle_reserve_reject(OpRequestRef op, pg_shard_t from
   }
 }
 
+std::ostream& ReplicaReservations::gen_prefix(std::ostream& out) const
+{
+  // RRR save the pg-id during construction
+//  out << "osd." << m_osds->whoami
+//  << " scrubber::ReplicaReservations pg(" << "XX"
+//      << ") ";
+  return out;
+}
 
 // ///////////////////// LocalReservation //////////////////////////////////
 
@@ -2313,6 +2343,14 @@ LocalReservation::~LocalReservation()
   }
 }
 
+std::ostream& LocalReservation::gen_prefix(std::ostream& out) const
+{
+  // RRR save the pg-id during construction
+//  out << "osd." << m_osds->whoami
+//  << " scrubber::LocalReservation pg(" << "XX"
+//  << ") ";
+  return out;
+}
 
 // ///////////////////// ReservedByRemotePrimary ///////////////////////////////
 
@@ -2340,6 +2378,15 @@ ReservedByRemotePrimary::~ReservedByRemotePrimary()
     m_reserved_by_remote_primary = false;
     m_osds->get_scrub_services().dec_scrubs_remote();
   }
+}
+
+std::ostream& ReservedByRemotePrimary::gen_prefix(std::ostream& out) const
+{
+//  // RRR save the pg-id during construction
+//  out << "osd." << m_osds->whoami
+//  << " scrubber::LocalReservation pg(" << "XX"
+//  << ") ";
+  return out;
 }
 
 // ///////////////////// MapsCollectionStatus ////////////////////////////////

@@ -345,6 +345,7 @@ Scrub::attempt_t ScrubQueue::select_pg_and_scrub(Scrub::ScrubPreconds& preconds)
 // must be called under lock
 void ScrubQueue::rm_unregistered_jobs(ScrubQContainer& group)
 {
+  dout(20) << __func__ << " #: " << group.size() << dendl;
   std::for_each(group.begin(), group.end(), [](auto& job) {
     if (job->state == qu_state_t::unregistering) {
       job->in_queues = false;
@@ -355,6 +356,7 @@ void ScrubQueue::rm_unregistered_jobs(ScrubQContainer& group)
   });
 
   group.erase(std::remove_if(group.begin(), group.end(), invalid_state), group.end());
+  dout(19) << __func__ << " #: " << group.size() << dendl;
 }
 
 namespace {
@@ -407,6 +409,8 @@ Scrub::attempt_t ScrubQueue::select_from_group(ScrubQContainer& group,
     // we expect the first job in the list to be a good candidate (if any)
 
     dout(20) << "try initiating scrub for " << candidate->pgid << dendl;
+
+    ceph_assert(candidate->state == qu_state_t::registered);
 
     if (preconds.only_deadlined &&
 	(candidate->deadline.is_zero() || candidate->deadline >= now_is)) {
@@ -464,6 +468,7 @@ ScrubQueue::TimeAndDeadline ScrubQueue::adjust_target_time(
 
   if (g_conf()->subsys.should_gather<ceph_subsys_osd, 20>()) {
     // debug
+    dout(20) << "cct value: " << (uint64_t)(cct) << dendl;
     dout(20) << "min t: " << times.min_interval
 	     << " osd: " << cct->_conf->osd_scrub_min_interval
 	     << " max t: " << times.max_interval

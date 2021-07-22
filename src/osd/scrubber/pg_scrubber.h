@@ -71,6 +71,8 @@ class ReplicaReservations {
   void handle_reserve_grant(OpRequestRef op, pg_shard_t from);
 
   void handle_reserve_reject(OpRequestRef op, pg_shard_t from);
+
+  std::ostream& gen_prefix(std::ostream& out) const;
 };
 
 /**
@@ -85,6 +87,8 @@ class LocalReservation {
   LocalReservation(PG* pg, OSDService* osds);
   ~LocalReservation();
   bool is_reserved() const { return m_holding_local_reservation; }
+
+  std::ostream& gen_prefix(std::ostream& out) const;
 };
 
 /**
@@ -103,6 +107,8 @@ class ReservedByRemotePrimary {
 
   /// compare the remembered reserved-at epoch to the current interval
   [[nodiscard]] bool is_stale() const;
+
+  std::ostream& gen_prefix(std::ostream& out) const;
 };
 
 /**
@@ -189,6 +195,8 @@ class PgScrubber : public ScrubPgIF, public ScrubMachineListener {
 
  public:
   explicit PgScrubber(PG* pg);
+
+  std::ostream& gen_prefix(std::ostream& out) const;
 
   //  ------------------  the I/F exposed to the PG (ScrubPgIF) -------------
 

@@ -1509,6 +1509,7 @@ std::optional<requested_scrub_t> PG::verify_scrub_mode() const
       verify_periodic_scrub_mode(allow_deep_scrub, try_to_auto_repair,
 				 allow_regular_scrub, has_deep_errors, upd_flags);
     if (!can_start_periodic) {
+      dout(20) << __func__ << ": no periodic scrubs allowed" << dendl;
       return std::nullopt;
     }
   }

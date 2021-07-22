@@ -6811,7 +6811,11 @@ int PrimaryLogPG::do_osd_ops(OpContext *ctx, vector<OSDOp>& ops)
 	if (result < 0)
 	  break;
 
-	ceph_assert(op.extent.length);
+	if (!op.extent.length) {
+	  result = -EINVAL;
+	  break;
+	}
+
 	if (obs.exists && !oi.is_whiteout()) {
 	  t->zero(soid, op.extent.offset, op.extent.length);
 	  interval_set<uint64_t> ch;

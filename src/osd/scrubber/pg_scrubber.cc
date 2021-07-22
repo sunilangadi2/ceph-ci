@@ -24,7 +24,7 @@ using namespace std::chrono;
 using namespace std::chrono_literals;
 
 
-#define dout_context (m_pg->cct)
+#define dout_context (m_osds->cct)
 #define dout_subsys ceph_subsys_osd
 #undef dout_prefix
 //#define dout_prefix _prefix(_dout, this->m_pg)

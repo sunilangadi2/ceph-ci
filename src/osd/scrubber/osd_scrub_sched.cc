@@ -398,61 +398,67 @@ ScrubQueue::ScrubQContainer ScrubQueue::collect_ripe_jobs(ScrubQContainer& group
 }
 
 // not holding jobs_lock. 'group' is a copy of the actual list.
-Scrub::attempt_t ScrubQueue::select_from_group(ScrubQContainer& group,
-					       const Scrub::ScrubPreconds& preconds,
-					       utime_t now_is)
-{
+Scrub::attempt_t
+ScrubQueue::select_from_group(ScrubQContainer &group,
+                              const Scrub::ScrubPreconds &preconds,
+                              utime_t now_is) {
   dout(15) << "jobs #: " << group.size() << dendl;
 
-  for (auto& candidate : group) {
+  for (auto &candidate : group) {
 
     // we expect the first job in the list to be a good candidate (if any)
 
     dout(20) << "try initiating scrub for " << candidate->pgid << dendl;
 
-    ceph_assert(candidate->state == qu_state_t::registered);
+    if (candidate->state != qu_state_t::registered) {
+      // removed while we were trying other jobs
+      dout(20) << " !! actual state for " << candidate->pgid << " is "
+               << candidate->state_desc() << dendl;
+      continue
+    }
 
     if (preconds.only_deadlined &&
-	(candidate->deadline.is_zero() || candidate->deadline >= now_is)) {
+        (candidate->deadline.is_zero() || candidate->deadline >= now_is)) {
       dout(15) << " not scheduling scrub for " << candidate->pgid << " due to "
-	       << (preconds.time_permit ? "high load" : "time not permitting")
-	       << dendl;
+               << (preconds.time_permit ? "high load" : "time not permitting")
+               << dendl;
       continue;
     }
 
     // we have a candidate to scrub. We turn to the OSD to verify that the PG
-    // configuration allows the specified type of scrub, and to initiate the scrub.
-    switch (osd_service.initiate_a_scrub(candidate->pgid,
-				    preconds.allow_requested_repair_only)) {
+    // configuration allows the specified type of scrub, and to initiate the
+    // scrub.
+    switch (osd_service.initiate_a_scrub(
+        candidate->pgid, preconds.allow_requested_repair_only)) {
 
-      case Scrub::attempt_t::scrub_initiated:
-	// the happy path. We are done
-	dout(20) << " initiated for " << candidate->pgid << dendl;
-	return Scrub::attempt_t::scrub_initiated;
+    case Scrub::attempt_t::scrub_initiated:
+      // the happy path. We are done
+      dout(20) << " initiated for " << candidate->pgid << dendl;
+      return Scrub::attempt_t::scrub_initiated;
 
-      case Scrub::attempt_t::already_started:
-      case Scrub::attempt_t::preconditions:
-      case Scrub::attempt_t::bad_pg_state:
-	// continue with the next job
-	dout(20) << "failed (state/cond/started) " << candidate->pgid << dendl;
-	break;
+    case Scrub::attempt_t::already_started:
+    case Scrub::attempt_t::preconditions:
+    case Scrub::attempt_t::bad_pg_state:
+      // continue with the next job
+      dout(20) << "failed (state/cond/started) " << candidate->pgid << dendl;
+      break;
 
-      case Scrub::attempt_t::no_such_pg:
-	// The pg is no longer there
-	dout(20) << "failed (no pg) " << candidate->pgid << dendl;
-	break;
+    case Scrub::attempt_t::no_such_pg:
+      // The pg is no longer there
+      dout(20) << "failed (no pg) " << candidate->pgid << dendl;
+      break;
 
-      case Scrub::attempt_t::no_local_resources:
-	// failure to secure local resources. No point in trying the other
-	// PGs at this time. Note that this is not the same as replica resources
-	// failure!
-	dout(20) << "failed (local) " << candidate->pgid << dendl;
-	return Scrub::attempt_t::no_local_resources;
+    case Scrub::attempt_t::no_local_resources:
+      // failure to secure local resources. No point in trying the other
+      // PGs at this time. Note that this is not the same as replica resources
+      // failure!
+      dout(20) << "failed (local) " << candidate->pgid << dendl;
+      return Scrub::attempt_t::no_local_resources;
 
-      case Scrub::attempt_t::none_ready:
-	// can't happen. Just for the compiler.
-	dout(5) << "failed !!! " << candidate->pgid << dendl;
-	return Scrub::attempt_t::none_ready;
+    case Scrub::attempt_t::none_ready:
+      // can't happen. Just for the compiler.
+      dout(5) << "failed !!! " << candidate->pgid << dendl;
+      return Scrub::attempt_t::none_ready;
     }
   }
 

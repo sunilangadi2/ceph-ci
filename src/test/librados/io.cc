@@ -440,3 +440,9 @@ TEST_F(LibRadosIoEC, XattrIter) {
   }
   rados_getxattrs_end(iter);
 }
+
+TEST_F(LibRadosIo, ZeroLenZero) {
+  rados_write_op_t op = rados_create_write_op();
+  rados_write_op_zero(op, 0, 0);
+  ASSERT_EQ(-EINVAL, rados_write_op_operate(op, ioctx, "foo", NULL, 0));
+}

@@ -414,7 +414,7 @@ ScrubQueue::select_from_group(ScrubQContainer &group,
       // removed while we were trying other jobs
       dout(20) << " !! actual state for " << candidate->pgid << " is "
                << candidate->state_desc() << dendl;
-      continue
+      continue;
     }
 
     if (preconds.only_deadlined &&

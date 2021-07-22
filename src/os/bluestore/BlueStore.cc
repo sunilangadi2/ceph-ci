@@ -2931,12 +2931,51 @@ void BlueStore::ExtentMap::reshard(
   clear_needs_reshard();
 }
 
+void BlueStore::ExtentMap::verify_map()
+{
+  // create a map holding all physical-extents of this Onode to prevent duplication from being added twice and more
+  std::unordered_map<uint64_t, uint32_t> lcl_extnt_map;
+  uint64_t pos = 0;
+
+  // first iterate over all logical-extents
+  for (struct Extent& l_extent : extent_map) {
+    ceph_assert(l_extent.logical_offset >= pos);
+
+    pos = l_extent.logical_offset + l_extent.length;
+    ceph_assert(l_extent.blob);
+    const bluestore_blob_t& blob         = l_extent.blob->get_blob();
+    const PExtentVector&    p_extent_vec = blob.get_extents();
+    
+    // process all physical extent in this blob
+    for (auto p_extent = p_extent_vec.begin(); p_extent != p_extent_vec.end(); p_extent++) {
+      auto offset = p_extent->offset;
+      auto length = p_extent->length;
+
+      // Offset of -1 means that the extent was removed (and it is only a place holder) and can be safely skipped
+      if (offset == (uint64_t)-1) {
+	continue;
+      }
+
+      // skip repeating extents
+      auto lcl_itr = lcl_extnt_map.find(offset);
+      if (lcl_itr != lcl_extnt_map.end()) {
+	// repeated extents must have the same length!
+	ceph_assert(lcl_extnt_map[offset] == length);
+      } else {
+	lcl_extnt_map[offset] = length;
+      }
+    }
+  }
+}
+
 bool BlueStore::ExtentMap::encode_some(
   uint32_t offset,
   uint32_t length,
   bufferlist& bl,
   unsigned *pn)
 {
+  // snaity check the 
+  
   Extent dummy(offset);
   auto start = extent_map.lower_bound(dummy);
   uint32_t end = offset + length;

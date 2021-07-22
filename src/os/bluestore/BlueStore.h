@@ -843,7 +843,7 @@ public:
     }
 
     void dump(ceph::Formatter* f) const;
-
+    void verify_map();
     bool encode_some(uint32_t offset, uint32_t length, ceph::buffer::list& bl,
 		     unsigned *pn);
     unsigned decode_some(ceph::buffer::list& bl);

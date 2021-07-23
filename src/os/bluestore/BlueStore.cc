@@ -2960,7 +2960,10 @@ void BlueStore::ExtentMap::verify_map()
       auto lcl_itr = lcl_extnt_map.find(offset);
       if (lcl_itr != lcl_extnt_map.end()) {
 	// repeated extents must have the same length!
-	ceph_assert(lcl_extnt_map[offset] == length);
+        if (lcl_extnt_map[offset] != length) {
+          derr << __func__ << "::NCB::lcl_extnt_map[" << offset << "]=" << lcl_extnt_map[offset] << ", length=" << length << dendl;
+          ceph_assert(lcl_extnt_map[offset] == length);
+        }
       } else {
 	lcl_extnt_map[offset] = length;
       }
@@ -2975,7 +2978,7 @@ bool BlueStore::ExtentMap::encode_some(
   unsigned *pn)
 {
   // snaity check the 
-  
+  verify_map();
   Extent dummy(offset);
   auto start = extent_map.lower_bound(dummy);
   uint32_t end = offset + length;

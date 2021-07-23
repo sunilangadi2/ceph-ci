@@ -459,6 +459,8 @@ class PgScrubber : public ScrubPgIF, public ScrubMachineListener {
 
   [[nodiscard]] bool is_scrub_active() const final { return m_active; }
 
+  [[nodiscard]] bool is_no_active_scrub() const final;
+
  private:
   void reset_internal_state();
 

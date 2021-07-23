@@ -172,6 +172,13 @@ struct ScrubPgIF {
    */
   [[nodiscard]] virtual bool is_scrub_active() const = 0;
 
+  /**
+   * hold true only when the scrubber FSM is in INACTIVE state
+   *
+   * i.e. - holds longer than is_scrub_active()
+   */
+  [[nodiscard]] virtual bool is_no_active_scrub() const = 0;
+
   /// are we waiting for resource reservation grants form our replicas?
   [[nodiscard]] virtual bool is_reserving() const = 0;
 

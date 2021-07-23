@@ -133,6 +133,7 @@ class ScrubMachine : public sc::state_machine<ScrubMachine, NotActive> {
   void my_states() const;
   void assert_not_active() const;
   [[nodiscard]] bool is_reserving() const;
+  bool ok_to_start_scrubbing() const;
 };
 
 /**

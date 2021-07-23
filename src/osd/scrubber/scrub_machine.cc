@@ -59,6 +59,11 @@ bool ScrubMachine::is_reserving() const
   return state_cast<const ReservingReplicas*>();
 }
 
+bool ScrubMachine::ok_to_start_scrubbing() const
+{
+  return state_cast<const NotActive*>();
+}
+
 // for the rest of the code in this file - we know what PG we are dealing with:
 #undef dout_prefix
 #define dout_prefix _prefix(_dout, this->context<ScrubMachine>().m_pg)

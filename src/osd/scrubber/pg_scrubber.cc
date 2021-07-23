@@ -94,6 +94,11 @@ ostream& operator<<(ostream& out, const requested_scrub_t& sf)
   return out;
 }
 
+bool PgScrubber::is_no_active_scrub() const
+{
+  return m_fsm->ok_to_start_scrubbing();
+}
+
 /*
  * if the incoming message is from a previous interval, it must mean
  * PrimaryLogPG::on_change() was called when that interval ended. We can safely discard
@@ -1805,9 +1810,9 @@ void PgScrubber::scrub_finish()
   {
     // finish up
     ObjectStore::Transaction t;
-    m_pg->recovery_state.update_stats(
+    m_pg->recovery_state.update_stats_no_resched(
       [this](auto& history, auto& stats) {
-	dout(10) << "m_pg->recovery_state.update_stats()" << dendl;
+	dout(10) << "m_pg->recovery_state.update_stats_no_resched()" << dendl;
 	utime_t now = ceph_clock_now();
 	history.last_scrub = m_pg->recovery_state.get_info().last_update;
 	history.last_scrub_stamp = now;
@@ -1867,7 +1872,11 @@ void PgScrubber::scrub_finish()
 
   cleanup_on_finish();
   if (do_auto_scrub) {
+    dout(10) << "will be rescrubbing to repair errors" << dendl;
     request_rescrubbing(m_pg->m_planned_scrub);
+  } else {
+    dout(10) << "rescheduling regular scrub" << dendl;
+    m_pg->reschedule_scrub();
   }
 
   if (m_pg->is_active() && m_pg->is_primary()) {

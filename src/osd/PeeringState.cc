@@ -3982,6 +3982,20 @@ void PeeringState::update_stats(
   }
 }
 
+void PeeringState::update_stats_no_resched(
+    std::function<bool(pg_history_t &, pg_stat_t &)> f,
+    ObjectStore::Transaction *t) {
+  if (f(info.history, info.stats)) {
+    pl->publish_stats_to_osd();
+  }
+//  pl->reschedule_scrub();
+//
+  if (t) {
+    dirty_info = true;
+    write_if_dirty(*t);
+  }
+}
+
 bool PeeringState::append_log_entries_update_missing(
   const mempool::osd_pglog::list<pg_log_entry_t> &entries,
   ObjectStore::Transaction &t, std::optional<eversion_t> trim_to,

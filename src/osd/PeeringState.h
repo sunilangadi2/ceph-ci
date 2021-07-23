@@ -1809,6 +1809,10 @@ public:
     std::function<bool(pg_history_t &, pg_stat_t &)> f,
     ObjectStore::Transaction *t = nullptr);
 
+  void update_stats_no_resched(
+      std::function<bool(pg_history_t &, pg_stat_t &)> f,
+      ObjectStore::Transaction *t = nullptr);
+
   /**
    * adjust_purged_snaps
    *

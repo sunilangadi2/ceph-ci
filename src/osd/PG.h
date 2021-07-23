@@ -181,6 +181,10 @@ public:
   requested_scrub_t m_planned_scrub;
   /// scrubbing state for both Primary & replicas
   bool is_scrub_active() const { return m_scrubber->is_scrub_active(); }
+  /// a direct access to the scrub FSM state, for the Primary
+  bool is_no_active_scrub() const {
+    return m_scrubber && m_scrubber->is_no_active_scrub();
+  }
 
 public:
   // -- members --

@@ -1372,7 +1372,7 @@ cat ./CMakeFiles/CMakeError.log
 %if 0%{?suse_version}
 make %{_smp_mflags}
 %else
-%make_build
+%make_build VERBOSE=1
 %endif
 
 popd

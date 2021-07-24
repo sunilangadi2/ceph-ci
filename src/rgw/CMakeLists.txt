@@ -164,15 +164,18 @@ if(WITH_RADOSGW_KAFKA_ENDPOINT)
   list(APPEND librgw_common_srcs rgw_kafka.cc)
 endif()
 
-add_library(rgw_common OBJECT ${librgw_common_srcs})
-
+add_library(rgw_common STATIC ${librgw_common_srcs})
+target_link_libraries(rgw_common
+  PRIVATE
+    fmt::fmt
+    ICU::uc
+    OATH::OATH
+    dmclock::dmclock
+    ${LUA_LIBRARIES}
+  PUBLIC
+    spawn)
 target_include_directories(rgw_common SYSTEM PUBLIC "services")
-target_include_directories(rgw_common PUBLIC "${CMAKE_SOURCE_DIR}/src/dmclock/support/src")
-target_include_directories(rgw_common PUBLIC "${CMAKE_SOURCE_DIR}/src/fmt/include")
 target_include_directories(rgw_common PUBLIC "${CMAKE_SOURCE_DIR}/src/rgw")
-target_include_directories(rgw_common PRIVATE "${LUA_INCLUDE_DIR}")
-target_include_directories(rgw_common SYSTEM PRIVATE "${ICU_INCLUDE_DIRS}")
-
 
 set(librgw_kmip_srcs
   rgw_kmip_client_impl.cc)
@@ -180,15 +183,6 @@ set(librgw_kmip_srcs
 add_library(rgw_kmip OBJECT ${librgw_kmip_srcs})
 
 target_include_directories(rgw_kmip PRIVATE "${CMAKE_SOURCE_DIR}/src/libkmip")
-
-target_include_directories(rgw_common PRIVATE
-  $<TARGET_PROPERTY:spawn,INTERFACE_INCLUDE_DIRECTORIES>)
-target_compile_definitions(rgw_common PRIVATE
-  $<TARGET_PROPERTY:spawn,INTERFACE_COMPILE_DEFINITIONS>)
-target_include_directories(rgw_kmip PRIVATE
-  $<TARGET_PROPERTY:spawn,INTERFACE_INCLUDE_DIRECTORIES>)
-target_compile_definitions(rgw_kmip PRIVATE
-  $<TARGET_PROPERTY:spawn,INTERFACE_COMPILE_DEFINITIONS>)
 
 if(WITH_LTTNG)
   # rgw/rgw_op.cc includes "tracing/rgw_op.h"
@@ -235,7 +229,7 @@ set_source_files_properties(rgw_iam_policy.cc PROPERTIES
 
 add_library(rgw_a STATIC
     ${rgw_a_srcs}
-    $<TARGET_OBJECTS:rgw_common>)
+    rgw_common)
 
 target_compile_definitions(rgw_a PUBLIC "-DCLS_CLIENT_HIDE_IOCTX")
 target_include_directories(rgw_a PUBLIC "${CMAKE_SOURCE_DIR}/src/dmclock/support/src")
@@ -251,14 +245,15 @@ endif()
 
 target_link_libraries(rgw_a
   PRIVATE
-  librados cls_otp_client cls_lock_client cls_rgw_client cls_refcount_client
-  cls_log_client cls_timeindex_client cls_version_client cls_cmpomap_client
-  cls_user_client cls_rgw_gc_client cls_2pc_queue_client ceph-common common_utf8 global
-  ${CURL_LIBRARIES}
-  ${EXPAT_LIBRARIES}
-  ${OPENLDAP_LIBRARIES} ${CRYPTO_LIBS}
-  ICU::uc
-  OATH::OATH)
+    librados cls_otp_client cls_lock_client cls_rgw_client cls_refcount_client
+    cls_log_client cls_timeindex_client cls_version_client cls_cmpomap_client
+    cls_user_client cls_rgw_gc_client cls_2pc_queue_client ceph-common common_utf8 global
+    ${CURL_LIBRARIES}
+    ${EXPAT_LIBRARIES}
+    ${OPENLDAP_LIBRARIES} ${CRYPTO_LIBS}
+    OATH::OATH
+  PUBLIC
+    spawn)
 
 if(WITH_CURL_OPENSSL)
   # used by rgw_http_client_curl.cc
@@ -266,7 +261,6 @@ if(WITH_CURL_OPENSSL)
 endif()
 
 target_link_libraries(rgw_a PRIVATE ${LUA_LIBRARIES})
-target_link_libraries(rgw_a PUBLIC spawn)
 
 set(rgw_libs rgw_a)
 if(WITH_RADOSGW_AMQP_ENDPOINT)
@@ -296,7 +290,8 @@ set(radosgw_srcs
 
 add_library(rgw_schedulers STATIC ${rgw_schedulers_srcs})
 target_link_libraries(rgw_schedulers
-  PUBLIC dmclock::dmclock spawn)
+  PRIVATE spawn
+  PUBLIC dmclock::dmclock)
 
 add_library(radosgw SHARED ${radosgw_srcs} ${rgw_a_srcs} rgw_main.cc
   $<TARGET_OBJECTS:rgw_kmip>)
@@ -339,6 +334,7 @@ target_link_libraries(radosgw-admin ${rgw_libs} librados
   cls_log_client cls_timeindex_client neorados_cls_fifo
   cls_version_client cls_user_client
   global ${LIB_RESOLV}
+  OATH::OATH
   ${CURL_LIBRARIES} ${EXPAT_LIBRARIES} ${BLKID_LIBRARIES})
 install(TARGETS radosgw-admin DESTINATION bin)
 

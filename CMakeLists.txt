@@ -163,8 +163,8 @@ endif(LINUX)
 
 option(WITH_OPENLDAP "OPENLDAP is here" ON)
 if(WITH_OPENLDAP)
-  find_package(OpenLdap REQUIRED)
-  set(HAVE_OPENLDAP ${OPENLDAP_FOUND})
+  find_package(OpenLDAP REQUIRED)
+  set(HAVE_OPENLDAP ${OpenLDAP_FOUND})
 endif()
 
 option(WITH_GSSAPI "GSSAPI/KRB5 is here" OFF)
@@ -585,7 +585,7 @@ option(WITH_SYSTEM_BOOST "require and build with system Boost" OFF)
 # Boost::thread depends on Boost::atomic, so list it explicitly.
 set(BOOST_COMPONENTS
   atomic chrono thread system regex random program_options date_time
-  iostreams context coroutine filesystem)
+  iostreams context coroutine)
 set(BOOST_HEADER_COMPONENTS container)
 
 if(WITH_MGR)

@@ -161,4 +161,7 @@ struct ScrubMachineListener {
 
   /// a log/debug interface
   virtual std::string dump_awaited_maps() const = 0;
+
+  /// auxiliary used by the scrub_machine logger
+  virtual std::ostream& gen_prefix(std::ostream& out) const = 0;
 };

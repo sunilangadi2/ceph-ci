@@ -39,6 +39,7 @@ class ReplicaReservations {
   using OrigSet = decltype(std::declval<PG>().get_actingset());
 
   PG* m_pg;
+  spg_t m_pg_id;	///< a local copy of m_pg->pg_id
   OrigSet m_acting_set;
   OSDService* m_osds;
   std::vector<pg_shard_t> m_waited_for_peers;
@@ -54,6 +55,8 @@ class ReplicaReservations {
   void send_reject();
 
  public:
+  std::string m_log_msg_prefix;
+
   /**
    *  quietly discard all knowledge about existing reservations. No messages
    *  are sent to peers.
@@ -69,18 +72,19 @@ class ReplicaReservations {
   void handle_reserve_grant(OpRequestRef op, pg_shard_t from);
 
   void handle_reserve_reject(OpRequestRef op, pg_shard_t from);
+
+  std::ostream& gen_prefix(std::ostream& out) const;
 };
 
 /**
  *  wraps the local OSD scrub resource reservation in an RAII wrapper
  */
 class LocalReservation {
-  PG* m_pg;
   OSDService* m_osds;
   bool m_holding_local_reservation{false};
 
  public:
-  LocalReservation(PG* pg, OSDService* osds);
+  LocalReservation(OSDService* osds);
   ~LocalReservation();
   bool is_reserved() const { return m_holding_local_reservation; }
 };
@@ -89,18 +93,22 @@ class LocalReservation {
  *  wraps the OSD resource we are using when reserved as a replica by a scrubbing master.
  */
 class ReservedByRemotePrimary {
+  PgScrubber* m_scrubber; ///< we will be using its gen_prefix()
   PG* m_pg;
   OSDService* m_osds;
+  spg_t m_pg_id;	///< a local copy of m_pg->pg_id
   bool m_reserved_by_remote_primary{false};
   const epoch_t m_reserved_at;
 
  public:
-  ReservedByRemotePrimary(PG* pg, OSDService* osds, epoch_t epoch);
+  ReservedByRemotePrimary(PgScrubber* scrubber, PG* pg, OSDService* osds, epoch_t epoch);
   ~ReservedByRemotePrimary();
   [[nodiscard]] bool is_reserved() const { return m_reserved_by_remote_primary; }
 
   /// compare the remembered reserved-at epoch to the current interval
   [[nodiscard]] bool is_stale() const;
+
+  std::ostream& gen_prefix(std::ostream& out) const;
 };
 
 /**
@@ -411,6 +419,8 @@ class PgScrubber : public ScrubPgIF, public ScrubMachineListener {
 
   std::string dump_awaited_maps() const final;
 
+  std::ostream& gen_prefix(std::ostream& out) const final;
+
  protected:
   bool state_test(uint64_t m) const { return m_pg->state_test(m); }
   void state_set(uint64_t m) { m_pg->state_set(m); }
@@ -527,24 +537,6 @@ class PgScrubber : public ScrubPgIF, public ScrubMachineListener {
  protected:
   PG* const m_pg;
 
-  /**
-   * the derivative-specific scrub-finishing touches:
-   */
-  virtual void _scrub_finish() {}
-
-  /**
-   * Validate consistency of the object info and snap sets.
-   */
-  virtual void scrub_snapshot_metadata(ScrubMap& map, const missing_map_t& missing_digest)
-  {}
-
-  // common code used by build_primary_map_chunk() and build_replica_map_chunk():
-  int build_scrub_map_chunk(ScrubMap& map,  // primary or replica?
-			    ScrubMapBuilder& pos,
-			    hobject_t start,
-			    hobject_t end,
-			    bool deep);
-
   std::unique_ptr<Scrub::ScrubMachine> m_fsm;
   const spg_t m_pg_id;	///< a local copy of m_pg->pg_id
   OSDService* const m_osds;
@@ -619,6 +611,24 @@ class PgScrubber : public ScrubPgIF, public ScrubMachineListener {
   std::string_view m_mode_desc;
 
   void update_op_mode_text();
+
+  /**
+   * the derivative-specific scrub-finishing touches:
+   */
+  virtual void _scrub_finish() {}
+
+  /**
+   * Validate consistency of the object info and snap sets.
+   */
+  virtual void scrub_snapshot_metadata(ScrubMap& map, const missing_map_t& missing_digest)
+  {}
+
+  // common code used by build_primary_map_chunk() and build_replica_map_chunk():
+  int build_scrub_map_chunk(ScrubMap& map,  // primary or replica?
+			    ScrubMapBuilder& pos,
+			    hobject_t start,
+			    hobject_t end,
+			    bool deep);
 
 private:
 

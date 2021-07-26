@@ -43,6 +43,7 @@ class FullnessTestCase(CephFSTestCase):
         epoch.
         """
 
+        self.fs.mon_manager.wait_for_clean()
         # script that sync up client with MDS OSD map barrier. The barrier should
         # be updated by cap flush ack message.
         pyscript = dedent("""
@@ -182,9 +183,11 @@ class FullnessTestCase(CephFSTestCase):
         # Ensure that the MDS keeps its OSD epoch barrier across a restart
 
     def test_full_different_file(self):
+        self.fs.mon_manager.wait_for_clean()
         self._test_full(True)
 
     def test_full_same_file(self):
+        self.fs.mon_manager.wait_for_clean()
         self._test_full(False)
 
     def _remote_write_test(self, template):
@@ -225,6 +228,7 @@ class FullnessTestCase(CephFSTestCase):
         ))
 
     def test_full_fclose(self):
+        self.fs.mon_manager.wait_for_clean()
         # A remote script which opens a file handle, fills up the filesystem, and then
         # checks that ENOSPC errors on buffered writes appear correctly as errors in fsync
         remote_script = dedent("""
@@ -297,6 +301,7 @@ class FullnessTestCase(CephFSTestCase):
         should return the ENOSPC error.
         """
 
+        self.fs.mon_manager.wait_for_clean()
         # A remote script which opens a file handle, fills up the filesystem, and then
         # checks that ENOSPC errors on buffered writes appear correctly as errors in fsync
         remote_script = dedent("""

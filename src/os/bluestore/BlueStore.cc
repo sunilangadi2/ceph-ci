@@ -16911,6 +16911,7 @@ int BlueStore::invalidate_allocation_file_on_bluefs()
   ret = bluefs->truncate(p_handle, 0);
   if (ret != 0) {
     derr << "Failed truncate with error-code " << ret << dendl;
+    bluefs->close_writer(p_handle);
     return -1;
   }
 
@@ -17042,19 +17043,24 @@ int BlueStore::store_allocator(Allocator* src_allocator)
   ret = bluefs->stat(allocator_dir, allocator_file, nullptr, nullptr);
   bool overwrite_file = (ret == 0);
   //derr <<  __func__ << "bluefs->open_for_write(" << overwrite_file << ")" << dendl;
-  BlueFS::FileWriter *p_temp_handle = nullptr;
-  ret = bluefs->open_for_write(allocator_dir, allocator_file, &p_temp_handle, overwrite_file);
+  BlueFS::FileWriter *p_handle = nullptr;
+  ret = bluefs->open_for_write(allocator_dir, allocator_file, &p_handle, overwrite_file);
   if (ret != 0) {
     derr <<  __func__ << "Failed open_for_write with error-code " << ret << dendl;
     return -1;
   }
-  unique_ptr<BlueFS::FileWriter> p_handle(p_temp_handle);
+
+  //auto deleter = [](BlueFS::FileWriter* fw) { bluefs->close_writer(fw); delete fw;};
+  //unique_ptr<BlueFS::FileWriter, decltype(deleter)> p_handle(p_temp_handle, deleter);
+
+  
   uint64_t file_size = p_handle->file->fnode.size;
   uint64_t allocated = p_handle->file->fnode.get_allocated();
   dout(5) << "file_size=" << file_size << ", allocated=" << allocated << dendl;
   
   unique_ptr<Allocator> allocator(clone_allocator_without_bluefs(src_allocator));
   if (!allocator) {
+    bluefs->close_writer(p_handle);
     return -1;
   }
 
@@ -17091,7 +17097,7 @@ int BlueStore::store_allocator(Allocator* src_allocator)
     p_curr++;
 
     if (p_curr == p_end) {
-      crc = flush_extent_buffer_with_crc(p_handle.get(), (const char*)buffer, (const char*)p_curr, crc);
+      crc = flush_extent_buffer_with_crc(p_handle, (const char*)buffer, (const char*)p_curr, crc);
       //dout(5) <<  " extent_count=" << extent_count << ", crc=" << crc << dendl;
       p_curr = buffer; // recycle the buffer
     }
@@ -17101,13 +17107,14 @@ int BlueStore::store_allocator(Allocator* src_allocator)
   if (ret != 0) {
     derr << "Illegal extent, fail store operation" << dendl;
     derr << "invalidate using bluefs->truncate(p_handle, 0)" << dendl;
-    bluefs->truncate(p_handle.get(), 0);
+    bluefs->truncate(p_handle, 0);
+    bluefs->close_writer(p_handle);
     return -1;
   }
 
   // if we got any leftovers -> add crc and append to file
   if (p_curr > buffer) {
-    crc = flush_extent_buffer_with_crc(p_handle.get(), (const char*)buffer, (const char*)p_curr, crc);
+    crc = flush_extent_buffer_with_crc(p_handle, (const char*)buffer, (const char*)p_curr, crc);
     //dout(5) <<  " extent_count=" << extent_count << ", crc=" << crc << dendl;
   }
 
@@ -17122,9 +17129,10 @@ int BlueStore::store_allocator(Allocator* src_allocator)
     p_handle->append(trailer_bl);
   }
   
-  bluefs->fsync(p_handle.get());  
-  bluefs->truncate(p_handle.get(), p_handle->pos);
-  bluefs->fsync(p_handle.get());
+  bluefs->fsync(p_handle);  
+  bluefs->truncate(p_handle, p_handle->pos);
+  bluefs->fsync(p_handle);
+  bluefs->close_writer(p_handle);
   
   utime_t duration = ceph_clock_now() - start_time;
   dout(5) <<"WRITE-extent_count=" << extent_count << ", file_size=" << p_handle->file->fnode.size << dendl;

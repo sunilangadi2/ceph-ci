@@ -3,9 +3,22 @@
 
 #include "common/bloom_filter.hpp"
 
+#include <numeric>
+#include "include/intarith.h"
+
 using ceph::bufferlist;
 using ceph::bufferptr;
 using ceph::Formatter;
+
+double bloom_filter::density() const
+{
+  unsigned set = std::transform_reduce(
+    bit_table_.begin(),
+    bit_table_.begin() + table_size_,
+    0, std::plus<>(),
+    popcount<cell_type>);
+  return (double)set / (table_size_ * sizeof(cell_type) * CHAR_BIT);
+}
 
 void bloom_filter::encode(bufferlist& bl) const
 {

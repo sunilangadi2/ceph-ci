@@ -6019,7 +6019,7 @@ out_fm:
 }
 
 void BlueStore::_close_db_and_around(bool read_only)
-{  
+{
   _close_db(read_only);
   _close_fm();
   _close_alloc();
@@ -6534,7 +6534,7 @@ int BlueStore::mkfs()
   }
 
   freelist_type = "bitmap";
-  
+
   r = _open_path();
   if (r < 0)
     return r;
@@ -6615,7 +6615,7 @@ int BlueStore::mkfs()
   if (r < 0) {
     goto out_close_bdev;
   }
-  
+
   reserved = _get_ondisk_reserved();
   shared_alloc.a->init_add_free(reserved,
     p2align(bdev->get_size(), min_alloc_size) - reserved);
@@ -7162,10 +7162,6 @@ int BlueStore::_mount()
   _close_db_and_around(false);
   return r;
 }
-
-//===================================================
-/// GBH place holder
-//==================================================
 
 int BlueStore::umount()
 {
@@ -17050,10 +17046,6 @@ int BlueStore::store_allocator(Allocator* src_allocator)
     return -1;
   }
 
-  //auto deleter = [](BlueFS::FileWriter* fw) { bluefs->close_writer(fw); delete fw;};
-  //unique_ptr<BlueFS::FileWriter, decltype(deleter)> p_handle(p_temp_handle, deleter);
-
-  
   uint64_t file_size = p_handle->file->fnode.size;
   uint64_t allocated = p_handle->file->fnode.get_allocated();
   dout(5) << "file_size=" << file_size << ", allocated=" << allocated << dendl;

@@ -8237,7 +8237,7 @@ TEST_P(StoreTestSpecificAUSize, BluestoreRepairTest) {
     ASSERT_EQ(bstore->repair(false), 0);
   }
   ASSERT_EQ(bstore->fsck(false), 0);
-  
+
   //////////// verify invalid statfs ///////////
   cerr << "fix invalid statfs" << std::endl;
   store_statfs_t statfs0, statfs;

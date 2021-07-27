@@ -359,7 +359,7 @@ int main(int argc, char **argv)
     cerr << "must specify an action; --help for help" << std::endl;
     exit(EXIT_FAILURE);
   }
-    
+
   if (action == "fsck" || action == "repair" || action == "quick-fix" || action == "allocmap" || action == "qfsck" || action == "restore_cfb") {
     if (path.empty()) {
       cerr << "must specify bluestore path" << std::endl;

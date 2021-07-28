@@ -433,6 +433,13 @@ void PG::queue_scrub_after_repair()
   m_planned_scrub.check_repair = true;
   m_planned_scrub.must_scrub = true;
 
+  if (m_scrubber->is_being_scrubbed()) {
+    dout(9) << __func__ << ": scrubbing already "
+            << " dev data RRR: " << is_scrubbing() << " / "
+            << scrub_queued << dendl;
+    return;
+  }
+
   if (is_scrubbing()) {
     dout(10) << __func__ << ": scrubbing already" << dendl;
     return;
@@ -446,6 +453,7 @@ void PG::queue_scrub_after_repair()
   dout(15) << __func__ << ": queueing" << dendl;
 
   scrub_queued = true;
+  m_scrubber->set_being_scrubbed();
   osd->queue_scrub_after_repair(this, Scrub::scrub_prio_t::high_priority);
 }
 
@@ -1324,23 +1332,37 @@ unsigned int PG::scrub_requeue_priority(Scrub::scrub_prio_t with_priority, unsig
  *  Unless failing to start scrubbing, the 'planned scrub' flag-set is 'frozen' into
  *  PgScrubber's m_flags, then cleared.
  */
-Scrub::attempt_t PG::sched_scrub()
+Scrub::attempt_t PG::sched_scrub(bool allow_requested_repair_only)
 {
   dout(15) << __func__ << " pg(" << info.pgid
 	  << (is_active() ? ") <active>" : ") <not-active>")
 	  << (is_clean() ? " <clean>" : " <not-clean>") << dendl;
   ceph_assert(ceph_mutex_is_locked(_lock));
 
+  // This has already started, so go on to the next scrub job
+  if (m_scrubber->is_being_scrubbed()) {
+    dout(20) << __func__ << ": scrub already in progress pgid" << dendl;
+    return Scrub::attempt_t::already_started;
+  }
+
   if (!is_primary() || !is_active() || !is_clean()) {
     return Scrub::attempt_t::bad_pg_state;
   }
 
-  if (scrub_queued) {
-    // only applicable to the very first time a scrub event is queued
-    // (until handled and posted to the scrub FSM)
-    dout(10) << __func__ << ": already queued" << dendl;
-    return Scrub::attempt_t::already_started;
+  // Skip other kinds of scrubbing if only explicitly requested repairing is allowed
+  if (allow_requested_repair_only && !m_planned_scrub.must_repair) {
+    dout(10) << __func__ << " skip " << info.pgid
+             << " because repairing is not explicitly requested on it"
+             << dendl;
+    return Scrub::attempt_t::preconditions;
   }
+
+//  if (scrub_queued) {
+//    // only applicable to the very first time a scrub event is queued
+//    // (until handled and posted to the scrub FSM)
+//    dout(10) << __func__ << ": already queued" << dendl;
+//    return Scrub::attempt_t::already_started;
+//  }
 
   // analyse the combination of the requested scrub flags, the osd/pool configuration
   // and the PG status to determine whether we should scrub now, and what type of scrub
@@ -1374,6 +1396,7 @@ Scrub::attempt_t PG::sched_scrub()
   dout(10) << __func__ << ": queueing" << dendl;
 
   scrub_queued = true;
+  m_scrubber->set_being_scrubbed();
   osd->queue_for_scrub(this, Scrub::scrub_prio_t::low_priority);
   return Scrub::attempt_t::scrub_initiated;
 }
@@ -2093,6 +2116,9 @@ void PG::forward_scrub_event(ScrubAPI fn, epoch_t epoch_queued, std::string_view
   if (is_active() && m_scrubber) {
     ((*m_scrubber).*fn)(epoch_queued);
   } else {
+    if (m_scrubber) {
+      m_scrubber->clear_being_scrubbed();
+    }
     // pg might be in the process of being deleted
     dout(5) << __func__ << " refusing to forward. " << (is_clean() ? "(clean) " : "(not clean) ") <<
 	      (is_active() ? "(active) " : "(not active) ") <<  dendl;

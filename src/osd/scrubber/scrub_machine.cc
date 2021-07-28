@@ -59,10 +59,10 @@ bool ScrubMachine::is_reserving() const
   return state_cast<const ReservingReplicas*>();
 }
 
-bool ScrubMachine::ok_to_start_scrubbing() const
-{
-  return state_cast<const NotActive*>();
-}
+//bool ScrubMachine::ok_to_start_scrubbing() const
+//{
+//  return state_cast<const NotActive*>();
+//}
 
 // for the rest of the code in this file - we know what PG we are dealing with:
 #undef dout_prefix
@@ -79,6 +79,8 @@ template <class T> static ostream& _prefix(std::ostream* _dout, T* t)
 NotActive::NotActive(my_context ctx) : my_base(ctx)
 {
   dout(10) << "-- state -->> NotActive" << dendl;
+  DECLARE_LOCALS;  // 'scrbr' & 'pg_id' aliases
+  scrbr->clear_being_scrubbed();
 }
 
 // ----------------------- ReservingReplicas ---------------------------------
@@ -116,6 +118,7 @@ sc::result ReservingReplicas::react(const ReservationFailure&)
 sc::result ReservingReplicas::react(const FullReset&)
 {
   dout(10) << "ReservingReplicas::react(const FullReset&)" << dendl;
+  //scrbr->clear_being_scrubbed();
   return transit<NotActive>();
 }
 
@@ -136,6 +139,7 @@ ActiveScrubbing::~ActiveScrubbing()
   DECLARE_LOCALS;  // 'scrbr' & 'pg_id' aliases
   dout(15) << __func__ << dendl;
   scrbr->unreserve_replicas();
+  scrbr->clear_being_scrubbed();
 }
 
 /*

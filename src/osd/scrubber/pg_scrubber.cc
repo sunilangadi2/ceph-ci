@@ -94,10 +94,10 @@ ostream& operator<<(ostream& out, const requested_scrub_t& sf)
   return out;
 }
 
-bool PgScrubber::is_no_active_scrub() const
-{
-  return m_fsm->ok_to_start_scrubbing();
-}
+//bool PgScrubber::is_no_active_scrub() const
+//{
+//  return m_fsm->ok_to_start_scrubbing();
+//}
 
 /*
  * if the incoming message is from a previous interval, it must mean
@@ -206,6 +206,8 @@ void PgScrubber::initiate_regular_scrub(epoch_t epoch_queued)
     m_fsm->my_states();
     m_fsm->process_event(StartScrub{});
     dout(10) << "scrubber event --<< StartScrub" << dendl;
+  } else {
+    clear_being_scrubbed();
   }
 }
 
@@ -219,6 +221,8 @@ void PgScrubber::initiate_scrub_after_repair(epoch_t epoch_queued)
     m_fsm->my_states();
     m_fsm->process_event(AfterRepairScrub{});
     dout(10) << "scrubber event --<< AfterRepairScrub" << dendl;
+  } else {
+    clear_being_scrubbed();
   }
 }
 
@@ -429,6 +433,9 @@ bool PgScrubber::is_reserving() const
 void PgScrubber::reset_epoch(epoch_t epoch_queued)
 {
   dout(10) << __func__ << " state deep? " << state_test(PG_STATE_DEEP_SCRUB) << dendl;
+  if (is_being_scrubbed()) {
+    dout(2) << __func__ << " ALREADY BEING SCRUBBED !!" << dendl;
+  }
   m_fsm->assert_not_active();
 
   m_epoch_start = epoch_queued;
@@ -1675,6 +1682,22 @@ void PgScrubber::clear_reserving_now()
   m_osds->get_scrub_services().clear_reserving_now();
 }
 
+void PgScrubber::set_being_scrubbed()
+{
+  m_scrub_job->being_scrubbed = true;
+}
+
+void PgScrubber::clear_being_scrubbed()
+{
+  if (m_scrub_job) {
+    m_scrub_job->being_scrubbed = false;
+  }
+}
+
+bool PgScrubber::is_being_scrubbed() const
+{
+  return m_scrub_job && m_scrub_job->being_scrubbed;
+}
 
 [[nodiscard]] bool PgScrubber::scrub_process_inconsistent()
 {
@@ -1810,9 +1833,9 @@ void PgScrubber::scrub_finish()
   {
     // finish up
     ObjectStore::Transaction t;
-    m_pg->recovery_state.update_stats_no_resched(
+    m_pg->recovery_state.update_stats(
       [this](auto& history, auto& stats) {
-	dout(10) << "m_pg->recovery_state.update_stats_no_resched()" << dendl;
+	dout(10) << "m_pg->recovery_state.update_stats()" << dendl;
 	utime_t now = ceph_clock_now();
 	history.last_scrub = m_pg->recovery_state.get_info().last_update;
 	history.last_scrub_stamp = now;
@@ -1978,13 +2001,14 @@ void PgScrubber::handle_query_state(ceph::Formatter* f)
 
 PgScrubber::~PgScrubber()
 {
-  dout(20) << __func__ << dendl;
-  if (m_scrub_job) {
-    // make sure the OSD won't try to scrub this one just now
-    rm_from_osd_scrubbing();
-    m_scrub_job.reset();
-  }
-  dout(19) << __func__ << dendl;
+  ceph_assert(!m_scrub_job || m_scrub_job->state != ScrubQueue::qu_state_t::registered);
+
+//  if (m_scrub_job) {
+//    // make sure the OSD won't try to scrub this one just now
+//    rm_from_osd_scrubbing();
+//    m_scrub_job.reset();
+//  }
+  //dout(19) << __func__ << dendl;
 }
 
 PgScrubber::PgScrubber(PG* pg)
@@ -2225,7 +2249,7 @@ void ReplicaReservations::discard_all()
 
 ReplicaReservations::~ReplicaReservations()
 {
-  dout(10) << __func__ << dendl;
+  //dout(10) << __func__ << dendl;
 
   m_had_rejections = true;  // preventing late-coming responses from triggering events
 
@@ -2247,7 +2271,7 @@ ReplicaReservations::~ReplicaReservations()
   }
   m_waited_for_peers.clear();
 
-  dout(10) << __func__ << dendl;
+  //dout(10) << __func__ << dendl;
 }
 
 /**
@@ -2276,7 +2300,6 @@ void ReplicaReservations::handle_reserve_grant(OpRequestRef op, pg_shard_t from)
 	     m_reserved_peers.end()) {
 
     dout(10) << " already had osd." << from << " reserved" << dendl;
-
 
   } else {
 

@@ -48,7 +48,7 @@ void PrimaryLogScrub::_scrub_finish()
 	   << dendl;
 
   if (info.stats.stats_invalid) {
-    m_pl_pg->recovery_state.update_stats_no_resched([=](auto& history, auto& stats) {
+    m_pl_pg->recovery_state.update_stats([=](auto& history, auto& stats) {
       stats.stats = m_scrub_cstat;
       stats.stats_invalid = false;
       return false;
@@ -123,7 +123,7 @@ void PrimaryLogScrub::_scrub_finish()
 
     if (m_is_repair) {
       ++m_fixed_count;
-      m_pl_pg->recovery_state.update_stats_no_resched([this](auto& history, auto& stats) {
+      m_pl_pg->recovery_state.update_stats([this](auto& history, auto& stats) {
 	stats.stats = m_scrub_cstat;
 	stats.dirty_stats_invalid = false;
 	stats.omap_stats_invalid = false;

@@ -7506,7 +7506,7 @@ void OSD::sched_scrub()
   // if there is a PG that is just now trying to reserve scrub replica resources -
   // we should wait and not initiate a new scrub
   if (scrub_scheduler.is_reserving_now()) {
-    dout(20) << __func__ << ": scrub resources reservation in progress" << dendl;
+    dout(10) << __func__ << ": scrub resources reservation in progress" << dendl;
     return;
   }
 
@@ -7553,22 +7553,22 @@ Scrub::attempt_t OSDService::initiate_a_scrub(spg_t pgid, bool allow_requested_r
     return Scrub::attempt_t::no_such_pg;
   }
 
-  // This has already started, so go on to the next scrub job
-  if (!pg->is_no_active_scrub()) {
-    pg->unlock();
-    dout(20) << __func__ << ": already in progress pgid " << pgid << dendl;
-    return Scrub::attempt_t::already_started;
-  }
-  // Skip other kinds of scrubbing if only explicitly requested repairing is allowed
-  if (allow_requested_repair_only && !pg->m_planned_scrub.must_repair) {
-    pg->unlock();
-    dout(10) << __func__ << " skip " << pgid
-	     << " because repairing is not explicitly requested on it"
-	     << dendl;
-    return Scrub::attempt_t::preconditions;
-  }
+//  // This has already started, so go on to the next scrub job
+//  if (!pg->is_no_active_scrub()) {
+//    pg->unlock();
+//    dout(20) << __func__ << ": already in progress pgid " << pgid << dendl;
+//    return Scrub::attempt_t::already_started;
+//  }
+//  // Skip other kinds of scrubbing if only explicitly requested repairing is allowed
+//  if (allow_requested_repair_only && !pg->m_planned_scrub.must_repair) {
+//    pg->unlock();
+//    dout(10) << __func__ << " skip " << pgid
+//	     << " because repairing is not explicitly requested on it"
+//	     << dendl;
+//    return Scrub::attempt_t::preconditions;
+//  }
 
-  auto scrub_attempt = pg->sched_scrub();
+  auto scrub_attempt = pg->sched_scrub(allow_requested_repair_only);
   pg->unlock();
   return scrub_attempt;
 }

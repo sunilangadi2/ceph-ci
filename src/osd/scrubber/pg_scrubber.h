@@ -325,6 +325,8 @@ class PgScrubber : public ScrubPgIF, public ScrubMachineListener {
 
   void scrub_clear_state() final;
 
+  bool is_being_scrubbed() const final;
+
   /**
    *  add to scrub statistics, but only if the soid is below the scrub start
    */
@@ -421,6 +423,9 @@ class PgScrubber : public ScrubPgIF, public ScrubMachineListener {
   void set_reserving_now() final;
   void clear_reserving_now() final;
 
+  void set_being_scrubbed() final;
+  void clear_being_scrubbed() final;
+
   [[nodiscard]] bool was_epoch_changed() const final;
 
   void mark_local_map_ready() final;
@@ -459,7 +464,7 @@ class PgScrubber : public ScrubPgIF, public ScrubMachineListener {
 
   [[nodiscard]] bool is_scrub_active() const final { return m_active; }
 
-  [[nodiscard]] bool is_no_active_scrub() const final;
+  //[[nodiscard]] bool is_no_active_scrub() const final;
 
  private:
   void reset_internal_state();

@@ -97,6 +97,18 @@ class ScrubQueue {
     bool resources_failure{false};
 
     /**
+     * set once scrubbing was initiated (i.e. - even before the FSM event that
+     * will trigger a state-change out of Inactive was handled), and only reset
+     * once the FSM is back in Inactive.
+     * In other words - encompasses:
+     *   - the time period covered today by 'queued', and
+     *   - the time when m_active is set, and
+     *   - all the time from scrub_finish() calling update_stats() till the
+     *     FSM handles the 'finished' event
+     */
+    bool being_scrubbed{false};
+
+    /**
      *  'updated' is a temporary flag, used to create a barrier after
      *  'sched_time' and 'deadline' (or any other job entry) were modified by
      *  different task.

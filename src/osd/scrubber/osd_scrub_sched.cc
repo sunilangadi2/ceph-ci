@@ -289,7 +289,7 @@ std::string_view ScrubQueue::qu_state_text(qu_state_t st)
  */
 Scrub::attempt_t ScrubQueue::select_pg_and_scrub(Scrub::ScrubPreconds& preconds)
 {
-  dout(10) << " reg./pen. sizes: " << to_scrub.size() << " / "
+  dout(10) << "reg./pen. sizes: " << to_scrub.size() << " / "
 	   << penalized.size() << dendl;
 
   utime_t now_is = ceph_clock_now();
@@ -301,7 +301,7 @@ Scrub::attempt_t ScrubQueue::select_pg_and_scrub(Scrub::ScrubPreconds& preconds)
   //  create a list of candidates (copying, as otherwise creating a deadlock):
   //  - possibly restore penalized
   //  - (if we didn't handle directly) remove invalid jobs
-  //  - create a copy of the to_scrub (possibly up to first not-ripe)
+  //  - create a copy of the to_scrub
   //  - same for the penalized (although that usually be a waste)
   //  unlock, then try the lists
 
@@ -338,7 +338,7 @@ Scrub::attempt_t ScrubQueue::select_pg_and_scrub(Scrub::ScrubPreconds& preconds)
     restore_penalized = true;
   }
 
-  dout(15) << dendl;
+  dout(15) << ScrubQueue::attempt_res_text(res) << dendl;
   return res;
 }
 

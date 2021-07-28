@@ -156,6 +156,13 @@ struct ScrubMachineListener {
   virtual void clear_reserving_now() = 0;
 
   /**
+   * Manipulate the 'I am being scrubbed now' flag in the Scrubber's
+   * scubr-job.
+   */
+  virtual void set_being_scrubbed() = 0;
+  virtual void clear_being_scrubbed() = 0;
+
+  /**
    * the FSM interface into the "are we waiting for maps, either our own or from
    * replicas" state.
    * The FSM can only:

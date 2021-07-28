@@ -168,8 +168,6 @@ class PG : public DoutPrefixProvider, public PeeringState::PeeringListener {
   friend class PgScrubber;
   friend class PrimaryLogScrub;
   friend class Scrub::ReplicaReservations;
-  //friend class Scrub::LocalReservation;  // dout()-only friendship
-  //friend class Scrub::ReservedByRemotePrimary;  //  dout()-only friendship
 
 public:
   const pg_shard_t pg_whoami;
@@ -181,10 +179,10 @@ public:
   requested_scrub_t m_planned_scrub;
   /// scrubbing state for both Primary & replicas
   bool is_scrub_active() const { return m_scrubber->is_scrub_active(); }
-  /// a direct access to the scrub FSM state, for the Primary
-  bool is_no_active_scrub() const {
-    return m_scrubber && m_scrubber->is_no_active_scrub();
-  }
+//  /// a direct access to the scrub FSM state, for the Primary
+//  bool is_no_active_scrub() const {
+//    return m_scrubber && m_scrubber->is_no_active_scrub();
+//  }
 
 public:
   // -- members --
@@ -628,7 +626,7 @@ public:
   virtual void on_shutdown() = 0;
 
   bool get_must_scrub() const;
-  Scrub::attempt_t sched_scrub();
+  Scrub::attempt_t sched_scrub(bool allow_requested_repair_only);
 
   unsigned int scrub_requeue_priority(Scrub::scrub_prio_t with_priority, unsigned int suggested_priority) const;
   /// the version that refers to flags_.priority

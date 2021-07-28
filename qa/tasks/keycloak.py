@@ -166,6 +166,7 @@ def run_admin_cmds(ctx,config):
                 'create', 'clients',
                 '-r', realm_name,
                 '-s', client,
+                '-s', 'directAccessGrantsEnabled=true',
                 '-s', 'redirectUris=["http://localhost:8080/myapp/*"]',
             ],
         )
@@ -206,6 +207,99 @@ def run_admin_cmds(ctx,config):
         ans0= '{client}:{secret}'.format(client=client_name,secret=out2[15:51])
         ans3= 'client_secret={}'.format(out2[15:51])
         clientid='client_id={}'.format(client_name)
+
+        #New section for tags
+        
+        proto_map = pre1+"/protocol-mappers/models"
+        uname = "username=testuser"
+        upass = "password=testuser"
+
+        remote.run(
+            args=[
+                '{tdir}/bin/kcadm.sh'.format(tdir=get_keycloak_dir(ctx,config)),
+                'create', 'users',
+                '-s', uname,
+                '-s', 'enabled=true',
+                '-s', 'attributes.\"https://aws.amazon.com/tags\"=\"{"principal_tags":{"Department":["Engineering", "Marketing"]}}\"',
+                '-r', realm_name, 
+            ],
+        )
+
+        sample = 'testuser'
+
+        remote.run(
+            args=[
+                '{tdir}/bin/kcadm.sh'.format(tdir=get_keycloak_dir(ctx,config)),
+                'set-password',
+                '-r', realm_name,
+                '--username', sample,
+                '--password', sample,
+            ],
+        )
+
+        proto_data = dedent(f'''\
+{
+"protocol":"openid-connect",
+"name": "https://aws.amazon.com/tags",
+"protocolMapper": "oidc-usermodel-attribute-mapper",
+"config": {
+"user.attribute":"https://aws.amazon.com/tags",
+"claim.name":"https://aws.amazon.com/tags",
+"jsonType.label": "JSON",
+"access.token.claim": true,
+"userinfo.token.claim": true,
+"multivalued": true
+}
+}
+''')
+
+        file_path = '{tdir}/confi.py'.format(tdir=teuthology.get_testdir(ctx))
+
+        remote.write_file(
+            path=file_path,
+            data=proto_data
+        )
+
+        remote.run(
+            args=[
+                '{tdir}/bin/kcadm.sh'.format(tdir=get_keycloak_dir(ctx,config)),
+                'create', proto_map,
+                '-r', realm_name,
+                '-f', file_path,
+            ],
+        )
+
+        remote.run(
+            args=[
+                '{tdir}/bin/kcadm.sh'.format(tdir=get_keycloak_dir(ctx,config)),
+                'config', 'credentials',
+                '--server', 'http://localhost:8080/auth',
+                '--realm', realm_name,
+                '--user', sample,
+                '--password', sample,
+                '--client', 'admin-cli',
+            ],
+        )
+
+        out9= toxvenv_sh(ctx, remote,
+                 [
+                  'curl', '-k', '-v',
+                  '-X', 'POST',
+                  '-H', 'Content-Type:application/x-www-form-urlencoded',
+                  '-d', 'scope=openid',
+                  '-d', 'grant_type=password',
+                  '-d', clientid,
+                  '-d', ans3,
+                  '-d', uname,
+                  '-d', upass,
+                  'http://localhost:8080/auth/realms/'+realm_name+'/protocol/openid-connect/token', run.Raw('|'),
+                  'jq', '-r', '.access_token'
+                 ])
+
+        user_token_pre = out9.rstrip()
+        user_token = '{}'.format(user_token_pre)
+
+        #End of new section
 
         out3= toxvenv_sh(ctx, remote, 
                  [
@@ -294,6 +388,7 @@ def run_admin_cmds(ctx,config):
         os.environ['AUD']=ans6
         os.environ['SUB']=ans7
         os.environ['AZP']=ans8
+        os.environ['USER_TOKEN']=user_token
         os.environ['KC_REALM']=realm_name
 
     try:

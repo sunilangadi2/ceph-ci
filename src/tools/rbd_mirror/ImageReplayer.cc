@@ -928,9 +928,10 @@ void ImageReplayer<I>::handle_shut_down(int r) {
   {
     std::lock_guard locker{m_lock};
 
-    if (m_delete_requested && m_state_builder != nullptr &&
-        !m_state_builder->local_image_id.empty()) {
-      ceph_assert(m_state_builder->remote_image_id.empty());
+    if (m_delete_requested && (m_state_builder == nullptr ||
+        !m_state_builder->local_image_id.empty())) {
+      ceph_assert(m_state_builder == nullptr ||
+                  m_state_builder->remote_image_id.empty());
       dout(0) << "remote image no longer exists: scheduling deletion" << dendl;
       unregister_asok_hook = true;
       std::swap(delete_requested, m_delete_requested);

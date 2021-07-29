@@ -2728,7 +2728,10 @@ function test_osd_compact()
 
 function test_osd_daemon_histogram()
 {
-  $SUDO ceph daemonhistogram osd.all osd.op_r_latency_out_bytes_histogram batch 1 3
+  ceph -h
+  $SUDO ceph -h
+  ceph daemonhistogram osd.all osd.op_r_latency_out_bytes_histogram batch 1 3
+  #$SUDO ceph daemonhistogram osd.all osd.op_r_latency_out_bytes_histogram batch 1 3
 }
 
 function test_mds_tell_help_command()

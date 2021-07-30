@@ -22,6 +22,7 @@ set(libexecdir ${CMAKE_INSTALL_FULL_LIBEXECDIR})
 set(pkgdatadir ${CMAKE_INSTALL_FULL_DATADIR})
 set(datadir ${CEPH_INSTALL_DATADIR})
 set(prefix ${CMAKE_INSTALL_PREFIX})
+set(WITH_CPP_REDIS "TRUE")
 
 add_definitions("-DHAVE_CONFIG_H -D__CEPH__ -D_REENTRANT -D_THREAD_SAFE -D__STDC_FORMAT_MACROS")
 add_definitions("-D_FILE_OFFSET_BITS=64")

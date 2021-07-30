@@ -361,6 +361,9 @@ void PG::clear_primary_state()
 
   if (m_scrubber) {
     m_scrubber->discard_replica_reservations();
+    if (!is_active()) {
+      m_scrubber->rm_from_osd_scrubbing();
+    }
   }
   scrub_after_recovery = false;
 
@@ -1581,9 +1584,9 @@ void PG::on_primary_status_change(bool was_primary, bool now_primary)
   // make sure we have a working scrubber when becoming a primary
   ceph_assert(m_scrubber || !now_primary);
 
-  if ((was_primary != now_primary) && m_scrubber) {
-    m_scrubber->on_primary_change(m_planned_scrub);
-  }
+//  if ((was_primary != now_primary) && m_scrubber) {
+//    m_scrubber->on_primary_change(m_planned_scrub);
+//  }
 }
 
 void PG::scrub_requested(scrub_level_t scrub_level, scrub_type_t scrub_type)
@@ -1897,6 +1900,9 @@ void PG::rebuild_missing_set_with_deletes(PGLog &pglog)
 
 void PG::on_activate_committed()
 {
+// RRR should be Replica
+  dout(11) << __func__ << (is_primary() ? " Primary " : " Replica/other ")
+           << is_active() << dendl;
   if (!is_primary()) {
     // waiters
     if (recovery_state.needs_flush() == 0) {
@@ -1908,6 +1914,8 @@ void PG::on_activate_committed()
       ceph_assert(waiting_for_flush.empty());
       waiting_for_flush.swap(waiting_for_peered);
     }
+  } else {
+    dout(11) << __func__ << " $$$$$$$$$$$$$$$$$ why primary?? $$$$$" << dendl;
   }
 }
 

@@ -12947,6 +12947,8 @@ void PrimaryLogPG::on_activate_complete()
 
   hit_set_setup();
   agent_setup();
+  dout(15) << __func__ << " registering for scrubs" << dendl;
+  m_scrubber->on_primary_change(m_planned_scrub);
 }
 
 void PrimaryLogPG::on_change(ObjectStore::Transaction &t)

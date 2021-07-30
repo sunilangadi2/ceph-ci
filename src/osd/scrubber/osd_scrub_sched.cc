@@ -289,6 +289,13 @@ std::string_view ScrubQueue::qu_state_text(qu_state_t st)
  */
 Scrub::attempt_t ScrubQueue::select_pg_and_scrub(Scrub::ScrubPreconds& preconds)
 {
+  // save some trees by not logging "a lot of doing nothing", if this OSD
+  // has no Primary PGs to scrub
+  if (to_scrub.empty() && penalized.empty()) {
+    dout(30) << "no PGs to scrub" << dendl;
+    return Scrub::attempt_t::none_ready;
+  }
+
   dout(10) << "reg./pen. sizes: " << to_scrub.size() << " / "
 	   << penalized.size() << dendl;
 
@@ -345,7 +352,11 @@ Scrub::attempt_t ScrubQueue::select_pg_and_scrub(Scrub::ScrubPreconds& preconds)
 // must be called under lock
 void ScrubQueue::rm_unregistered_jobs(ScrubQContainer& group)
 {
-  dout(20) << __func__ << " #: " << group.size() << dendl;
+  if (group.empty()) {
+    return;
+  }
+
+  dout(20) << __func__ << " vv #: " << group.size() << dendl;
   std::for_each(group.begin(), group.end(), [](auto& job) {
     if (job->state == qu_state_t::unregistering) {
       job->in_queues = false;
@@ -356,7 +367,7 @@ void ScrubQueue::rm_unregistered_jobs(ScrubQContainer& group)
   });
 
   group.erase(std::remove_if(group.begin(), group.end(), invalid_state), group.end());
-  dout(19) << __func__ << " #: " << group.size() << dendl;
+  dout(19) << __func__ << " ^^ #: " << group.size() << dendl;
 }
 
 namespace {
@@ -373,10 +384,15 @@ struct cmp_sched_time_t {
 ScrubQueue::ScrubQContainer ScrubQueue::collect_ripe_jobs(ScrubQContainer& group,
 							  utime_t time_now)
 {
-  rm_unregistered_jobs(group);
-
   // copy ripe jobs
   ScrubQueue::ScrubQContainer ripes;
+  if (group.empty()) {
+    // return an empty set
+    return ripes;
+  }
+
+  rm_unregistered_jobs(group);
+
   ripes.reserve(group.size());
 
   std::copy_if(group.begin(), group.end(), std::back_inserter(ripes),
@@ -401,8 +417,15 @@ ScrubQueue::ScrubQContainer ScrubQueue::collect_ripe_jobs(ScrubQContainer& group
 Scrub::attempt_t
 ScrubQueue::select_from_group(ScrubQContainer &group,
                               const Scrub::ScrubPreconds &preconds,
-                              utime_t now_is) {
-  dout(15) << "jobs #: " << group.size() << dendl;
+                              utime_t now_is)
+{
+  auto pg_count = group.size();
+  if (!pg_count) {
+    dout(30) << "empty group to select from" << dendl;
+    return Scrub::attempt_t::none_ready;
+  }
+
+  dout(15) << "jobs #: " << pg_count << dendl;
 
   for (auto &candidate : group) {
 
@@ -507,7 +530,7 @@ ScrubQueue::TimeAndDeadline ScrubQueue::adjust_target_time(
     }
   }
 
-  dout(17) << "at (final) " << sched_n_dead.scheduled_at << " - "
+  dout(20) << "at (final) " << sched_n_dead.scheduled_at << " - "
 	   << sched_n_dead.deadline << dendl;
   return sched_n_dead;
 }

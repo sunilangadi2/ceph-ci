@@ -94,11 +94,6 @@ ostream& operator<<(ostream& out, const requested_scrub_t& sf)
   return out;
 }
 
-//bool PgScrubber::is_no_active_scrub() const
-//{
-//  return m_fsm->ok_to_start_scrubbing();
-//}
-
 /*
  * if the incoming message is from a previous interval, it must mean
  * PrimaryLogPG::on_change() was called when that interval ended. We can safely discard
@@ -433,9 +428,6 @@ bool PgScrubber::is_reserving() const
 void PgScrubber::reset_epoch(epoch_t epoch_queued)
 {
   dout(10) << __func__ << " state deep? " << state_test(PG_STATE_DEEP_SCRUB) << dendl;
-  if (is_being_scrubbed()) {
-    dout(2) << __func__ << " ALREADY BEING SCRUBBED !!" << dendl;
-  }
   m_fsm->assert_not_active();
 
   m_epoch_start = epoch_queued;
@@ -497,7 +489,7 @@ void PgScrubber::rm_from_osd_scrubbing()
 
 void PgScrubber::on_primary_change(const requested_scrub_t& request_flags)
 {
-  dout(10) << __func__ << (is_primary() ? " Primary " : " Replica ")
+  dout(10) << __func__ << (is_primary() ? " Primary " : " Replica/other ")
   		<< " flags: " << request_flags << dendl;
 
   if (!m_scrub_job) {
@@ -506,7 +498,7 @@ void PgScrubber::on_primary_change(const requested_scrub_t& request_flags)
 
   dout(15) << __func__ << " scrub-job state: " << m_scrub_job->state_desc() << dendl;
 
-  if (is_primary()) {
+  if (is_primary() && m_pg->is_active()) {
     auto suggested =  determine_scrub_time(request_flags);
     m_osds->get_scrub_services().register_with_osd(m_scrub_job, suggested);
   } else {
@@ -531,12 +523,12 @@ void PgScrubber::update_scrub_job(const requested_scrub_t& request_flags)
 
   {
     // verify that the 'in_q' status matches our "Primariority"
-    if (m_scrub_job && is_primary() &&  !m_scrub_job->in_queues) {
+    if (m_scrub_job && is_primary() && m_pg->is_active() && !m_scrub_job->in_queues) {
       dout(1) << __func__ << " !!! primary but not scheduled! " << dendl;
     }
   }
 
-  if (is_primary() && m_scrub_job) {
+  if (is_primary() && m_pg->is_active() && m_scrub_job) {
     auto suggested = determine_scrub_time(request_flags);
     m_osds->get_scrub_services().update_job(m_scrub_job, suggested);
   }

@@ -507,7 +507,7 @@ ScrubQueue::TimeAndDeadline ScrubQueue::adjust_target_time(
     }
   }
 
-  dout(17) << "at (final) " << sched_n_dead.scheduled_at << " - "
+  dout(20) << "at (final) " << sched_n_dead.scheduled_at << " - "
 	   << sched_n_dead.deadline << dendl;
   return sched_n_dead;
 }

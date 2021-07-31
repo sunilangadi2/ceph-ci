@@ -696,7 +696,7 @@ bool ScrubQueue::can_inc_scrubs() const
   // inc_scrubs_local() failures
   std::lock_guard lck{resource_lock};
 
-  if (scrubs_local + scrubs_remote < cct->_conf->osd_max_scrubs) {
+  if (scrubs_local + scrubs_remote < 10 /*cct->_conf->osd_max_scrubs*/) {
     return true;
   }
 
@@ -709,7 +709,7 @@ bool ScrubQueue::inc_scrubs_local()
 {
   std::lock_guard lck{resource_lock};
 
-  if (scrubs_local + scrubs_remote < cct->_conf->osd_max_scrubs) {
+  if (scrubs_local + scrubs_remote < 10 /*cct->_conf->osd_max_scrubs*/) {
     ++scrubs_local;
     return true;
   }
@@ -734,7 +734,7 @@ bool ScrubQueue::inc_scrubs_remote()
 {
   std::lock_guard lck{resource_lock};
 
-  if (scrubs_local + scrubs_remote < cct->_conf->osd_max_scrubs) {
+  if (scrubs_local + scrubs_remote < 10 /*cct->_conf->osd_max_scrubs*/) {
     dout(20) << ": " << scrubs_remote << " -> " << (scrubs_remote + 1)
 	     << " (max " << cct->_conf->osd_max_scrubs << ", local "
 	     << scrubs_local << ")" << dendl;

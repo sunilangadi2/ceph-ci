@@ -1324,6 +1324,7 @@ void PgScrubber::handle_scrub_reserve_request(OpRequestRef op)
   if (m_remote_osd_resource.has_value() && m_remote_osd_resource->is_stale()) {
     // we are holding a stale reservation from a past epoch
     m_remote_osd_resource.reset();
+    dout(10) << __func__ << " stale reservation request" << dendl;
   }
 
   if (request_ep < m_pg->get_same_interval_since()) {

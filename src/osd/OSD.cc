@@ -1272,7 +1272,7 @@ bool OSDService::can_inc_scrubs()
   bool can_inc = false;
   std::lock_guard l(sched_scrub_lock);
 
-  if (scrubs_local + scrubs_remote < cct->_conf->osd_max_scrubs) {
+  if (scrubs_local + scrubs_remote < 10 /*cct->_conf->osd_max_scrubs*/) {
     dout(20) << __func__ << " == true " << scrubs_local << " local + " << scrubs_remote
 	     << " remote < max " << cct->_conf->osd_max_scrubs << dendl;
     can_inc = true;
@@ -1288,7 +1288,7 @@ bool OSDService::inc_scrubs_local()
 {
   bool result = false;
   std::lock_guard l{sched_scrub_lock};
-  if (scrubs_local + scrubs_remote < cct->_conf->osd_max_scrubs) {
+  if (scrubs_local + scrubs_remote < 10 /* cct->_conf->osd_max_scrubs*/) {
     dout(20) << __func__ << " " << scrubs_local << " -> " << (scrubs_local+1)
 	     << " (max " << cct->_conf->osd_max_scrubs << ", remote " << scrubs_remote << ")" << dendl;
     result = true;
@@ -1312,7 +1312,7 @@ bool OSDService::inc_scrubs_remote()
 {
   bool result = false;
   std::lock_guard l{sched_scrub_lock};
-  if (scrubs_local + scrubs_remote < cct->_conf->osd_max_scrubs) {
+  if (scrubs_local + scrubs_remote < 10 /*cct->_conf->osd_max_scrubs*/) {
     dout(20) << __func__ << " " << scrubs_remote << " -> " << (scrubs_remote+1)
 	     << " (max " << cct->_conf->osd_max_scrubs << ", local " << scrubs_local << ")" << dendl;
     result = true;

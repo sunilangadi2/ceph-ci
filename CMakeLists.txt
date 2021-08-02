@@ -20,7 +20,6 @@ foreach(policy
 endforeach()
 
 list(APPEND CMAKE_MODULE_PATH "${CMAKE_SOURCE_DIR}/cmake/modules/")
-set(WITH_CPP_REDIS "TRUE")
 
 if(CMAKE_SYSTEM_NAME MATCHES "Linux")
   set(LINUX ON)

@@ -1308,6 +1308,8 @@ enable_mirror()
     local mode=${4:-${MIRROR_IMAGE_MODE}}
 
     rbd --cluster=${cluster} mirror image enable ${pool}/${image} ${mode}
+    # Display image info including the global image id for debugging purpose
+    rbd --cluster=${cluster} info ${pool}/${image}
 }
 
 test_image_present()

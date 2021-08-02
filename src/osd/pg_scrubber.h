@@ -207,9 +207,9 @@ class PgScrubber : public ScrubPgIF, public ScrubMachineListener {
 
   void send_replica_maps_ready(epoch_t epoch_queued) final;
 
-  void send_start_replica(epoch_t epoch_queued) final;
+  void send_start_replica(epoch_t epoch_queued, Scrub::act_token_t token) final;
 
-  void send_sched_replica(epoch_t epoch_queued) final;
+  void send_sched_replica(epoch_t epoch_queued, Scrub::act_token_t token) final;
 
   void send_replica_pushes_upd(epoch_t epoch_queued) final;
 
@@ -415,6 +415,14 @@ class PgScrubber : public ScrubPgIF, public ScrubMachineListener {
  private:
   void reset_internal_state();
 
+  /**
+   *  the current scrubbing operation is done. We should mark that fact, so that
+   *  all events related to the previous operation can be discarded.
+   */
+  void advance_token();
+
+  bool is_token_current(Scrub::act_token_t received_token);
+
   void requeue_waiting() const { m_pg->requeue_ops(m_pg->waiting_for_scrub); }
 
   void _scan_snaps(ScrubMap& smap);
@@ -532,6 +540,8 @@ class PgScrubber : public ScrubPgIF, public ScrubMachineListener {
    *  discarded.
    */
   epoch_t m_epoch_start{0};  ///< the actual epoch when scrubbing started
+  std::atomic<Scrub::act_token_t> m_current_token{1};
+
   scrub_flags_t m_flags;
 
   bool m_active{false};

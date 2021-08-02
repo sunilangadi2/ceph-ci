@@ -459,11 +459,14 @@ ActiveReplica::ActiveReplica(my_context ctx) : my_base(ctx)
   post_event(SchedReplica{});
 }
 
-sc::result ActiveReplica::react(const SchedReplica&)
+sc::result ActiveReplica::react(const SchedReplica& ev)
 {
   DECLARE_LOCALS;  // 'scrbr' & 'pg_id' aliases
   dout(10) << "ActiveReplica::react(const SchedReplica&). is_preemptable? "
 	   << scrbr->get_preemptor().is_preemptable() << dendl;
+
+  dout(20) << "ActiveReplica::react(const SchedReplica&) token: "
+           << (int)(ev.act_token) << dendl;
 
   if (scrbr->get_preemptor().was_preempted()) {
     dout(10) << "replica scrub job preempted" << dendl;
@@ -508,7 +511,7 @@ sc::result ActiveReplica::react(const SchedReplica&)
  */
 sc::result ActiveReplica::react(const FullReset&)
 {
-  dout(10) << "ActiveReplica::react(const FullReset&)" << dendl;
+  dout(15) << "ActiveReplica::react(const FullReset&)" << dendl;
   return transit<NotActive>();
 }
 

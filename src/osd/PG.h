@@ -387,8 +387,10 @@ public:
    *  - is not required to allocate local/remote OSD scrub resources
    */
   void recovery_scrub(epoch_t queued, ThreadPool::TPHandle &handle);
-  void replica_scrub(epoch_t queued, ThreadPool::TPHandle &handle);
-  void replica_scrub_resched(epoch_t queued, ThreadPool::TPHandle &handle);
+  void replica_scrub(epoch_t queued, Scrub::act_token_t activation_idx,
+                                ThreadPool::TPHandle &handle);
+  void replica_scrub_resched(epoch_t queued, Scrub::act_token_t activation_idx,
+                                ThreadPool::TPHandle &handle);
 
   /// Queues a PGScrubResourcesOK message. Will translate into 'RemotesReserved' FSM event
   void scrub_send_resources_granted(epoch_t queued, ThreadPool::TPHandle &handle);
@@ -571,8 +573,13 @@ private:
 
   using ScrubAPI = void (ScrubPgIF::*)(epoch_t epoch_queued);
   void forward_scrub_event(ScrubAPI fn, epoch_t epoch_queued);
+  // and for events that carry a meaningful 'activation token'
+  using ScrubSafeAPI = void (ScrubPgIF::*)(epoch_t epoch_queued,
+					   Scrub::act_token_t act_token);
+  void forward_scrub_event(ScrubSafeAPI fn, epoch_t epoch_queued,
+                                           Scrub::act_token_t act_token);
 
-public:
+ public:
   virtual void do_request(
     OpRequestRef& op,
     ThreadPool::TPHandle &handle

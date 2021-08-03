@@ -17,23 +17,29 @@ describe('Hosts page', () => {
 
     it('should force enter host into maintenance', function () {
       const hostname = Cypress._.sample(this.hosts).name;
+      const hostnameList = new Array();
+      this.hosts.array.forEach((host: any) => {
+        hostnameList.push(host.hostname);
+      });
+      const serviceList = new Array();
       this.services.forEach((service: any) => {
         if (hostname === service.hostname) {
-          if (
-            service.daemon_type !== 'rgw' &&
-            (service.daemon_type === 'mgr' || service.daemon_type === 'alertmanager')
-          ) {
-            enterMaintenance = false;
-          }
+          serviceList.push(service.daemon_type);
         }
       });
 
       let enterMaintenance = true;
 
       // Force maintenance might throw out error if host are less than 3.
-      if (this.hosts.length < 3) {
+      if (hostnameList.length < 3) {
         enterMaintenance = false;
       }
+
+      serviceList.forEach((service: string) => {
+        if (service !== 'rgw' && (service === 'mgr' || service === 'alertmanager')) {
+          enterMaintenance = false;
+        }
+      });
 
       if (enterMaintenance) {
         hosts.maintenance(hostname, true, true);

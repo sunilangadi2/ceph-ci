@@ -1332,7 +1332,7 @@ class TestWatchNotify(object):
     OID = "test_watch_notify"
 
     def setUp(self):
-        self.rados = Rados(conffile='')
+        self.rados = Rados(conffile='', conf={'debug_ms': '5', 'debug_rados': '20'})
         self.rados.connect()
         self.rados.create_pool('test_pool')
         assert self.rados.pool_exists('test_pool')

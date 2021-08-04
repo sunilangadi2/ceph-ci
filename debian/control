@@ -105,7 +105,6 @@ Build-Depends: automake,
                valgrind,
                virtualenv,
                xfslibs-dev,
-               xmlstarlet <pkg.ceph.check>,
                nasm [amd64],
                zlib1g-dev,
 Standards-Version: 4.4.0

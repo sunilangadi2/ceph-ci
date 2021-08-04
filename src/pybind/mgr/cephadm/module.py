@@ -394,6 +394,7 @@ class CephadmOrchestrator(orchestrator.Orchestrator, MgrModule,
             self.default_registry = ''
             self.autotune_memory_target_ratio = 0.0
             self.autotune_interval = 0
+            self.apply_spec_fails: List[str] = []
 
         self._cons: Dict[str, Tuple[remoto.backends.BaseConnection,
                                     remoto.backends.LegacyModuleExecute]] = {}
@@ -1582,14 +1583,10 @@ Then run the following:
         in_maintenance = self.inventory.get_host_with_state("maintenance")
         if not in_maintenance:
             del self.health_checks["HOST_IN_MAINTENANCE"]
+            self.set_health_checks(self.health_checks)
         else:
             s = "host is" if len(in_maintenance) == 1 else "hosts are"
-            self.health_checks["HOST_IN_MAINTENANCE"] = {
-                "severity": "warning",
-                "summary": f"{len(in_maintenance)} {s} in maintenance mode",
-                "detail": [f"{h} is in maintenance" for h in in_maintenance],
-            }
-        self.set_health_checks(self.health_checks)
+            self.set_health_warning("HOST_IN_MAINTENANCE", f"{len(in_maintenance)} {s} in maintenance mode", 1, [f"{h} is in maintenance" for h in in_maintenance])
 
     @handle_orch_error
     @host_exists()
@@ -2286,6 +2283,20 @@ Then run the following:
             self._trigger_preview_refresh(specs=[cast(DriveGroupSpec, spec)])
 
         return self._apply_service_spec(cast(ServiceSpec, spec))
+
+    def set_health_warning(self, name: str, summary: str, count: int, detail: List[str]) -> None:
+        self.health_checks[name] = {
+            'severity': 'warning',
+            'summary': summary,
+            'count': count,
+            'detail': detail,
+        }
+        self.set_health_checks(self.health_checks)
+
+    def remove_health_warning(self, name: str) -> None:
+        if name in self.health_checks:
+            del self.health_checks[name]
+            self.set_health_checks(self.health_checks)
 
     def _plan(self, spec: ServiceSpec) -> dict:
         if spec.service_type == 'osd':

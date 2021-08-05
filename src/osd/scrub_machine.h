@@ -38,11 +38,17 @@ void on_event_discard(std::string_view nm);
 
 #define MEV(E)                                          \
   struct E : sc::event<E> {                             \
+    act_token_t act_token{0};                           \
     inline static int actv{0};                          \
     E()                                                 \
     {                                                   \
       if (!actv++)                                      \
-	on_event_creation(#E);                          \
+        on_event_creation(#E);                          \
+    }                                                   \
+    E(act_token_t tkn) : act_token{tkn}                 \
+    {                                                   \
+      if (!actv++)                                      \
+        on_event_creation(#E);                          \
     }                                                   \
     ~E()                                                \
     {                                                   \

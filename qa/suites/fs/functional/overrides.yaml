@@ -1,0 +1,5 @@
+overrides:
+  ceph:
+    kern-log-ignorelist:
+      - WARNING*.*check_session_state
+      - WARNING*.*__ceph_remove_cap

@@ -2815,9 +2815,11 @@ def deploy_daemon_units(
                     image=ctx.image,
                     entrypoint='/usr/sbin/ceph-volume',
                     args=[
-                        'lvm', 'activate',
-                        str(daemon_id), osd_fsid,
-                        '--no-systemd'
+                        'activate',
+                        '--osd-id', str(daemon_id),
+                        '--osd-uuid', osd_fsid,
+                        '--no-systemd',
+                        '--no-tmpfs',
                     ],
                     privileged=True,
                     volume_mounts=get_container_mounts(ctx, fsid, daemon_type, daemon_id),

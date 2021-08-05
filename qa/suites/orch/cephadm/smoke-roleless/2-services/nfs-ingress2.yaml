@@ -65,8 +65,6 @@ tasks:
             echo "Waking up cephadm..."
             sudo $TESTDIR/cephadm shell -- ceph orch ps --refresh
 
-            while ! timeout 5 cat /mnt/foo/testfile ; do
-                sleep 5
-            done
+            while ! timeout 1 cat /mnt/foo/testfile ; do true ; done
             echo "Mount is back!"
         done

@@ -611,7 +611,7 @@ TYPED_TEST(TestImageReplayer, BootstrapErrorLocalImageExists)
   ASSERT_EQ(-EEXIST, cond.wait());
 }
 
-TEST_F(TestImageReplayerJournal, BootstrapErrorNoJournal)
+TEST_F(TestImageReplayerJournal, BootstrapNoJournal)
 {
   ASSERT_EQ(0, librbd::Journal<>::remove(this->m_remote_ioctx,
                                          this->m_remote_image_id));
@@ -619,10 +619,10 @@ TEST_F(TestImageReplayerJournal, BootstrapErrorNoJournal)
   this->create_replayer();
   C_SaferCond cond;
   this->m_replayer->start(&cond);
-  ASSERT_EQ(-ENOENT, cond.wait());
+  ASSERT_EQ(0, cond.wait());
 }
 
-TYPED_TEST(TestImageReplayer, BootstrapErrorMirrorDisabled)
+TYPED_TEST(TestImageReplayer, BootstrapMirrorDisabled)
 {
   // disable remote image mirroring
   ASSERT_EQ(0, librbd::api::Mirror<>::mode_set(this->m_remote_ioctx,
@@ -635,7 +635,7 @@ TYPED_TEST(TestImageReplayer, BootstrapErrorMirrorDisabled)
   this->create_replayer();
   C_SaferCond cond;
   this->m_replayer->start(&cond);
-  ASSERT_EQ(-ENOENT, cond.wait());
+  ASSERT_EQ(0, cond.wait());
 }
 
 TYPED_TEST(TestImageReplayer, BootstrapMirrorDisabling)
@@ -664,7 +664,7 @@ TYPED_TEST(TestImageReplayer, BootstrapMirrorDisabling)
   this->create_replayer();
   C_SaferCond cond;
   this->m_replayer->start(&cond);
-  ASSERT_EQ(-EREMOTEIO, cond.wait());
+  ASSERT_EQ(0, cond.wait());
   ASSERT_TRUE(this->m_replayer->is_stopped());
 }
 

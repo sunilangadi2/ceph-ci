@@ -29,4 +29,3 @@ jobs:
           echo "github.event.head_commit.message " ${{ toJSON(github.event.head_commit.message) }}
           echo "github.event.commits[0].message " ${{ toJSON(github.event.commits[0].message) }}
           echo "github.event.head_commit.message " ${{ toJSON(github.event.head_commit.message) }}
-

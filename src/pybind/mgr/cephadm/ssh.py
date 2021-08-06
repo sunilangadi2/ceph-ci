@@ -215,7 +215,7 @@ class SSHManager:
         if ssh_config is not None or self.mgr.ssh_config_fname is None:
             if not ssh_config:
                 ssh_config = DEFAULT_SSH_CONFIG
-            f = NamedTemporaryFile(prefix='cephadm-conf-')
+            f = NamedTemporaryFile(prefix='cephadm-conf-', delete=False)
             os.fchmod(f.fileno(), 0o600)
             f.write(ssh_config.encode('utf-8'))
             f.flush()  # make visible to other processes
@@ -232,7 +232,7 @@ class SSHManager:
         self.mgr.ssh_pub = ssh_pub
         self.mgr.ssh_key = ssh_key
         if ssh_key and ssh_pub:
-            self.mgr.tkey = NamedTemporaryFile(prefix='cephadm-identity-')
+            self.mgr.tkey = NamedTemporaryFile(prefix='cephadm-identity-', delete=False)
             self.mgr.tkey.write(ssh_key.encode('utf-8'))
             os.fchmod(self.mgr.tkey.fileno(), 0o600)
             self.mgr.tkey.flush()  # make visible to other processes

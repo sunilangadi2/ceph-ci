@@ -14,6 +14,13 @@
   If you want to return back the old behavior add 'ssl_options=' (empty) to
   ``rgw frontends`` configuration.
 
+* MGR: The pg_autoscaler has a new default 'scale-down' profile which provides more
+  performance from the start for new pools (for newly created clusters).
+  Existing clusters will remain the existing behavior, now called the 'scale-up' profile, 
+  For more details, see:
+
+  https://docs.ceph.com/en/latest/rados/operations/placement-groups/
+
 >=16.0.0
 --------
 

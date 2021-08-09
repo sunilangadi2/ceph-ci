@@ -181,6 +181,8 @@ public:
   /// scrubbing state for both Primary & replicas
   bool is_scrub_active() const { return m_scrubber->is_scrub_active(); }
 
+  bool is_being_scrubbed() const { return m_scrubber->is_being_scrubbed(); }
+
 public:
   // -- members --
   const coll_t coll;
@@ -377,7 +379,6 @@ public:
   void scrub(epoch_t queued, ThreadPool::TPHandle& handle)
   {
     // a new scrub
-    scrub_queued = false;
     forward_scrub_event(&ScrubPgIF::initiate_regular_scrub, queued, "StartScrub");
   }
 
@@ -389,7 +390,6 @@ public:
   void recovery_scrub(epoch_t queued, ThreadPool::TPHandle& handle)
   {
     // a new scrub
-    scrub_queued = false;
     forward_scrub_event(&ScrubPgIF::initiate_scrub_after_repair, queued,
 			"AfterRepairScrub");
   }
@@ -398,7 +398,6 @@ public:
 
   void replica_scrub_resched(epoch_t queued, ThreadPool::TPHandle& handle)
   {
-    scrub_queued = false;
     forward_scrub_event(&ScrubPgIF::send_sched_replica, queued, "SchedReplica");
   }
 
@@ -415,7 +414,6 @@ public:
 
   void scrub_send_scrub_resched(epoch_t queued, ThreadPool::TPHandle& handle)
   {
-    scrub_queued = false;
     forward_scrub_event(&ScrubPgIF::send_scrub_resched, queued, "InternalSchedScrub");
   }
 
@@ -787,7 +785,6 @@ protected:
   /* You should not use these items without taking their respective queue locks
    * (if they have one) */
   xlist<PG*>::item stat_queue_item;
-  bool scrub_queued;
   bool recovery_queued;
 
   int recovery_ops_active;

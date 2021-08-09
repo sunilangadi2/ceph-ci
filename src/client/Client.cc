@@ -2858,6 +2858,13 @@ void Client::handle_mds_map(const MConstRef<MMDSMap>& m)
 
   _mdsmap.swap(mdsmap);
 
+  std::set<mds_rank_t> export_target_set;
+  for (const auto& [gid, info]: mdsmap->get_mds_info()) {
+    if (!info.export_targets.empty()) {
+      export_target_set.insert(info.export_targets.begin(), info.export_targets.end());
+    }
+  }
+
   // reset session
   for (auto p = mds_sessions.begin(); p != mds_sessions.end(); ) {
     mds_rank_t mds = p->first;
@@ -2889,6 +2896,7 @@ void Client::handle_mds_map(const MConstRef<MMDSMap>& m)
     if (newstate == MDSMap::STATE_RECONNECT) {
       session->con = messenger->connect_to_mds(session->addrs);
       send_reconnect(session);
+      export_target_set.erase(mds);
     } else if (newstate > MDSMap::STATE_RECONNECT) {
       if (oldstate < MDSMap::STATE_RECONNECT) {
 	ldout(cct, 1) << "we may miss the MDSMap::RECONNECT, close mds session ... " << dendl;
@@ -2908,6 +2916,18 @@ void Client::handle_mds_map(const MConstRef<MMDSMap>& m)
     } else if (newstate == MDSMap::STATE_NULL &&
 	       mds >= mdsmap->get_max_mds()) {
       _closed_mds_session(session);
+    }
+  }
+
+  // Reconnect all the export targets that are waiting
+  // clients to reconnect
+  set<mds_rank_t> _set;
+  mdsmap->get_mds_set(_set, MDSMap::STATE_RECONNECT);
+  for (auto &mds : _set) {
+    if (export_target_set.count(mds)) {
+      ldout(cct, 20) << __func__ << " reconnect export target mds." << mds << dendl;
+      ceph_assert(!mds_sessions.count(mds));
+      send_reconnect(_open_mds_session(mds));
     }
   }
 

@@ -203,11 +203,11 @@ default via 192.168.178.1 dev enxd89ef3f34260 proto dhcp metric 100
 195.135.221.12 via 192.168.178.1 dev enxd89ef3f34260 proto static metric 100
 """,
             {
-                '10.4.0.1': {'tun0': ['10.4.0.2']},
-                '172.17.0.0/16': {'docker0': ['172.17.0.1']},
-                '192.168.39.0/24': {'virbr1': ['192.168.39.1']},
-                '192.168.122.0/24': {'virbr0': ['192.168.122.1']},
-                '192.168.178.0/24': {'enxd89ef3f34260': ['192.168.178.28']}
+                '10.4.0.1': {'tun0': {'10.4.0.2'}},
+                '172.17.0.0/16': {'docker0': {'172.17.0.1'}},
+                '192.168.39.0/24': {'virbr1': {'192.168.39.1'}},
+                '192.168.122.0/24': {'virbr0': {'192.168.122.1'}},
+                '192.168.178.0/24': {'enxd89ef3f34260': {'192.168.178.28'}}
             }
         ),        (
 """
@@ -224,12 +224,15 @@ default via 10.3.64.1 dev eno1 proto static metric 100
 172.21.6.0/24 via 172.21.3.1 dev tun0
 172.21.7.0/24 via 172.21.3.1 dev tun0
 192.168.122.0/24 dev virbr0 proto kernel scope link src 192.168.122.1 linkdown
+192.168.122.0/24 dev virbr0 proto kernel scope link src 192.168.122.1 linkdown
+192.168.122.0/24 dev virbr0 proto kernel scope link src 192.168.122.1 linkdown
+192.168.122.0/24 dev virbr0 proto kernel scope link src 192.168.122.1 linkdown
 """,
             {
-                '10.3.64.0/24': {'eno1': ['10.3.64.23', '10.3.64.27']},
-                '10.88.0.0/16': {'cni-podman0': ['10.88.0.1']},
-                '172.21.3.1': {'tun0': ['172.21.3.2']},
-                '192.168.122.0/24': {'virbr0': ['192.168.122.1']}}
+                '10.3.64.0/24': {'eno1': {'10.3.64.23', '10.3.64.27'}},
+                '10.88.0.0/16': {'cni-podman0': {'10.88.0.1'}},
+                '172.21.3.1': {'tun0': {'172.21.3.2'}},
+                '192.168.122.0/24': {'virbr0': {'192.168.122.1'}}}
         ),
     ])
     def test_parse_ipv4_route(self, test_input, expected):
@@ -299,45 +302,19 @@ fe80::/64 dev vethe485ca9 proto kernel metric 256 pref medium
 """,
             {
                 "fe80::/64": {
-                    "eno1": [
-                        "fe80::225:90ff:fee5:26e8"
-                    ],
-                    "br-3d443496454c": [
-                        "fe80::42:23ff:fe9d:ee4"
-                    ],
-                    "tun0": [
-                        "fe80::98a6:733e:dafd:350"
-                    ],
-                    "br-4355f5dbb528": [
-                        "fe80::42:6eff:fe35:41fe"
-                    ],
-                    "docker0": [
-                        "fe80::42:faff:fee6:40a0"
-                    ],
-                    "cni-podman0": [
-                        "fe80::3449:cbff:fe89:b87e"
-                    ],
-                    "veth88ba1e8": [
-                        "fe80::d:f5ff:fe73:8c82"
-                    ],
-                    "vethb6e5fc7": [
-                        "fe80::4869:c6ff:feaa:8afe"
-                    ],
-                    "vethaddb245": [
-                        "fe80::90f7:3eff:feed:a6bb"
-                    ],
-                    "vethbd14d6b": [
-                        "fe80::b44f:8ff:fe6f:813d"
-                    ],
-                    "veth13e8fd2": [
-                        "fe80::78f4:71ff:fefe:eb40"
-                    ],
-                    "veth1d3aa9e": [
-                        "fe80::24bd:88ff:fe28:5b18"
-                    ],
-                    "vethe485ca9": [
-                        "fe80::6425:87ff:fe42:b9f0"
-                    ]
+                    "eno1": {"fe80::225:90ff:fee5:26e8"},
+                    "br-3d443496454c": {"fe80::42:23ff:fe9d:ee4"},
+                    "tun0": {"fe80::98a6:733e:dafd:350"},
+                    "br-4355f5dbb528": {"fe80::42:6eff:fe35:41fe"},
+                    "docker0": {"fe80::42:faff:fee6:40a0"},
+                    "cni-podman0": {"fe80::3449:cbff:fe89:b87e"},
+                    "veth88ba1e8": {"fe80::d:f5ff:fe73:8c82"},
+                    "vethb6e5fc7": {"fe80::4869:c6ff:feaa:8afe"},
+                    "vethaddb245": {"fe80::90f7:3eff:feed:a6bb"},
+                    "vethbd14d6b": {"fe80::b44f:8ff:fe6f:813d"},
+                    "veth13e8fd2": {"fe80::78f4:71ff:fefe:eb40"},
+                    "veth1d3aa9e": {"fe80::24bd:88ff:fe28:5b18"},
+                    "vethe485ca9": {"fe80::6425:87ff:fe42:b9f0"},
                 }
             }
         ),
@@ -361,18 +338,22 @@ default proto ra metric 100
        valid_lft 590879sec preferred_lft 590879sec
     inet6 fe80::2e60:cff:fef8:da41/64 scope link noprefixroute
        valid_lft forever preferred_lft forever
+    inet6 fe80::2e60:cff:fef8:da41/64 scope link noprefixroute
+       valid_lft forever preferred_lft forever
+    inet6 fe80::2e60:cff:fef8:da41/64 scope link noprefixroute
+       valid_lft forever preferred_lft forever
 """,
             {
                 '2001:1458:301:eb::/64': {
-                    'ens20f0': [
+                    'ens20f0': {
                         '2001:1458:301:eb::100:1a'
-                    ],
+                    },
                 },
                 'fe80::/64': {
-                    'ens20f0': ['fe80::2e60:cff:fef8:da41'],
+                    'ens20f0': {'fe80::2e60:cff:fef8:da41'},
                 },
                 'fd01:1458:304:5e::/64': {
-                    'ens20f0': []
+                    'ens20f0': set()
                 },
             }
         ),

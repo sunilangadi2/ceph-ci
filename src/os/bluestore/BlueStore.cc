@@ -14261,10 +14261,10 @@ int BlueStore::_do_alloc_write(
 
     PExtentVector extents;
     int64_t left = final_length;
-    bool deferred_region_small = false;
+    bool has_chunk2defer = false;
     while (left > 0) {
       ceph_assert(prealloc_left > 0);
-      deferred_region_small |= (prealloc_pos_length <= prefer_deferred_size.load());
+      has_chunk2defer |= (prealloc_pos_length < prefer_deferred_size.load());
       if (prealloc_pos->length <= left) {
 	prealloc_left -= prealloc_pos->length;
 	left -= prealloc_pos->length;
@@ -14319,7 +14319,7 @@ int BlueStore::_do_alloc_write(
 
     // queue io
     if (!g_conf()->bluestore_debug_omit_block_device_write) {
-      if (deferred_region_small && l->length() < prefer_deferred_size.load()) {
+      if (has_chunk2defer && l->length() < prefer_deferred_size.load()) {
 	dout(20) << __func__ << " deferring 0x" << std::hex
 		 << l->length() << std::dec << " write via deferred" << dendl;
 	bluestore_deferred_op_t *op = _get_deferred_op(txc, l->length());

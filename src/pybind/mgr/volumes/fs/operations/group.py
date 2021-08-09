@@ -104,6 +104,16 @@ def create_group(fs, vol_spec, groupname, pool, mode, uid, gid):
     """
     group = Group(fs, vol_spec, groupname)
     path = group.path
+    vol_spec_base_dir = group.vol_spec.base_dir.encode('utf-8')
+
+    # create vol_spec base directory with mode 0o755
+    try:
+        fs.stat(group.path)
+    except cephfs.Error as e:
+        if e.args[0] == errno.ENOENT:
+            fs.mkdirs(vol_spec_base_dir, 0o755)
+        else:
+            raise VolumeException(-e.args[0], e.args[1])
     fs.mkdirs(path, mode)
     try:
         if not pool:

@@ -167,6 +167,14 @@ class SubvolumeV2(SubvolumeV1):
             raise VolumeException(-errno.EAGAIN, "asynchronous purge of subvolume in progress")
         subvol_path = os.path.join(self.base_path, str(uuid.uuid4()).encode('utf-8'))
         try:
+            # create group directory with 0755
+            try:
+                self.fs.stat(self.group.path)
+            except cephfs.Error as e:
+                if e.args[0] == errno.ENOENT:
+                    self.fs.mkdirs(self.group.path, 0o755)
+                else:
+                    raise VolumeException(-e.args[0], e.args[1])
             self.fs.mkdirs(subvol_path, mode)
             self.mark_subvolume()
             attrs = {

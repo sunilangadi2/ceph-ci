@@ -13849,7 +13849,11 @@ void BlueStore::_do_write_big(
   uint64_t prefer_deferred_size_snapshot = prefer_deferred_size.load();
   while (length > 0) {
     bool new_blob = false;
-    uint32_t l = std::min(max_bsize, length);
+    uint32_t l = p2nphase(offset, max_bsize);
+    if (!l) {
+      l = max_bsize;
+    }
+    l = std::min(uint64_t(l), length);
     BlobRef b;
     uint32_t b_off = 0;
 

@@ -1626,7 +1626,8 @@ void Client::connect_mds_targets(mds_rank_t mds)
   const MDSMap::mds_info_t& info = mdsmap->get_mds_info(mds);
   for (const auto &rank : info.export_targets) {
     if (mds_sessions.count(rank) == 0 &&
-	mdsmap->is_clientreplay_or_active_or_stopping(rank)) {
+	(mdsmap->is_clientreplay_or_active_or_stopping(rank) ||
+	 mdsmap->is_reconnect(rank))) {
       ldout(cct, 10) << "check_mds_sessions opening mds." << mds
 		     << " export target mds." << rank << dendl;
       _open_mds_session(rank);
@@ -2858,11 +2859,15 @@ void Client::handle_mds_map(const MConstRef<MMDSMap>& m)
 
   _mdsmap.swap(mdsmap);
 
+  std::set<mds_rank_t> reconnect_set;
   // reset session
   for (auto p = mds_sessions.begin(); p != mds_sessions.end(); ) {
     mds_rank_t mds = p->first;
     MetaSession *session = &p->second;
     ++p;
+
+    const MDSMap::mds_info_t& info = mdsmap->get_mds_info(mds);
+    reconnect_set.insert(info.export_targets.begin(), info.export_targets.end());
 
     int oldstate = _mdsmap->get_state(mds);
     int newstate = mdsmap->get_state(mds);
@@ -2909,6 +2914,13 @@ void Client::handle_mds_map(const MConstRef<MMDSMap>& m)
 	       mds >= mdsmap->get_max_mds()) {
       _closed_mds_session(session);
     }
+  }
+
+  set<mds_rank_t> _set;
+  mdsmap->get_mds_set(_set, MDSMap::STATE_RECONNECT);
+  for (auto &mds : _set) {
+    if (reconnect_set.count(mds))
+      send_reconnect(_get_or_open_mds_session(mds));
   }
 
   // kick any waiting threads

@@ -1618,14 +1618,15 @@ void Migrator::export_go_synced(CDir *dir, uint64_t tid)
        ++p)
     req->add_export((*p)->dirfrag());
 
+  mds->hit_export_target(dest, num_exported_inodes+1);
+  mds->update_targets(true);
+
   // send
   mds->send_message_mds(req, dest);
 
   if (unlikely(g_conf()->mds_kill_export_at == 8)) {
     ceph_abort();
   }
-
-  mds->hit_export_target(dest, num_exported_inodes+1);
 
   // stats
   if (mds->logger) mds->logger->inc(l_mds_exported);

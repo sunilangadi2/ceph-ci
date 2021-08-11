@@ -2891,7 +2891,7 @@ static int rgw_bi_list_op(cls_method_context_t hctx,
     return -EINVAL;
   }
 
-  int ret;
+  int ret = 0;
   int count = 0;
   constexpr int MAX_BI_LIST_ENTRIES = 1000;
   const int32_t max = (op.max < MAX_BI_LIST_ENTRIES ? op.max : MAX_BI_LIST_ENTRIES);

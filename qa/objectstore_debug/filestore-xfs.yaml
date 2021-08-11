@@ -5,6 +5,7 @@ overrides:
       osd:
         osd objectstore: filestore
         osd sloppy crc: true
+        osd op queue: wpq
   ceph-deploy:
     fs: xfs
     filestore: True
@@ -12,4 +13,5 @@ overrides:
       osd:
         osd objectstore: filestore
         osd sloppy crc: true
+        osd op queue: wpq
 

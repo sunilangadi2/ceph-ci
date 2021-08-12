@@ -1842,6 +1842,8 @@ void PgScrubber::on_digest_updates()
   // got all updates, and finished with this chunk. Any more?
   if (m_end.is_max()) {
 
+    set_finishing_flag();
+
     // will be triggered by the event: scrub_finish();
     // (are we protected during the time it would take the event to
     //  be dispatched?

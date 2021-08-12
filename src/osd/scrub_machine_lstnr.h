@@ -156,6 +156,12 @@ struct ScrubMachineListener {
   virtual void set_being_scrubbed() = 0;
   virtual void clear_being_scrubbed() = 0;
 
+
+// RRR document
+  virtual void set_finishing_flag() = 0;
+  virtual void clear_finishing_flag() = 0;
+  [[nodiscard]] virtual bool is_finishing_flag_set() const = 0;
+
   /**
    * the FSM interface into the "are we waiting for maps, either our own or from
    * replicas" state.

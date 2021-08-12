@@ -395,10 +395,12 @@ sc::result WaitReplicas::react(const GotReplicas&)
 
 WaitDigestUpdate::WaitDigestUpdate(my_context ctx) : my_base(ctx)
 {
+  DECLARE_LOCALS;  // 'scrbr' & 'pg_id' aliases
   dout(10) << "-- state -->> Act/WaitDigestUpdate" << dendl;
   // perform an initial check: maybe we already
   // have all the updates we need:
   // (note that DigestUpdate is usually an external event)
+  scrbr->clear_finishing_flag();
   post_event(DigestUpdate{});
 }
 
@@ -413,9 +415,9 @@ sc::result WaitDigestUpdate::react(const DigestUpdate&)
   //  - send NextChunk, or
   //  - send ScrubFinished
 
-  //if (!finish_sequence_started) {
+  if (!scrbr->is_finishing_flag_set()) {
     scrbr->on_digest_updates();
-  //}
+  }
   return discard_event();
 }
 

@@ -412,6 +412,10 @@ class PgScrubber : public ScrubPgIF, public ScrubMachineListener {
   void set_being_scrubbed() final;
   void clear_being_scrubbed() final;
 
+  void set_finishing_flag() final { m_finish_sequence_started = true; }
+  void clear_finishing_flag() final { m_finish_sequence_started = false; }
+  bool is_finishing_flag_set() const { return m_finish_sequence_started; }
+
   void mark_local_map_ready() final;
 
   [[nodiscard]] bool are_all_maps_available() const final;
@@ -647,6 +651,17 @@ class PgScrubber : public ScrubPgIF, public ScrubMachineListener {
   void update_op_mode_text();
 
 private:
+
+  /**
+   *  preventing WaitDigestUpdate state from reacting to DigestUpdate events
+   *  once scrub_finish() is called.
+   *  (note - making this a separate FSM state would have caused the same race window
+   *  we are trying to solve. Note that there is no safe way to have the Boost
+   *  state-chart transition into a new state without going through the queue (which
+   *  also means releasing the PG lock).
+   */
+  bool m_finish_sequence_started{false};
+
 
   /**
    * initiate a deep-scrub after the current scrub ended with errors.

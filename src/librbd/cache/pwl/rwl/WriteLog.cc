@@ -29,7 +29,10 @@
 namespace librbd {
 namespace cache {
 namespace pwl {
+
+using namespace std;
 using namespace librbd::cache::pwl;
+
 namespace rwl {
 
 const unsigned long int OPS_APPENDED_TOGETHER = MAX_ALLOC_PER_TRANSACTION;

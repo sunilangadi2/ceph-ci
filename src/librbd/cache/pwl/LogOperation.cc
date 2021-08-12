@@ -14,6 +14,8 @@ namespace librbd {
 namespace cache {
 namespace pwl {
 
+using namespace std;
+
 GenericLogOperation::GenericLogOperation(utime_t dispatch_time,
                                          PerfCounters *perfcounter)
   : m_perfcounter(perfcounter), dispatch_time(dispatch_time) {

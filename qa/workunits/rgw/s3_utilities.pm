@@ -134,15 +134,31 @@ sub purge_data
     return 0;
 }
 
+# Read PRETTY_NAME from /etc/os-release
+sub os_pretty_name
+{
+        open(FH, '<', '/etc/os-release') or die $!;
+        while (my $line = <FH>) {
+                if($line =~ /^PRETTY_NAME=(.*)$/)
+                {
+                        my $pretty_name = $1;
+                        $pretty_name =~ s/^"//;
+                        $pretty_name =~ s/"$//;
+                        return $pretty_name;
+                }
+        }
+        close(FH);
+}
+
+
 # Function to get the Ceph and distro info
 sub ceph_os_info
 {
         my $ceph_v = get_command_output ( "ceph -v" );
         my @ceph_arr = split(" ",$ceph_v);
         $ceph_v = "Ceph Version:   $ceph_arr[2]";
-        my $os_distro = get_command_output ( "lsb_release -d" );
-        my @os_arr = split(":",$os_distro);
-        $os_distro = "Linux Flavor:$os_arr[1]";
+        my $os_distro = os_pretty_name()
+        $os_distro = "Linux Flavor:$os_distro";
         return ($ceph_v, $os_distro);
 }
 

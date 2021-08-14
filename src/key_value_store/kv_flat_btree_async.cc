@@ -355,8 +355,8 @@ int KvFlatBtreeAsync::split(const index_data &idata) {
 
   ///////preparations that happen outside the critical section
   //for prefix index
-  vector<object_data> to_create;
-  vector<object_data> to_delete;
+  std::vector<object_data> to_create;
+  std::vector<object_data> to_delete;
   to_delete.push_back(object_data(idata.min_kdata,
       args.odata.max_kdata, args.odata.name, args.odata.version));
 
@@ -2225,8 +2225,7 @@ string KvFlatBtreeAsync::str() {
   int indexer = 0;
 
   //get the object names and sizes
-  for(vector<std::string>::iterator it = all_names.begin(); it
-  != all_names.end();
+  for(vector<std::string>::iterator it = all_names.begin(); it != all_names.end();
       ++it) {
     librados::ObjectReadOperation oro;
     librados::AioCompletion *aioc = rados.aio_create_completion();

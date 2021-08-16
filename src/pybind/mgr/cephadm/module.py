@@ -17,7 +17,7 @@ import datetime
 import os
 import random
 import tempfile
-import multiprocessing.pool
+from concurrent.futures import ThreadPoolExecutor
 import subprocess
 from prettytable import PrettyTable
 
@@ -412,7 +412,7 @@ class CephadmOrchestrator(orchestrator.Orchestrator, MgrModule,
 
         self.cephadm_binary_path = self._get_cephadm_binary_path()
 
-        self._worker_pool = multiprocessing.pool.ThreadPool(10)
+        self._worker_pool = ThreadPoolExecutor(max_workers=10)
 
         self._reconfig_ssh()
 
@@ -473,8 +473,7 @@ class CephadmOrchestrator(orchestrator.Orchestrator, MgrModule,
 
     def shutdown(self) -> None:
         self.log.debug('shutdown')
-        self._worker_pool.close()
-        self._worker_pool.join()
+        self._worker_pool.shutdown()
         self.run = False
         self.event.set()
 
@@ -721,7 +720,7 @@ class CephadmOrchestrator(orchestrator.Orchestrator, MgrModule,
             return False, 'SSH keys not set. Use `ceph cephadm set-priv-key` and `ceph cephadm set-pub-key` or `ceph cephadm generate-key`', {}
 
         # mypy is unable to determine type for _processes since it's private
-        worker_count: int = self._worker_pool._processes  # type: ignore
+        worker_count: int = len(self._worker_pool._threads)  # type: ignore
         ret = {
             "workers": worker_count,
             "paused": self.paused,

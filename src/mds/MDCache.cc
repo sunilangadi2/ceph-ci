@@ -2000,7 +2000,12 @@ void MDCache::project_rstat_frag_to_inode(const nest_info_t& rstat,
 	(*_old_inodes)[last].first = first = ofirst;
       }
       pi = &(*_old_inodes)[last].inode;
-      pin->dirty_old_rstats.insert(last);
+      if (pi->btime >= rstat.rctime) {
+	pin->dirty_old_rstats.insert(last);
+      } else {
+	dout(20) << "no more projections! last:" << last << dendl;
+	break;
+      }
     }
     dout(20) << " projecting to [" << first << "," << last << "] " << pi->rstat << dendl;
     pi->rstat.add(delta);
@@ -2334,7 +2339,7 @@ void MDCache::predirty_journal_parents(MutationRef mut, EMetaBlob *blob,
       }
     }
     parent->dirty_old_rstat.clear();
-    project_rstat_frag_to_inode(pf->rstat, pf->accounted_rstat, parent->first, CEPH_NOSNAP, pin, true);//false);
+    project_rstat_frag_to_inode(pf->rstat, pf->accounted_rstat, parent->first, CEPH_NOSNAP, pin, true);
 
     pf->accounted_rstat = pf->rstat;
 

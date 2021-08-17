@@ -1325,7 +1325,7 @@ namespace rgw::sal {
     return;
   }
 
-  std::string DBStore::meta_get_marker(void* handle)
+  std::string DBStore::meta_get_marker(const DoutPrefixProvider *dpp, void* handle)
   {
     return "";
   }

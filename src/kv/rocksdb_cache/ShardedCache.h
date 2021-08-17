@@ -14,6 +14,7 @@
 #include <string>
 #include <mutex>
 
+#include "rocksdb/version.h"
 #include "rocksdb/cache.h"
 #include "include/ceph_hash.h"
 #include "common/PriorityCache.h"
@@ -45,8 +46,12 @@ class CacheShard {
   virtual void SetStrictCapacityLimit(bool strict_capacity_limit) = 0;
   virtual size_t GetUsage() const = 0;
   virtual size_t GetPinnedUsage() const = 0;
-  virtual void ApplyToAllCacheEntries(void (*callback)(void*, size_t),
-                                      bool thread_safe) = 0;
+  virtual void ApplyToAllCacheEntries(
+    const std::function<void(const rocksdb::Slice& key,
+                             void* value,
+                             size_t charge,
+                             DeleterFn)>& callback,
+    bool thread_safe) = 0;
   virtual void EraseUnRefEntries() = 0;
   virtual std::string GetPrintableOptions() const { return ""; }
 };
@@ -77,9 +82,19 @@ class ShardedCache : public rocksdb::Cache, public PriorityCache::PriCache {
   virtual size_t GetUsage(rocksdb::Cache::Handle* handle) const override;
   virtual size_t GetPinnedUsage() const override;
   virtual size_t GetCharge(Handle* handle) const = 0;
+#if (ROCKSDB_MAJOR >= 6 && ROCKSDB_MINOR >= 22)
+  virtual DeleterFn GetDeleter(Handle* handle) const override = 0;
+#endif
   virtual void DisownData() override = 0;
+#if (ROCKSDB_MAJOR >= 6 && ROCKSDB_MINOR >= 22)
+  virtual void ApplyToAllEntries(
+      const std::function<void(const rocksdb::Slice& key, void* value, size_t charge,
+                               DeleterFn deleter)>& callback,
+      const ApplyToAllEntriesOptions& opts) override;
+#else
   virtual void ApplyToAllCacheEntries(void (*callback)(void*, size_t),
                                       bool thread_safe) override;
+#endif
   virtual void EraseUnRefEntries() override;
   virtual std::string GetPrintableOptions() const override;
   virtual CacheShard* GetShard(int shard) = 0;

@@ -205,8 +205,12 @@ class alignas(CACHE_LINE_SIZE) BinnedLRUCacheShard : public CacheShard {
   virtual size_t GetUsage() const override;
   virtual size_t GetPinnedUsage() const override;
 
-  virtual void ApplyToAllCacheEntries(void (*callback)(void*, size_t),
-                                      bool thread_safe) override;
+  virtual void ApplyToAllCacheEntries(
+    const std::function<void(const rocksdb::Slice& key,
+                             void* value,
+                             size_t charge,
+                             DeleterFn)>& callback,
+    bool thread_safe) override;
 
   virtual void EraseUnRefEntries() override;
 
@@ -304,7 +308,9 @@ class BinnedLRUCache : public ShardedCache {
   virtual size_t GetCharge(Handle* handle) const override;
   virtual uint32_t GetHash(Handle* handle) const override;
   virtual void DisownData() override;
-
+#if (ROCKSDB_MAJOR >= 6 && ROCKSDB_MINOR >= 22)
+  virtual DeleterFn GetDeleter(Handle* handle) const override;
+#endif
   //  Retrieves number of elements in LRU, for unit test purpose only
   size_t TEST_GetLRUSize();
   // Sets the high pri pool ratio

@@ -25,7 +25,9 @@ private:
 
 public:
   ceph_mds_session_head head;
+  static constexpr unsigned FLAG_BLOCKLISTED = (1<<0);
 
+  unsigned flags = 0;
   std::map<std::string, std::string> metadata;
   feature_bitset_t supported_features;
   metric_spec_t metric_spec;
@@ -38,11 +40,12 @@ public:
 
 protected:
   MClientSession() : SafeMessage{CEPH_MSG_CLIENT_SESSION, HEAD_VERSION, COMPAT_VERSION} { }
-  MClientSession(int o, version_t s=0) : 
+  MClientSession(int o, version_t s=0, unsigned msg_flags=0) :
     SafeMessage{CEPH_MSG_CLIENT_SESSION, HEAD_VERSION, COMPAT_VERSION} {
     memset(&head, 0, sizeof(head));
     head.op = o;
     head.seq = s;
+    flags = msg_flags;
   }
   MClientSession(int o, utime_t st) : 
     SafeMessage{CEPH_MSG_CLIENT_SESSION, HEAD_VERSION, COMPAT_VERSION} {

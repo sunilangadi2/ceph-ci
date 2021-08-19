@@ -1,5 +1,6 @@
 set(common_options_srcs build_options.cc)
 set(legacy_options_headers)
+set(options_yamls)
 
 # to mimic the behavior of file(CONFIGURE ...)
 file(GENERATE OUTPUT configure_file.cmake
@@ -26,6 +27,8 @@ function(add_options name)
   set(yaml_file ${CMAKE_CURRENT_BINARY_DIR}/${name}.yaml)
   file_configure("${yaml_in_file}"
     "${yaml_file}" @ONLY)
+  list(APPEND options_yamls ${yaml_file})
+  set(options_yamls ${options_yamls} PARENT_SCOPE)
   set(cc_file "${name}_options.cc")
   set(h_file "${PROJECT_BINARY_DIR}/include/${name}_legacy_options.h")
   add_custom_command(PRE_BUILD
@@ -100,5 +103,12 @@ add_options(rgw)
 
 add_library(common-options-objs OBJECT
   ${common_options_srcs})
+add_dependencies(common-options-objs
+  validate-options)
+
+string(REPLACE ";" " " validate_options_args "${options_yamls}")
+add_custom_target(validate-options
+  COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/validate-options.py ${validate_options_args}
+  DEPENDS ${options_yamls})
 add_custom_target(legacy-option-headers
   DEPENDS ${legacy_options_headers})

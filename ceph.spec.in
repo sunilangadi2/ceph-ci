@@ -1352,6 +1352,7 @@ cmake .. \
     -DWITH_FMT_HEADER_ONLY:BOOL=ON \
 %endif
     -DWITH_GRAFANA:BOOL=ON
+    -DWITH_GRAFANA_TESTS:BOOL=OFF
 
 %if %{with cmake_verbose_logging}
 cat ./CMakeFiles/CMakeOutput.log

@@ -4998,6 +4998,8 @@ int RGWHandler_REST_S3Website::retarget(RGWOp* op, RGWOp** new_op, optional_yiel
   string key_name;
   if (!rgw::sal::Object::empty(s->object.get())) {
     key_name = s->object->get_name();
+    // we overwrote s->bucket above, so reassign the object's bucket
+    s->object->set_bucket(s->bucket.get());
   }
   bool get_res = s->bucket->get_info().website_conf.get_effective_key(key_name, &new_obj.name, web_dir());
   if (!get_res) {

@@ -1,17 +1,17 @@
 // -*- mode:C++; tab-width:8; c-basic-offset:2; indent-tabs-mode:t -*-
 // vim: ts=8 sw=2 smarttab
+#pragma once
 
-#include <string>
-#include "rgw_tracer.h"
+#include "common/tracer.h"
 
 namespace tracing {
-namespace rgw {
+namespace osd {
 
 #ifdef HAVE_JAEGER
-thread_local tracing::Tracer tracer("rgw");
-#else // !HAVE_JAEGER
-tracing::Tracer tracer;
+extern const jaegertracing::Config jaeger_config;
 #endif
 
-} // namespace rgw
+extern tracing::Tracer tracer;
+
+} // namespace osd
 } // namespace tracing

@@ -1280,6 +1280,10 @@ OSDMonitor::update_pending_pgs(const OSDMap::Incremental& inc,
   dout(10) << __func__ << " queue remaining: " << pending_creatings.queue.size()
 	   << " pools" << dendl;
 
+  stringstream ds;
+  nextmap.print_osds(ds);
+  dout(1) << __func__ << " " << ds.str() << dendl;
+
   if (mon.monmap->min_mon_release >= ceph_release_t::octopus) {
     // walk creating pgs' history and past_intervals forward
     for (auto& i : pending_creatings.pgs) {

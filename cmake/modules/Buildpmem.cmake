@@ -47,7 +47,7 @@ function(build_pmem)
   set_target_properties(pmem::pmem PROPERTIES
     INTERFACE_INCLUDE_DIRECTORIES ${PMDK_INCLUDE}
     IMPORTED_LOCATION "${PMDK_LIB}/libpmem.a"
-    INTERFACE_LINK_LIBRARIES ${CMAKE_THREAD_LIBS_INIT})
+    INTERFACE_LINK_LIBRARIES "${CMAKE_THREAD_LIBS_INIT}")
 
   # libpmemobj
   add_library(pmem::pmemobj STATIC IMPORTED GLOBAL)

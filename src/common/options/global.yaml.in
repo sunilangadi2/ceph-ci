@@ -6058,3 +6058,11 @@ options:
   - spdk
   - pmem
   - hm_smr
+- name: jaeger_tracing_enable
+  type: bool
+  level: advanced
+  desc: Ceph should use jaeger tracing system
+  default: false
+  services:
+  - rgw
+  with_legacy: true

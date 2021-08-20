@@ -676,9 +676,7 @@ set(ceph_osd_srcs
   osd/objclass.cc
   objclass/class_api.cc
   ceph_osd.cc)
-if(WITH_JAEGER)
-  list(APPEND ceph_osd_srcs common/tracer.cc)
-endif()
+
 add_executable(ceph-osd ${ceph_osd_srcs})
 add_dependencies(ceph-osd erasure_code_plugins)
 target_link_libraries(ceph-osd osd os global-static common

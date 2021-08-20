@@ -21,6 +21,7 @@
 #include "common/utf8.h"
 #include "common/ceph_json.h"
 #include "common/static_ptr.h"
+#include "common/tracer.h"
 
 #include "rgw_rados.h"
 #include "rgw_zone.h"
@@ -51,7 +52,6 @@
 #include "rgw_notify_event_type.h"
 #include "rgw_sal.h"
 #include "rgw_sal_rados.h"
-#include "rgw_tracer.h"
 
 #include "services/svc_zone.h"
 #include "services/svc_quota.h"

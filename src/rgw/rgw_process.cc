@@ -145,7 +145,7 @@ int rgw_process_authenticated(RGWHandler_REST * const handler,
 
   ldpp_dout(op, 2) << "verifying op permissions" << dendl;
   {
-    auto span = rgw_tracer.start_span("verify_permission", s->trace);
+    auto span = tracer.start_span("verify_permission", s->trace);
     std::swap(span, s->trace);
     ret = op->verify_permission(y);
     std::swap(span, s->trace);
@@ -171,7 +171,7 @@ int rgw_process_authenticated(RGWHandler_REST * const handler,
 
   ldpp_dout(op, 2) << "executing" << dendl;
   {
-    auto span = rgw_tracer.start_span("execute", s->trace);
+    auto span = tracer.start_span("execute", s->trace);
     std::swap(span, s->trace);
     op->execute(y);
     std::swap(span, s->trace);
@@ -308,7 +308,7 @@ int process_request(rgw::sal::Store* const store,
     }
 
     const auto trace_name = std::string(op->name()) + " " + s->trans_id;
-    s->trace = rgw_tracer.start_trace(trace_name);
+    s->trace = tracer.start_trace(trace_name);
     s->trace->SetTag(tracing::OP, op->name());
     s->trace->SetTag(tracing::TYPE, tracing::REQUEST);
 

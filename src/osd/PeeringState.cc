@@ -2215,6 +2215,9 @@ void PeeringState::choose_async_recovery_ec(
     if (HAVE_FEATURE(osdmap->get_up_osd_features(), SERVER_NAUTILUS)) {
       auto approx_missing_objects =
         shard_info.stats.stats.sum.num_objects_missing;
+      psdout(0) << __func__ << "missing objects calc: osd: " << shard_i.osd << " shard: " << shard_i.shard << " approx_missing_objects: "
+          << approx_missing_objects << " auth_version: " << auth_version << " candidate_version: " << candidate_version
+          << dendl;
       if (auth_version > candidate_version) {
         approx_missing_objects += auth_version - candidate_version;
       }

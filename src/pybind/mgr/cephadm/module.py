@@ -1302,6 +1302,11 @@ class CephadmOrchestrator(orchestrator.Orchestrator, MgrModule,
         ]
 
     def _check_valid_addr(self, host: str, addr: str) -> str:
+        # make sure mgr is not resolving own ip
+        if addr in self.get_mgr_id():
+            raise OrchestratorError(
+                "Can not automatically resolve ip address of host where active mgr is running. Please explicitly provide the address.")
+
         # make sure hostname is resolvable before trying to make a connection
         try:
             ip_addr = utils.resolve_ip(addr)
@@ -1349,6 +1354,25 @@ Then run the following:
         if spec.addr == spec.hostname and ip_addr:
             spec.addr = ip_addr
 
+        if spec.hostname in self.inventory:
+            r = "Host '{}' already exists".format(spec.hostname)
+
+            # addr
+            if self.inventory.get_addr(spec.hostname) != spec.addr:
+                self.inventory.set_addr(spec.hostname, spec.addr)
+                r += ", addr updated to '{}'".format(spec.addr)
+
+            # labels
+            added_labels = []
+            for label in spec.labels:
+                if not self.inventory.has_label(spec.hostname, label):
+                    self.inventory.add_label(spec.hostname, label)
+                    added_labels.append(label)
+            if added_labels:
+                r += ", labels '{}' added".format(", ".join(added_labels))
+
+            return r
+
         # prime crush map?
         if spec.location:
             self.check_mon_command({
@@ -1358,8 +1382,7 @@ Then run the following:
                 'args': [f'{k}={v}' for k, v in spec.location.items()],
             })
 
-        if spec.hostname not in self.inventory:
-            self.cache.prime_empty_host(spec.hostname)
+        self.cache.prime_empty_host(spec.hostname)
         self.inventory.add_host(spec)
         self.offline_hosts_remove(spec.hostname)
         self.event.set()  # refresh stray health check

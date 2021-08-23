@@ -31,7 +31,7 @@ from contextlib import redirect_stdout
 import ssl
 from enum import Enum
 
-from typing import Dict, List, Tuple, Optional, Union, Any, NoReturn, Callable, IO, Sequence, TypeVar, cast
+from typing import Dict, List, Tuple, Optional, Union, Any, NoReturn, Callable, IO, Sequence, TypeVar, cast, Iterable, Iterator
 
 import re
 import uuid
@@ -4366,24 +4366,67 @@ def command_bootstrap(ctx):
     if ctx.apply_spec:
         logger.info('Applying %s to cluster' % ctx.apply_spec)
 
-        with open(ctx.apply_spec) as f:
+        # funcs to process spec file
+        def _parse_yaml_docs(f: Iterable[str]) -> Iterator[List[str]]:
+            current_doc = []  # type: List[str]
             for line in f:
-                if 'hostname:' in line:
-                    line = line.replace('\n', '')
-                    split = line.split(': ')
-                    if split[1] != hostname:
-                        logger.info('Adding ssh key to %s' % split[1])
+                if '---' in line:
+                    if current_doc:
+                        yield current_doc
+                    current_doc = []
+                else:
+                    current_doc.append(line.rstrip())
+            if current_doc:
+                yield current_doc
 
-                        ssh_key = '/etc/ceph/ceph.pub'
-                        if ctx.ssh_public_key:
-                            ssh_key = ctx.ssh_public_key.name
-                        out, err, code = call_throws(ctx, ['sudo', '-u', ctx.ssh_user, 'ssh-copy-id', '-f', '-i', ssh_key, '-o StrictHostKeyChecking=no', '%s@%s' % (ctx.ssh_user, split[1])])
+        def _parse_yaml_obj(doc: List[str]) -> Dict[str, str]:
+            # note: this only parses the first layer of yaml
+            obj = {}  # type: Dict[str, str]
+            current_key = ''
+            for line in doc:
+                if line.startswith(' '):
+                    obj[current_key] += line.strip()
+                elif line.endswith(':'):
+                    current_key = line.strip(':')
+                    obj[current_key] = ''
+                else:
+                    current_key, val = line.split(':')
+                    obj[current_key] = val.strip()
+            return obj
 
+        def parse_yaml_objs(f: Iterable[str]) -> Iterator[Dict[str, str]]:
+            for d in _parse_yaml_docs(f):
+                yield _parse_yaml_obj(d)
+
+        # copy ssh key to host specs from yaml
+        def _distribute_ssh_keys(host_spec: Dict[str, str], bootstrap_hostname: str) -> None:
+            if hostname != spec['hostname']:
+                if 'addr' in spec:
+                    addr = spec['addr']
+                else:
+                    addr = spec['hostname']
+                out, err, code = call(ctx, ['sudo', '-u', ctx.ssh_user, 'ssh-copy-id', '-f', '-i', ssh_key, '-o StrictHostKeyChecking=no', '%s@%s' % (ctx.ssh_user, addr)])
+                if code:
+                    logger.info('\nCopying ssh key to host %s at address %s failed!\n' % (spec['hostname'], addr))
+                else:
+                    logger.info('Added ssh key to host %s at address %s\n' % (spec['hostname'], addr))
+
+        ssh_key = '/etc/ceph/ceph.pub'
+        if ctx.ssh_public_key:
+            ssh_key = ctx.ssh_public_key.name
+        with open('spec.yml') as f:
+            for spec in parse_yaml_objs(f):
+                if spec.get('service_type') == 'host':
+                    _distribute_ssh_keys(spec, hostname)
+
+        # apply yaml spec
         mounts = {}
         mounts[pathify(ctx.apply_spec)] = '/tmp/spec.yml:z'
-
-        out = cli(['orch', 'apply', '-i', '/tmp/spec.yml'], extra_mounts=mounts)
-        logger.info(out)
+        try:
+            out = cli(['orch', 'apply', '-i', '/tmp/spec.yml'], extra_mounts=mounts)
+            logger.info(out)
+        except Exception:
+            logger.info('\nApplying %s to cluster failed!\n' % ctx.apply_spec)
 
     logger.info('You can access the Ceph CLI with:\n\n'
                 '\tsudo %s shell --fsid %s -c %s -k %s\n' % (

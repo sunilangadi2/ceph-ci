@@ -162,7 +162,7 @@ int WriteLog<I>::append_op_log_entries(GenericLogOperations &ops)
     ldout(m_image_ctx.cct, 05) << "APPENDING: index="
                                << operation->get_log_entry()->log_entry_index << " "
                                << "operation=[" << *operation << "]" << dendl;
-    operation->log_append_time = now;
+    operation->log_append_start_time = now;
     *operation->get_log_entry()->cache_entry = operation->get_log_entry()->ram_entry;
     ldout(m_image_ctx.cct, 20) << "APPENDING: index="
                                << operation->get_log_entry()->log_entry_index << " "
@@ -625,7 +625,7 @@ void WriteLog<I>::flush_then_append_scheduled_ops(void)
      * get to the log message append step. */
     if (ops.size()) {
       flush_pmem_buffer(ops);
-      schedule_append_ops(ops);
+      schedule_append_ops(ops, nullptr);
     }
   } while (ops_remain);
   append_scheduled_ops();
@@ -695,7 +695,7 @@ void WriteLog<I>::setup_schedule_append(
  * all prior log entries are persisted everywhere.
  */
 template <typename I>
-void WriteLog<I>::schedule_append_ops(GenericLogOperations &ops)
+void WriteLog<I>::schedule_append_ops(GenericLogOperations &ops, C_BlockIORequestT *req)
 {
   bool need_finisher;
   GenericLogOperationsVector appending;
@@ -825,6 +825,16 @@ template <typename I>
 template <typename V>
 void WriteLog<I>::flush_pmem_buffer(V& ops)
 {
+  utime_t now = ceph_clock_now();
+  for (auto &operation : ops) {
+    if (operation->reserved_allocated()) {
+      operation->buf_persist_start_time = now;
+    } else {
+      ldout(m_image_ctx.cct, 20) << "skipping non-write op: "
+                                 << *operation << dendl;
+    }
+  }
+
   for (auto &operation : ops) {
     if(operation->is_writing_op()) {
       auto log_entry = static_pointer_cast<WriteLogEntry>(operation->get_log_entry());
@@ -835,12 +845,13 @@ void WriteLog<I>::flush_pmem_buffer(V& ops)
   /* Drain once for all */
   pmemobj_drain(m_log_pool);
 
-  utime_t now = ceph_clock_now();
+  now = ceph_clock_now();
   for (auto &operation : ops) {
     if (operation->reserved_allocated()) {
       operation->buf_persist_comp_time = now;
     } else {
-      ldout(m_image_ctx.cct, 20) << "skipping non-write op: " << *operation << dendl;
+      ldout(m_image_ctx.cct, 20) << "skipping non-write op: "
+                                 << *operation << dendl;
     }
   }
 }

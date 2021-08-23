@@ -77,7 +77,7 @@ class OSD final : public crimson::net::Dispatcher,
   SimpleLRU<epoch_t, bufferlist, false> map_bl_cache;
   cached_map_t osdmap;
   // TODO: use a wrapper for ObjectStore
-  std::unique_ptr<crimson::os::FuturizedStore> store;
+  crimson::os::FuturizedStore& store;
   std::unique_ptr<OSDMeta> meta_coll;
 
   OSDState state;
@@ -121,6 +121,7 @@ class OSD final : public crimson::net::Dispatcher,
 
 public:
   OSD(int id, uint32_t nonce,
+      crimson::os::FuturizedStore& store,
       crimson::net::MessengerRef cluster_msgr,
       crimson::net::MessengerRef client_msgr,
       crimson::net::MessengerRef hb_front_msgr,
@@ -229,6 +230,9 @@ private:
   seastar::future<> shutdown();
   void update_heartbeat_peers();
   friend class PGAdvanceMap;
+
+  RemotePeeringEvent::OSDPipeline peering_request_osd_pipeline;
+  friend class RemotePeeringEvent;
 
 public:
   blocking_future<Ref<PG>> get_or_create_pg(

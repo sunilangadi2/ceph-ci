@@ -271,6 +271,9 @@
 /* Define if the C compiler supports __PRETTY_FUNCTION__ */
 #cmakedefine HAVE_PRETTY_FUNC
 
+/* Define if the C compiler supports __attribute__((__symver__ (".."))) */
+#cmakedefine HAVE_ATTR_SYMVER
+
 /* Define if the C compiler supports __asm__(".symver ..") */
 #cmakedefine HAVE_ASM_SYMVER
 
@@ -351,6 +354,9 @@
 /* Defined if lua packages can be installed by radosgw */
 #cmakedefine WITH_RADOSGW_LUA_PACKAGES
 
+/* Backend dbstore for Rados Gateway */
+#cmakedefine WITH_RADOSGW_DBSTORE
+
 /* Defined if std::map::merge() is supported */
 #cmakedefine HAVE_STDLIB_MAP_SPLICING
 
@@ -374,9 +380,6 @@
 
 /* Define if PWL-SSD is enabled */
 #cmakedefine WITH_RBD_SSD_CACHE
-
-/* Define if libcryptsetup version < 2.0.5 */
-#cmakedefine LIBCRYPTSETUP_LEGACY_DATA_ALIGNMENT
 
 /* Define if libcryptsetup can be used (linux only) */
 #cmakedefine HAVE_LIBCRYPTSETUP

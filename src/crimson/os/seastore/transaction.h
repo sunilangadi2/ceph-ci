@@ -14,7 +14,6 @@
 
 namespace crimson::os::seastore {
 
-struct retired_extent_gate_t;
 class SeaStore;
 class Transaction;
 
@@ -26,6 +25,7 @@ class Transaction;
 class Transaction {
 public:
   using Ref = std::unique_ptr<Transaction>;
+  using on_destruct_func_t = std::function<void(Transaction&)>;
   enum class get_extent_ret {
     PRESENT,
     ABSENT,
@@ -141,8 +141,26 @@ public:
     return retired_set;
   }
 
+  enum class src_t : uint8_t {
+    // normal IO operations at seastore boundary or within a test
+    MUTATE = 0,
+    READ,
+    // transaction manager level operations
+    INIT,
+    CLEANER,
+    MAX
+  };
+  static constexpr auto SRC_MAX = static_cast<std::size_t>(src_t::MAX);
+  src_t get_src() const {
+    return src;
+  }
+
   bool is_weak() const {
     return weak;
+  }
+
+  void test_set_conflict() {
+    conflicted = true;
   }
 
   bool is_conflicted() const {
@@ -156,14 +174,18 @@ public:
   Transaction(
     OrderingHandle &&handle,
     bool weak,
-    journal_seq_t initiated_after
+    src_t src,
+    journal_seq_t initiated_after,
+    on_destruct_func_t&& f
   ) : weak(weak),
-      retired_gate_token(initiated_after),
-      handle(std::move(handle))
+      handle(std::move(handle)),
+      on_destruct(std::move(f)),
+      src(src)
   {}
 
 
   ~Transaction() {
+    on_destruct(*this);
     for (auto i = write_set.begin();
 	 i != write_set.end();) {
       i->state = CachedExtent::extent_state_t::INVALID;
@@ -183,8 +205,14 @@ public:
     mutated_block_list.clear();
     retired_set.clear();
     to_release = NULL_SEG_ID;
-    retired_gate_token.reset(initiated_after);
     conflicted = false;
+    if (!has_reset) {
+      has_reset = true;
+    }
+  }
+
+  bool did_reset() const {
+    return has_reset;
   }
 
 private:
@@ -212,20 +240,42 @@ private:
   ///< if != NULL_SEG_ID, release this segment after completion
   segment_id_t to_release = NULL_SEG_ID;
 
-  retired_extent_gate_t::token_t retired_gate_token;
-
   bool conflicted = false;
 
+  bool has_reset = false;
+
   OrderingHandle handle;
+
+  on_destruct_func_t on_destruct;
+
+  const src_t src;
 };
 using TransactionRef = Transaction::Ref;
+
+inline std::ostream& operator<<(std::ostream& os,
+                                const Transaction::src_t& src) {
+  switch (src) {
+  case Transaction::src_t::MUTATE:
+    return os << "MUTATE";
+  case Transaction::src_t::READ:
+    return os << "READ";
+  case Transaction::src_t::INIT:
+    return os << "INIT";
+  case Transaction::src_t::CLEANER:
+    return os << "CLEANER";
+  default:
+    ceph_abort("impossible");
+  }
+}
 
 /// Should only be used with dummy staged-fltree node extent manager
 inline TransactionRef make_test_transaction() {
   return std::make_unique<Transaction>(
     get_dummy_ordering_handle(),
     false,
-    journal_seq_t{}
+    Transaction::src_t::MUTATE,
+    journal_seq_t{},
+    [](Transaction&) {}
   );
 }
 

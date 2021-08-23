@@ -49,13 +49,12 @@ class Module(orchestrator.OrchestratorClientMixin, MgrModule):
             pseudo_path: str,
             readonly: Optional[bool] = False,
             client_addr: Optional[List[str]] = None,
-            realm: Optional[str] = None,
+            squash: str = 'none',
     ) -> Tuple[int, str, str]:
         """Create an RGW export"""
         return self.export_mgr.create_export(fsal_type='rgw', bucket=bucket,
-                                             realm=realm,
                                              cluster_id=cluster_id, pseudo_path=pseudo_path,
-                                             read_only=readonly, squash='none',
+                                             read_only=readonly, squash=squash,
                                              addr=client_addr)
 
     @CLICommand('nfs export rm', perm='rw')
@@ -84,11 +83,9 @@ class Module(orchestrator.OrchestratorClientMixin, MgrModule):
         return self.export_mgr.get_export(cluster_id=cluster_id, pseudo_path=pseudo_path)
 
     @CLICommand('nfs export apply', perm='rw')
-    @CLICheckNonemptyFileInput(desc='Export JSON specification')
+    @CLICheckNonemptyFileInput(desc='Export JSON or Ganesha EXPORT specification')
     def _cmd_nfs_export_apply(self, cluster_id: str, inbuf: str) -> Tuple[int, str, str]:
-        """Create or update an export by `-i <json_file>`"""
-        # The export <json_file> is passed to -i and it's processing
-        # is handled by the Ceph CLI.
+        """Create or update an export by `-i <json_or_ganesha_export_file>`"""
         return self.export_mgr.apply_export(cluster_id, export_config=inbuf)
 
     @CLICommand('nfs cluster create', perm='rw')
@@ -96,10 +93,12 @@ class Module(orchestrator.OrchestratorClientMixin, MgrModule):
                                 cluster_id: str,
                                 placement: Optional[str] = None,
                                 ingress: Optional[bool] = None,
-                                virtual_ip: Optional[str] = None) -> Tuple[int, str, str]:
+                                virtual_ip: Optional[str] = None,
+                                port: Optional[int] = None) -> Tuple[int, str, str]:
         """Create an NFS Cluster"""
         return self.nfs.create_nfs_cluster(cluster_id=cluster_id, placement=placement,
-                                           virtual_ip=virtual_ip, ingress=ingress)
+                                           virtual_ip=virtual_ip, ingress=ingress,
+                                           port=port)
 
     @CLICommand('nfs cluster rm', perm='rw')
     def _cmd_nfs_cluster_rm(self, cluster_id: str) -> Tuple[int, str, str]:

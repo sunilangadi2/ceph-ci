@@ -30,6 +30,11 @@
 
 namespace bpo = boost::program_options;
 using config_t = crimson::common::ConfigProxy;
+using std::string;
+
+seastar::logger& logger() {
+  return crimson::get_logger(ceph_subsys_osd);
+}
 
 void usage(const char* prog) {
   std::cout << "usage: " << prog << " -i <ID>\n"
@@ -115,15 +120,15 @@ seastar::future<> make_keyring()
   });
 }
 
-uint64_t get_nonce()
+static uint64_t get_nonce()
 {
-  if (auto pid = getpid(); pid != 1) {
-    return pid;
-  } else {
+  if (auto pid = getpid(); pid == 1 || std::getenv("CEPH_USE_RANDOM_NONCE")) {
     // we're running in a container; use a random number instead!
     std::random_device rd;
     std::default_random_engine rng{rd()};
     return std::uniform_int_distribution<uint64_t>{}(rng);
+  } else {
+    return pid;
   }
 }
 
@@ -284,7 +289,14 @@ int main(int argc, char* argv[])
                                                    nonce);
             configure_crc_handling(*msgr);
           }
+          auto store = crimson::os::FuturizedStore::create(
+            local_conf().get_val<std::string>("osd_objectstore"),
+            local_conf().get_val<std::string>("osd_data"),
+            local_conf().get_config_values(),
+            app.alien());
+
           osd.start_single(whoami, nonce,
+                           std::ref(*store),
                            cluster_msgr, client_msgr,
                            hb_front_msgr, hb_back_msgr).get();
           auto stop_osd = seastar::defer([&] {
@@ -308,15 +320,15 @@ int main(int argc, char* argv[])
           } else {
             osd.invoke_on(0, &crimson::osd::OSD::start).get();
           }
-          seastar::fprint(std::cout, "crimson startup completed.");
+          logger().info("crimson startup completed");
           should_stop.wait().get();
-          seastar::fprint(std::cout, "crimson shutting down.");
+          logger().info("crimson shutting down");
           // stop()s registered using defer() are called here
         } catch (...) {
-          seastar::fprint(std::cerr, "FATAL: startup failed: %s\n", std::current_exception());
+          logger().error("startup failed: {}", std::current_exception());
           return EXIT_FAILURE;
         }
-        seastar::fprint(std::cout, "crimson shutdown complete");
+        logger().info("crimson shutdown complete");
         return EXIT_SUCCESS;
       });
     });

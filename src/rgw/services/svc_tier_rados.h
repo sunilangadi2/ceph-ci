@@ -34,6 +34,13 @@ public:
   RGWMPObj(const string& _oid, const string& _upload_id) {
     init(_oid, _upload_id, _upload_id);
   }
+  RGWMPObj(const string& _oid, std::optional<string> _upload_id) {
+    if (_upload_id) {
+      init(_oid, *_upload_id, *_upload_id);
+    } else {
+      from_meta(_oid);
+    }
+  }
   void init(const string& _oid, const string& _upload_id) {
     init(_oid, _upload_id, _upload_id);
   }
@@ -106,6 +113,8 @@ public:
 class MultipartMetaFilter : public RGWAccessListFilter {
 public:
   MultipartMetaFilter() {}
+
+  virtual ~MultipartMetaFilter() override;
 
   /**
    * @param name [in] The object name as it appears in the bucket index.

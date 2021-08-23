@@ -771,9 +771,7 @@ void PGMapDigest::dump_pool_stats_full(
     const pool_stat_t &stat = pg_pool_sum.at(pool_id);
 
     const pg_pool_t *pool = osd_map.get_pg_pool(pool_id);
-    int ruleno = osd_map.crush->find_rule(pool->get_crush_rule(),
-                                         pool->get_type(),
-                                         pool->get_size());
+    int ruleno = pool->get_crush_rule();
     int64_t avail;
     if (avail_by_rule.count(ruleno) == 0) {
       // FIXME: we don't guarantee avail_space_by_rule is up-to-date before this function is invoked
@@ -927,7 +925,11 @@ void PGMapDigest::dump_object_stat_sum(
     if (verbose) {
       f->dump_int("quota_objects", pool->quota_max_objects);
       f->dump_int("quota_bytes", pool->quota_max_bytes);
-      f->dump_int("dirty", sum.num_objects_dirty);
+      if (pool->is_tier()) {
+        f->dump_int("dirty", sum.num_objects_dirty);
+      } else {
+        f->dump_int("dirty", 0);
+      }
       f->dump_int("rd", sum.num_rd);
       f->dump_int("rd_bytes", sum.num_rd_kb * 1024ull);
       f->dump_int("wr", sum.num_wr);
@@ -957,16 +959,17 @@ void PGMapDigest::dump_object_stat_sum(
         tbl << "N/A";
       else
         tbl << stringify(si_u_t(pool->quota_max_objects));
-
       if (pool->quota_max_bytes == 0)
         tbl << "N/A";
       else
         tbl << stringify(byte_u_t(pool->quota_max_bytes));
-
-      tbl << stringify(si_u_t(sum.num_objects_dirty))
-	  << stringify(byte_u_t(statfs.data_compressed_allocated))
-	  << stringify(byte_u_t(statfs.data_compressed_original))
-	  ;
+      if (pool->is_tier()) {
+        tbl << stringify(si_u_t(sum.num_objects_dirty));
+      } else {
+        tbl << "N/A";
+      }
+      tbl << stringify(byte_u_t(statfs.data_compressed_allocated));
+      tbl << stringify(byte_u_t(statfs.data_compressed_original));
     }
   }
 }
@@ -975,9 +978,7 @@ int64_t PGMapDigest::get_pool_free_space(const OSDMap &osd_map,
 					 int64_t poolid) const
 {
   const pg_pool_t *pool = osd_map.get_pg_pool(poolid);
-  int ruleno = osd_map.crush->find_rule(pool->get_crush_rule(),
-					pool->get_type(),
-					pool->get_size());
+  int ruleno = pool->get_crush_rule();
   int64_t avail;
   avail = get_rule_avail(ruleno);
   if (avail < 0)
@@ -1039,9 +1040,7 @@ void PGMap::get_rules_avail(const OSDMap& osdmap,
     if ((pool_id < 0) || (pg_pool_sum.count(pool_id) == 0))
       continue;
     const pg_pool_t *pool = osdmap.get_pg_pool(pool_id);
-    int ruleno = osdmap.crush->find_rule(pool->get_crush_rule(),
-					 pool->get_type(),
-					 pool->get_size());
+    int ruleno = pool->get_crush_rule();
     if (avail_map->count(ruleno) == 0)
       (*avail_map)[ruleno] = get_rule_avail(osdmap, ruleno);
   }
@@ -1921,57 +1920,6 @@ void PGMap::get_stuck_stats(
       stuck_pgs[i->first] = i->second;
     }
   }
-}
-
-bool PGMap::get_stuck_counts(const utime_t cutoff, map<string, int>& note) const
-{
-  int inactive = 0;
-  int unclean = 0;
-  int degraded = 0;
-  int undersized = 0;
-  int stale = 0;
-
-  for (auto i = pg_stat.begin();
-       i != pg_stat.end();
-       ++i) {
-    if (! (i->second.state & PG_STATE_ACTIVE)) {
-      if (i->second.last_active < cutoff)
-        ++inactive;
-    }
-    if (! (i->second.state & PG_STATE_CLEAN)) {
-      if (i->second.last_clean < cutoff)
-        ++unclean;
-    }
-    if (i->second.state & PG_STATE_DEGRADED) {
-      if (i->second.last_undegraded < cutoff)
-        ++degraded;
-    }
-    if (i->second.state & PG_STATE_UNDERSIZED) {
-      if (i->second.last_fullsized < cutoff)
-        ++undersized;
-    }
-    if (i->second.state & PG_STATE_STALE) {
-      if (i->second.last_unstale < cutoff)
-        ++stale;
-    }
-  }
-
-  if (inactive)
-    note["stuck inactive"] = inactive;
-
-  if (unclean)
-    note["stuck unclean"] = unclean;
-
-  if (undersized)
-    note["stuck undersized"] = undersized;
-
-  if (degraded)
-    note["stuck degraded"] = degraded;
-
-  if (stale)
-    note["stuck stale"] = stale;
-
-  return inactive || unclean || undersized || degraded || stale;
 }
 
 void PGMap::dump_stuck(ceph::Formatter *f, int types, utime_t cutoff) const

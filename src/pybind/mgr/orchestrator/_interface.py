@@ -736,6 +736,10 @@ def service_to_daemon_types(stype: str) -> List[str]:
     return mapping[stype]
 
 
+KNOWN_DAEMON_TYPES: List[str] = list(
+    sum((service_to_daemon_types(t) for t in ServiceSpec.KNOWN_SERVICE_TYPES), []))
+
+
 class UpgradeStatusSpec(object):
     # Orchestrator's report on what's going on with any ongoing upgrade
     def __init__(self) -> None:
@@ -1067,7 +1071,6 @@ class ServiceDescription(object):
                  spec: ServiceSpec,
                  container_image_id: Optional[str] = None,
                  container_image_name: Optional[str] = None,
-                 rados_config_location: Optional[str] = None,
                  service_url: Optional[str] = None,
                  last_refresh: Optional[datetime.datetime] = None,
                  created: Optional[datetime.datetime] = None,
@@ -1082,10 +1085,6 @@ class ServiceDescription(object):
         # (image name)
         self.container_image_id = container_image_id      # image hash
         self.container_image_name = container_image_name  # image friendly name
-
-        # Location of the service configuration when stored in rados
-        # object. Format: "rados://<pool>/[<namespace/>]<object>"
-        self.rados_config_location = rados_config_location
 
         # If the service exposes REST-like API, this attribute should hold
         # the URL.
@@ -1125,7 +1124,6 @@ class ServiceDescription(object):
         status = {
             'container_image_id': self.container_image_id,
             'container_image_name': self.container_image_name,
-            'rados_config_location': self.rados_config_location,
             'service_url': self.service_url,
             'size': self.size,
             'running': self.running,
@@ -1148,7 +1146,6 @@ class ServiceDescription(object):
         status = {
             'container_image_id': self.container_image_id,
             'container_image_name': self.container_image_name,
-            'rados_config_location': self.rados_config_location,
             'service_url': self.service_url,
             'size': self.size,
             'running': self.running,

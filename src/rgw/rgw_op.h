@@ -51,6 +51,7 @@
 #include "rgw_object_lock.h"
 #include "cls/rgw/cls_rgw_client.h"
 #include "rgw_public_access.h"
+#include "rgw_bucket_encryption.h"
 
 #include "services/svc_sys_obj.h"
 #include "services/svc_tier_rados.h"
@@ -215,7 +216,7 @@ public:
       op_ret(0) {
   }
 
-  virtual ~RGWOp() = default;
+  virtual ~RGWOp() override;
 
   int get_ret() const { return op_ret; }
 
@@ -1268,8 +1269,8 @@ public:
     *filter = nullptr;
     return 0;
   }
-  virtual int get_encrypt_filter(std::unique_ptr<rgw::putobj::DataProcessor> *filter,
-                                 rgw::putobj::DataProcessor *cb) {
+  virtual int get_encrypt_filter(std::unique_ptr<rgw::sal::DataProcessor> *filter,
+                                 rgw::sal::DataProcessor *cb) {
     return 0;
   }
 
@@ -1326,8 +1327,8 @@ public:
   void pre_exec() override;
   void execute(optional_yield y) override;
 
-  virtual int get_encrypt_filter(std::unique_ptr<rgw::putobj::DataProcessor> *filter,
-                                 rgw::putobj::DataProcessor *cb) {
+  virtual int get_encrypt_filter(std::unique_ptr<rgw::sal::DataProcessor> *filter,
+                                 rgw::sal::DataProcessor *cb) {
     return 0;
   }
   virtual int get_params(optional_yield y) = 0;
@@ -1515,6 +1516,10 @@ protected:
 
   bool need_to_check_storage_class = false;
 
+  //object lock
+  RGWObjectRetention *obj_retention;
+  RGWObjectLegalHold *obj_legal_hold;
+
   int init_common();
 
 public:
@@ -1532,6 +1537,13 @@ public:
     last_ofs = 0;
     olh_epoch = 0;
     copy_if_newer = false;
+    obj_retention = nullptr;
+    obj_legal_hold = nullptr;
+  }
+
+  ~RGWCopyObj() override {
+    delete obj_retention;
+    delete obj_legal_hold;
   }
 
   static bool parse_copy_location(const std::string_view& src,
@@ -1736,6 +1748,50 @@ public:
   uint32_t op_mask() override { return RGW_OP_TYPE_READ; }
 };
 
+class RGWPutBucketEncryption : public RGWOp {
+protected:
+  RGWBucketEncryptionConfig bucket_encryption_conf;
+  bufferlist data;
+public:
+  RGWPutBucketEncryption() = default;
+  ~RGWPutBucketEncryption() {}
+
+  int get_params(optional_yield y);
+  int verify_permission(optional_yield y) override;
+  void execute(optional_yield y) override;
+  const char* name() const override { return "put_bucket_encryption"; }
+  RGWOpType get_type() override { return RGW_OP_PUT_BUCKET_ENCRYPTION; }
+  uint32_t op_mask() override { return RGW_OP_TYPE_WRITE; }
+};
+
+class RGWGetBucketEncryption : public RGWOp {
+protected:
+  RGWBucketEncryptionConfig bucket_encryption_conf;
+public:
+  RGWGetBucketEncryption() {}
+
+  int get_params(optional_yield y);
+  int verify_permission(optional_yield y) override;
+  void execute(optional_yield y) override;
+  const char* name() const override { return "get_bucket_encryption"; }
+  RGWOpType get_type() override { return RGW_OP_GET_BUCKET_ENCRYPTION; }
+  uint32_t op_mask() override { return RGW_OP_TYPE_READ; }
+};
+
+class RGWDeleteBucketEncryption : public RGWOp {
+protected:
+  RGWBucketEncryptionConfig bucket_encryption_conf;
+public:
+  RGWDeleteBucketEncryption() {}
+
+  int get_params(optional_yield y);
+  int verify_permission(optional_yield y) override;
+  void execute(optional_yield y) override;
+  const char* name() const override { return "delete_bucket_encryption"; }
+  RGWOpType get_type() override { return RGW_OP_DELETE_BUCKET_ENCRYPTION; }
+  uint32_t op_mask() override { return RGW_OP_TYPE_WRITE; }
+};
+
 class RGWGetRequestPayment : public RGWOp {
 protected:
   bool requester_pays;
@@ -1839,7 +1895,7 @@ public:
 class RGWListMultipart : public RGWOp {
 protected:
   string upload_id;
-  map<uint32_t, RGWUploadPartInfo> parts;
+  std::unique_ptr<rgw::sal::MultipartUpload> upload;
   int max_parts;
   int marker;
   RGWAccessControlPolicy policy;
@@ -1867,26 +1923,17 @@ public:
   uint32_t op_mask() override { return RGW_OP_TYPE_READ; }
 };
 
-struct RGWMultipartUploadEntry {
-  rgw_bucket_dir_entry obj;
-  RGWMPObj mp;
-
-  friend std::ostream& operator<<(std::ostream& out,
-				  const RGWMultipartUploadEntry& e) {
-    constexpr char quote = '"';
-    return out << "RGWMultipartUploadEntry{ obj.key=" <<
-      quote << e.obj.key << quote << " mp=" << e.mp << " }";
-  }
-};
-
 class RGWListBucketMultiparts : public RGWOp {
 protected:
   string prefix;
-  RGWMPObj marker; 
-  RGWMultipartUploadEntry next_marker; 
+  string marker_meta;
+  string marker_key;
+  string marker_upload_id;
+  string next_marker_key;
+  string next_marker_upload_id;
   int max_uploads;
   string delimiter;
-  vector<RGWMultipartUploadEntry> uploads;
+  vector<std::unique_ptr<rgw::sal::MultipartUpload>> uploads;
   map<string, bool> common_prefixes;
   bool is_truncated;
   int default_max;

@@ -37,6 +37,11 @@
 #include "crimson/osd/pg_recovery.h"
 #include "crimson/osd/replicated_recovery_backend.h"
 
+using std::ostream;
+using std::set;
+using std::string;
+using std::vector;
+
 namespace {
   seastar::logger& logger() {
     return crimson::get_logger(ceph_subsys_osd);
@@ -419,7 +424,7 @@ seastar::future<> PG::read_state(crimson::os::FuturizedStore* store)
 	crimson::common::system_shutdown_exception());
   }
 
-  return seastar::do_with(PGMeta(store, pgid), [] (auto& pg_meta) {
+  return seastar::do_with(PGMeta(*store, pgid), [] (auto& pg_meta) {
     return pg_meta.load();
   }).then([this, store](auto&& ret) {
     auto [pg_info, past_intervals] = std::move(ret);
@@ -461,23 +466,17 @@ seastar::future<> PG::read_state(crimson::os::FuturizedStore* store)
 }
 
 void PG::do_peering_event(
-  const boost::statechart::event_base &evt,
-  PeeringCtx &rctx)
-{
-  peering_state.handle_event(
-    evt,
-    &rctx);
-  peering_state.write_if_dirty(rctx.transaction);
-}
-
-void PG::do_peering_event(
   PGPeeringEvent& evt, PeeringCtx &rctx)
 {
-  if (!peering_state.pg_has_reset_since(evt.get_epoch_requested())) {
-    logger().debug("{} handling {} for pg: {}", __func__, evt.get_desc(), pgid);
-    do_peering_event(evt.get_event(), rctx);
-  } else {
+  if (peering_state.pg_has_reset_since(evt.get_epoch_requested()) ||
+      peering_state.pg_has_reset_since(evt.get_epoch_sent())) {
     logger().debug("{} ignoring {} -- pg has reset", __func__, evt.get_desc());
+  } else {
+    logger().debug("{} handling {} for pg: {}", __func__, evt.get_desc(), pgid);
+    peering_state.handle_event(
+      evt.get_event(),
+      &rctx);
+    peering_state.write_if_dirty(rctx.transaction);
   }
 }
 
@@ -508,8 +507,7 @@ void PG::handle_activate_map(PeeringCtx &rctx)
 
 void PG::handle_initialize(PeeringCtx &rctx)
 {
-  PeeringState::Initialize evt;
-  peering_state.handle_event(evt, &rctx);
+  peering_state.handle_event(PeeringState::Initialize{}, &rctx);
 }
 
 
@@ -1155,6 +1153,8 @@ seastar::future<> PG::stop()
 {
   logger().info("PG {} {}", pgid, __func__);
   stopping = true;
+  check_readable_timer.cancel();
+  renew_lease_timer.cancel();
   return osdmap_gate.stop().then([this] {
     return wait_for_active_blocker.stop();
   }).then([this] {

@@ -14,6 +14,7 @@ import logging
 import errno
 import functools
 import json
+import subprocess
 import threading
 from collections import defaultdict
 from enum import IntEnum
@@ -78,6 +79,8 @@ PG_STATES = [
     "laggy",
     "wait",
 ]
+
+NFS_POOL_NAME = '.nfs'
 
 
 class CommandResult(object):
@@ -178,7 +181,7 @@ class OSDMap(ceph_module.BasePyOSDMap):
         return self._pool_raw_used_rate(pool_id)
 
     @classmethod
-    def build_simple(cls, epoch: int = 1, uuid: Optional[str] = None, num_osd: int = -1):
+    def build_simple(cls, epoch: int = 1, uuid: Optional[str] = None, num_osd: int = -1) -> 'ceph_module.BasePyOSDMap':
         return cls._build_simple(epoch, uuid, num_osd)
 
     def get_ec_profile(self, name: str) -> Optional[List[Dict[str, str]]]:
@@ -452,7 +455,7 @@ def CLICheckNonemptyFileInput(desc: str) -> Callable[[HandlerFuncType], HandlerF
 
 def CLIRequiresDB(func: HandlerFuncType) -> HandlerFuncType:
     @functools.wraps(func)
-    def check(self, *args: Any, **kwargs: Any) -> Tuple[int, str, str]:
+    def check(self: MgrModule, *args: Any, **kwargs: Any) -> Tuple[int, str, str]:
         if not self.db_ready():
             return -errno.EAGAIN, "", "mgr db not yet available"
         return func(self, *args, **kwargs)
@@ -826,7 +829,7 @@ class MgrStandbyModule(ceph_module.BaseMgrStandbyModule, MgrModuleLoggingMixin):
     def get_active_uri(self) -> str:
         return self._ceph_get_active_uri()
 
-    def get(self, data_name: str):
+    def get(self, data_name: str) -> Dict[str, Any]:
         return self._ceph_get(data_name)
 
     def get_mgr_ip(self) -> str:
@@ -1234,7 +1237,7 @@ class MgrModule(ceph_module.BaseMgrModule, MgrModuleLoggingMixin):
             self._rados.shutdown()
             self._ceph_unregister_client(addrs)
 
-    def get(self, data_name: str):
+    def get(self, data_name: str) -> Any:
         """
         Called by the plugin to fetch named cluster-wide objects from ceph-mgr.
 
@@ -1356,7 +1359,7 @@ class MgrModule(ceph_module.BaseMgrModule, MgrModuleLoggingMixin):
 
         return ret
 
-    def get_server(self, hostname) -> ServerInfoT:
+    def get_server(self, hostname: str) -> ServerInfoT:
         """
         Called by the plugin to fetch metadata about a particular hostname from
         ceph-mgr.
@@ -2048,3 +2051,33 @@ class MgrModule(ceph_module.BaseMgrModule, MgrModuleLoggingMixin):
         :param arguments: dict of key/value arguments to test
         """
         return self._ceph_is_authorized(arguments)
+
+    def send_rgwadmin_command(self, args: List[str],
+                              stdout_as_json: bool = True) -> Tuple[int, Union[str, dict], str]:
+        try:
+            cmd = [
+                    'radosgw-admin',
+                    '-c', str(self.get_ceph_conf_path()),
+                    '-k', str(self.get_ceph_option('keyring')),
+                    '-n', f'mgr.{self.get_mgr_id()}',
+                ] + args
+            self.log.debug('Executing %s', str(cmd))
+            result = subprocess.run(  # pylint: disable=subprocess-run-check
+                cmd,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                timeout=10,
+            )
+            stdout = result.stdout.decode('utf-8')
+            stderr = result.stderr.decode('utf-8')
+            if stdout and stdout_as_json:
+                stdout = json.loads(stdout)
+            if result.returncode:
+                self.log.debug('Error %s executing %s: %s', result.returncode, str(cmd), stderr)
+            return result.returncode, stdout, stderr
+        except subprocess.CalledProcessError as ex:
+            self.log.exception('Error executing radosgw-admin %s: %s', str(ex.cmd), str(ex.output))
+            raise
+        except subprocess.TimeoutExpired as ex:
+            self.log.error('Timeout (10s) executing radosgw-admin %s', str(ex.cmd))
+            raise

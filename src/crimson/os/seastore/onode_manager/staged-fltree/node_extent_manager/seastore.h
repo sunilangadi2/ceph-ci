@@ -21,7 +21,7 @@ namespace crimson::os::seastore::onode {
 class SeastoreSuper final: public Super {
  public:
   SeastoreSuper(Transaction& t, RootNodeTracker& tracker,
-                laddr_t root_addr, InterruptedTransactionManager& tm)
+                laddr_t root_addr, TransactionManager& tm)
     : Super(t, tracker), root_addr{root_addr}, tm{tm} {}
   ~SeastoreSuper() override = default;
  protected:
@@ -36,7 +36,7 @@ class SeastoreSuper final: public Super {
   }
  private:
   laddr_t root_addr;
-  InterruptedTransactionManager tm;
+  TransactionManager &tm;
 };
 
 class SeastoreNodeExtent final: public NodeExtent {
@@ -46,6 +46,12 @@ class SeastoreNodeExtent final: public NodeExtent {
   SeastoreNodeExtent(const SeastoreNodeExtent& other)
     : NodeExtent(other) {}
   ~SeastoreNodeExtent() override = default;
+
+  constexpr static extent_types_t TYPE = extent_types_t::ONODE_BLOCK_STAGED;
+  extent_types_t get_type() const override {
+    return TYPE;
+  }
+
  protected:
   NodeExtentRef mutate(context_t, DeltaRecorderURef&&) override;
 
@@ -56,29 +62,27 @@ class SeastoreNodeExtent final: public NodeExtent {
   CachedExtentRef duplicate_for_write() override {
     return CachedExtentRef(new SeastoreNodeExtent(*this));
   }
-  extent_types_t get_type() const override {
-    return extent_types_t::ONODE_BLOCK_STAGED;
-  }
   ceph::bufferlist get_delta() override {
     assert(recorder);
     return recorder->get_delta();
   }
   void apply_delta(const ceph::bufferlist&) override;
+
  private:
   DeltaRecorderURef recorder;
 };
 
 class TransactionManagerHandle : public NodeExtentManager {
  public:
-  TransactionManagerHandle(InterruptedTransactionManager tm) : tm{tm} {}
-  InterruptedTransactionManager tm;
+  TransactionManagerHandle(TransactionManager &tm) : tm{tm} {}
+  TransactionManager &tm;
 };
 
 template <bool INJECT_EAGAIN=false>
 class SeastoreNodeExtentManager final: public TransactionManagerHandle {
  public:
   SeastoreNodeExtentManager(
-      InterruptedTransactionManager tm, laddr_t min, double p_eagain)
+      TransactionManager &tm, laddr_t min, double p_eagain)
       : TransactionManagerHandle(tm), addr_min{min}, p_eagain{p_eagain} {
     if constexpr (INJECT_EAGAIN) {
       assert(p_eagain > 0.0 && p_eagain < 1.0);
@@ -96,42 +100,38 @@ class SeastoreNodeExtentManager final: public TransactionManagerHandle {
  protected:
   bool is_read_isolated() const override { return true; }
 
-  read_ertr::future<NodeExtentRef> read_extent(
+  read_iertr::future<NodeExtentRef> read_extent(
       Transaction& t, laddr_t addr) override {
     TRACET("reading at {:#x} ...", t, addr);
     if constexpr (INJECT_EAGAIN) {
       if (trigger_eagain()) {
         DEBUGT("reading at {:#x}: trigger eagain", t, addr);
-        return crimson::ct_error::eagain::make();
+        t.test_set_conflict();
+        return read_iertr::make_ready_future<NodeExtentRef>();
       }
     }
     return tm.read_extent<SeastoreNodeExtent>(t, addr
-    ).safe_then([addr, &t](auto&& e) -> read_ertr::future<NodeExtentRef> {
+    ).si_then([addr, &t](auto&& e) -> read_iertr::future<NodeExtentRef> {
       TRACET("read {}B at {:#x} -- {}",
              t, e->get_length(), e->get_laddr(), *e);
-      if (t.is_conflicted()) {
-        ERRORT("transaction conflict detected on extent read {}", t, *e);
-	assert(t.is_conflicted());
-	return crimson::ct_error::eagain::make();
-      }
-      assert(e->is_valid());
       assert(e->get_laddr() == addr);
       std::ignore = addr;
-      return read_ertr::make_ready_future<NodeExtentRef>(e);
+      return read_iertr::make_ready_future<NodeExtentRef>(e);
     });
   }
 
-  alloc_ertr::future<NodeExtentRef> alloc_extent(
+  alloc_iertr::future<NodeExtentRef> alloc_extent(
       Transaction& t, extent_len_t len) override {
     TRACET("allocating {}B ...", t, len);
     if constexpr (INJECT_EAGAIN) {
       if (trigger_eagain()) {
         DEBUGT("allocating {}B: trigger eagain", t, len);
-        return crimson::ct_error::eagain::make();
+        t.test_set_conflict();
+        return alloc_iertr::make_ready_future<NodeExtentRef>();
       }
     }
     return tm.alloc_extent<SeastoreNodeExtent>(t, addr_min, len
-    ).safe_then([len, &t](auto extent) {
+    ).si_then([len, &t](auto extent) {
       DEBUGT("allocated {}B at {:#x} -- {}",
              t, extent->get_length(), extent->get_laddr(), *extent);
       if (!extent->is_initial_pending()) {
@@ -145,7 +145,7 @@ class SeastoreNodeExtentManager final: public TransactionManagerHandle {
     });
   }
 
-  retire_ertr::future<> retire_extent(
+  retire_iertr::future<> retire_extent(
       Transaction& t, NodeExtentRef _extent) override {
     LogicalCachedExtentRef extent = _extent;
     auto addr = extent->get_laddr();
@@ -156,25 +156,27 @@ class SeastoreNodeExtentManager final: public TransactionManagerHandle {
       if (trigger_eagain()) {
         DEBUGT("retiring {}B at {:#x} -- {} : trigger eagain",
                t, len, addr, *extent);
-        return crimson::ct_error::eagain::make();
+        t.test_set_conflict();
+        return retire_iertr::now();
       }
     }
-    return tm.dec_ref(t, extent).safe_then([addr, len, &t] (unsigned cnt) {
+    return tm.dec_ref(t, extent).si_then([addr, len, &t] (unsigned cnt) {
       assert(cnt == 0);
       TRACET("retired {}B at {:#x} ...", t, len, addr);
     });
   }
 
-  getsuper_ertr::future<Super::URef> get_super(
+  getsuper_iertr::future<Super::URef> get_super(
       Transaction& t, RootNodeTracker& tracker) override {
     TRACET("get root ...", t);
     if constexpr (INJECT_EAGAIN) {
       if (trigger_eagain()) {
         DEBUGT("get root: trigger eagain", t);
-        return crimson::ct_error::eagain::make();
+        t.test_set_conflict();
+        return getsuper_iertr::make_ready_future<Super::URef>();
       }
     }
-    return tm.read_onode_root(t).safe_then([this, &t, &tracker](auto root_addr) {
+    return tm.read_onode_root(t).si_then([this, &t, &tracker](auto root_addr) {
       TRACET("got root {:#x}", t, root_addr);
       return Super::URef(new SeastoreSuper(t, tracker, root_addr, tm));
     });

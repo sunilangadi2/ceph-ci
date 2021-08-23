@@ -7,10 +7,12 @@ from os.path import normpath
 
 from rados import TimedOut, ObjectNotFound
 
+from mgr_module import NFS_POOL_NAME as POOL_NAME
+
 from .export_utils import GaneshaConfParser, Export, RawBlock, CephFSFSAL, RGWFSAL
 from .exception import NFSException, NFSInvalidOperation, FSNotFound, \
     ClusterNotFound
-from .utils import POOL_NAME, available_clusters, check_fs, restart_nfs_service
+from .utils import available_clusters, check_fs, restart_nfs_service
 
 if TYPE_CHECKING:
     from nfs.module import Module
@@ -179,10 +181,8 @@ class ExportMgr:
             })
             log.info(f"Deleted export user {export.fsal.user_id}")
         elif isinstance(export.fsal, RGWFSAL):
-            assert export.fsal.user_id
-            uid = f'nfs.{export.cluster_id}.{export.path}'
-            self._exec(['radosgw-admin', 'user', 'rm', '--uid', uid])
-            log.info(f"Deleted export RGW user {uid}")
+            # do nothing; we're using the bucket owner creds.
+            pass
 
     def _create_export_user(self, export: Export) -> None:
         if isinstance(export.fsal, CephFSFSAL):
@@ -203,16 +203,22 @@ class ExportMgr:
 
         elif isinstance(export.fsal, RGWFSAL):
             rgwfsal = cast(RGWFSAL, export.fsal)
-            rgwfsal.user_id = f'nfs.{export.cluster_id}.{export.path}'
-            ret, out, err = self._exec(['radosgw-admin', 'user', 'info', '--uid',
-                                        rgwfsal.user_id])
+            ret, out, err = self._exec(['radosgw-admin', 'bucket', 'stats', '--bucket',
+                                        export.path])
             if ret:
-                ret, out, err = self._exec(['radosgw-admin', 'user', 'create',
-                                            '--uid', rgwfsal.user_id,
-                                            '--display-name', rgwfsal.user_id])
-                if ret:
-                    raise NFSException(f'Failed to create user {rgwfsal.user_id}')
+                raise NFSException(f'Failed to fetch owner for bucket {export.path}')
             j = json.loads(out)
+            owner = j.get('owner', '')
+            rgwfsal.user_id = owner
+            ret, out, err = self._exec([
+                'radosgw-admin', 'user', 'info', '--uid', owner
+            ])
+            if ret:
+                raise NFSException(
+                    f'Failed to fetch key for bucket {export.path} owner {owner}'
+                )
+            j = json.loads(out)
+
             # FIXME: make this more tolerate of unexpected output?
             rgwfsal.access_key_id = j['keys'][0]['access_key']
             rgwfsal.secret_access_key = j['keys'][0]['secret_key']
@@ -392,9 +398,37 @@ class ExportMgr:
         try:
             if not export_config:
                 raise NFSInvalidOperation("Empty Config!!")
-            new_export = json.loads(export_config)
+            try:
+                j = json.loads(export_config)
+            except ValueError:
+                # okay, not JSON.  is it an EXPORT block?
+                try:
+                    blocks = GaneshaConfParser(export_config).parse()
+                    exports = [
+                        Export.from_export_block(block, cluster_id)
+                        for block in blocks
+                    ]
+                    j = [export.to_dict() for export in exports]
+                except Exception as ex:
+                    raise NFSInvalidOperation(f"Input must be JSON or a ganesha EXPORT block: {ex}")
+
             # check export type
-            return self._apply_export(cluster_id, new_export)
+            if isinstance(j, list):
+                ret, out, err = (0, '', '')
+                for export in j:
+                    try:
+                        r, o, e = self._apply_export(cluster_id, export)
+                    except Exception as ex:
+                        r, o, e = exception_handler(ex, f'Failed to apply export: {ex}')
+                        if r:
+                            ret = r
+                    if o:
+                        out += o + '\n'
+                    if e:
+                        err += e + '\n'
+                return ret, out, err
+            else:
+                return self._apply_export(cluster_id, j)
         except NotImplementedError:
             return 0, " Manual Restart of NFS PODS required for successful update of exports", ""
         except Exception as e:
@@ -432,14 +466,34 @@ class ExportMgr:
         osd_cap = 'allow rw pool={} namespace={}, allow rw tag cephfs data={}'.format(
             self.rados_pool, cluster_id, fs_name)
         access_type = 'r' if fs_ro else 'rw'
+        nfs_caps = [
+            'mon', 'allow r',
+            'osd', osd_cap,
+            'mds', 'allow {} path={}'.format(access_type, path)
+        ]
 
-        ret, out, err = self.mgr.check_mon_command({
+        ret, out, err = self.mgr.mon_command({
             'prefix': 'auth get-or-create',
             'entity': 'client.{}'.format(entity),
-            'caps': ['mon', 'allow r', 'osd', osd_cap, 'mds', 'allow {} path={}'.format(
-                access_type, path)],
+            'caps': nfs_caps,
             'format': 'json',
         })
+        if ret == -errno.EINVAL and 'does not match' in err:
+            ret, out, err = self.mgr.mon_command({
+                'prefix': 'auth caps',
+                'entity': 'client.{}'.format(entity),
+                'caps': nfs_caps,
+                'format': 'json',
+            })
+            if err:
+                raise NFSException(f'Failed to update caps for {entity}: {err}')
+            ret, out, err = self.mgr.mon_command({
+                'prefix': 'auth get',
+                'entity': 'client.{}'.format(entity),
+                'format': 'json',
+            })
+            if err:
+                raise NFSException(f'Failed to fetch caps for {entity}: {err}')
 
         json_res = json.loads(out)
         log.info("Export user created is {}".format(json_res[0]['entity']))
@@ -531,7 +585,6 @@ class ExportMgr:
                           access_type: str,
                           read_only: bool,
                           squash: str,
-                          realm: Optional[str] = None,
                           clients: list = []) -> Tuple[int, str, str]:
         pseudo_path = self.format_path(pseudo_path)
 

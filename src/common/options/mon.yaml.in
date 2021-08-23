@@ -39,6 +39,13 @@ options:
   default: 5
   services:
   - mon
+- name: mon_down_mkfs_grace
+  type: secs
+  level: advanced
+  desc: Period in seconds that the cluster may have a mon down after cluster creation
+  default: 1_min
+  services:
+  - mon
 - name: mon_mgr_beacon_grace
   type: secs
   level: advanced
@@ -211,13 +218,28 @@ options:
   - mon
   flags:
   - runtime
-- name: mon_log_max_summary
+- name: mon_log_max
   type: uint
   level: advanced
   desc: number of recent cluster log messages to retain
+  default: 10000
+  services:
+  - mon
+  with_legacy: true
+- name: mon_log_max_summary
+  type: uint
+  level: advanced
+  desc: number of recent cluster log messages to dedup against
   default: 50
   services:
   - mon
+  with_legacy: true
+- name: mon_log_full_interval
+  type: uint
+  level: advanced
+  desc: how many epochs before we encode a full copy of recent log keys
+  default: 50
+  services: [mon]
   with_legacy: true
 - name: mon_max_log_entries_per_event
   type: int
@@ -734,9 +756,10 @@ options:
 - name: mon_mds_force_trim_to
   type: int
   level: dev
-  desc: force mons to trim mdsmaps/fsmaps through this epoch
-  fmt_desc: Force monitor to trim mdsmaps to this point (0 disables it.
-    dangerous, use with care)
+  desc: force mons to trim mdsmaps/fsmaps up to this epoch
+  fmt_desc: Force monitor to trim mdsmaps up to but not including this FSMap
+    epoch. A value of 0 disables (the default) this config. This command is
+    potentially dangerous, use with care.
   default: 0
   services:
   - mon

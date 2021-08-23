@@ -1180,39 +1180,6 @@ void OSDMonitor::create_pending()
 	      << pending_inc.new_nearfull_ratio << dendl;
     }
   }
-
-  // Rewrite CRUSH rule IDs if they are using legacy "ruleset"
-  // structure.
-  if (osdmap.crush->has_legacy_rule_ids()) {
-    CrushWrapper newcrush = _get_pending_crush();
-
-    // First, for all pools, work out which rule they really used
-    // by resolving ruleset to rule.
-    for (const auto &i : osdmap.get_pools()) {
-      const auto pool_id = i.first;
-      const auto &pool = i.second;
-      int new_rule_id = newcrush.find_rule(pool.crush_rule,
-					   pool.type, pool.size);
-
-      dout(1) << __func__ << " rewriting pool "
-	      << osdmap.get_pool_name(pool_id) << " crush ruleset "
-	      << pool.crush_rule << " -> rule id " << new_rule_id << dendl;
-      if (pending_inc.new_pools.count(pool_id) == 0) {
-	pending_inc.new_pools[pool_id] = pool;
-      }
-      pending_inc.new_pools[pool_id].crush_rule = new_rule_id;
-    }
-
-    // Now, go ahead and renumber all the rules so that their
-    // rule_id field corresponds to their position in the array
-    auto old_to_new = newcrush.renumber_rules();
-    dout(1) << __func__ << " Rewrote " << old_to_new << " crush IDs:" << dendl;
-    for (const auto &i : old_to_new) {
-      dout(1) << __func__ << " " << i.first << " -> " << i.second << dendl;
-    }
-    pending_inc.crush.clear();
-    newcrush.encode(pending_inc.crush, mon.get_quorum_con_features());
-  }
 }
 
 creating_pgs_t
@@ -4923,8 +4890,7 @@ unsigned OSDMonitor::scan_for_creating_pgs(
       continue;
     }
     const pg_pool_t& pool = p.second;
-    int ruleno = osdmap.crush->find_rule(pool.get_crush_rule(),
-					 pool.get_type(), pool.get_size());
+    int ruleno = pool.get_crush_rule();
     if (ruleno < 0 || !osdmap.crush->rule_exists(ruleno))
       continue;
 
@@ -7380,7 +7346,7 @@ int OSDMonitor::normalize_profile(const string& profilename,
   auto it = profile.find("stripe_unit");
   if (it != profile.end()) {
     string err_str;
-    uint32_t stripe_unit = strict_iecstrtoll(it->second.c_str(), &err_str);
+    uint32_t stripe_unit = strict_iecstrtoll(it->second, &err_str);
     if (!err_str.empty()) {
       *ss << "could not parse stripe_unit '" << it->second
 	  << "': " << err_str << std::endl;
@@ -7410,7 +7376,7 @@ int OSDMonitor::crush_rule_create_erasure(const string &name,
 {
   int ruleid = osdmap.crush->get_rule_id(name);
   if (ruleid != -ENOENT) {
-    *rule = osdmap.crush->get_rule_mask_ruleset(ruleid);
+    *rule = ruleid;
     return -EEXIST;
   }
 
@@ -7418,7 +7384,7 @@ int OSDMonitor::crush_rule_create_erasure(const string &name,
 
   ruleid = newcrush.get_rule_id(name);
   if (ruleid != -ENOENT) {
-    *rule = newcrush.get_rule_mask_ruleset(ruleid);
+    *rule = ruleid;
     return -EALREADY;
   } else {
     ErasureCodeInterfaceRef erasure_code;
@@ -7678,7 +7644,7 @@ int OSDMonitor::prepare_pool_stripe_width(const unsigned pool_type,
       auto it = profile.find("stripe_unit");
       if (it != profile.end()) {
 	string err_str;
-	stripe_unit = strict_iecstrtoll(it->second.c_str(), &err_str);
+	stripe_unit = strict_iecstrtoll(it->second, &err_str);
 	ceph_assert(err_str.empty());
       }
       *stripe_width = data_chunks *
@@ -7747,7 +7713,7 @@ int OSDMonitor::prepare_pool_crush_rule(const unsigned pool_type,
 	    *crush_rule = get_replicated_stretch_crush_rule();
 	  } else {
 	    // Use default rule
-	    *crush_rule = osdmap.crush->get_osd_pool_default_crush_replicated_ruleset(cct);
+	    *crush_rule = osdmap.crush->get_osd_pool_default_crush_replicated_rule(cct);
 	  }
 	  if (*crush_rule < 0) {
 	    // Errors may happen e.g. if no valid rule is available
@@ -7787,7 +7753,7 @@ int OSDMonitor::prepare_pool_crush_rule(const unsigned pool_type,
       return -EINVAL;
     }
   } else {
-    if (!osdmap.crush->ruleset_exists(*crush_rule)) {
+    if (!osdmap.crush->rule_exists(*crush_rule)) {
       *ss << "CRUSH rule " << *crush_rule << " not found";
       return -ENOENT;
     }
@@ -7922,6 +7888,13 @@ int OSDMonitor::prepare_new_pool(string& name,
     dout(10) << "prepare_pool_crush_rule returns " << r << dendl;
     return r;
   }
+  unsigned size, min_size;
+  r = prepare_pool_size(pool_type, erasure_code_profile, repl_size,
+                        &size, &min_size, ss);
+  if (r) {
+    dout(10) << "prepare_pool_size returns " << r << dendl;
+    return r;
+  }
   if (g_conf()->mon_osd_crush_smoke_test) {
     CrushWrapper newcrush = _get_pending_crush();
     ostringstream err;
@@ -7929,6 +7902,7 @@ int OSDMonitor::prepare_new_pool(string& name,
     tester.set_min_x(0);
     tester.set_max_x(50);
     tester.set_rule(crush_rule);
+    tester.set_num_rep(size);
     auto start = ceph::coarse_mono_clock::now();
     r = tester.test_with_fork(g_conf()->mon_lease);
     auto duration = ceph::coarse_mono_clock::now() - start;
@@ -7941,20 +7915,14 @@ int OSDMonitor::prepare_new_pool(string& name,
     dout(10) << __func__ << " crush smoke test duration: "
              << duration << dendl;
   }
-  unsigned size, min_size;
-  r = prepare_pool_size(pool_type, erasure_code_profile, repl_size,
-                        &size, &min_size, ss);
-  if (r) {
-    dout(10) << "prepare_pool_size returns " << r << dendl;
-    return r;
-  }
   r = check_pg_num(-1, pg_num, size, ss);
   if (r) {
     dout(10) << "check_pg_num returns " << r << dendl;
     return r;
   }
 
-  if (!osdmap.crush->check_crush_rule(crush_rule, pool_type, size, *ss)) {
+  if (osdmap.crush->get_rule_type(crush_rule) != (int)pool_type) {
+    *ss << "crush rule " << crush_rule << " type does not match pool";
     return -EINVAL;
   }
 
@@ -8160,9 +8128,9 @@ int OSDMonitor::prepare_command_pool_set(const cmdmap_t& cmdmap,
     "csum_min_block",
   };
   if (count(begin(si_options), end(si_options), var)) {
-    n = strict_si_cast<int64_t>(val.c_str(), &interr);
+    n = strict_si_cast<int64_t>(val, &interr);
   } else if (count(begin(iec_options), end(iec_options), var)) {
-    n = strict_iec_cast<int64_t>(val.c_str(), &interr);
+    n = strict_iec_cast<int64_t>(val, &interr);
   } else {
     // parse string as both int and float; different fields use different types.
     n = strict_strtoll(val.c_str(), 10, &interr);
@@ -8212,7 +8180,8 @@ int OSDMonitor::prepare_command_pool_set(const cmdmap_t& cmdmap,
 	return -EPERM;
       }
     }
-    if (!osdmap.crush->check_crush_rule(p.get_crush_rule(), p.type, n, ss)) {
+    if (osdmap.crush->get_rule_type(p.get_crush_rule()) != (int)p.type) {
+      ss << "crush rule " << p.get_crush_rule() << " type does not match pool";
       return -EINVAL;
     }
     int r = check_pg_num(pool, p.get_pg_num(), n, &ss);
@@ -8424,7 +8393,8 @@ int OSDMonitor::prepare_command_pool_set(const cmdmap_t& cmdmap,
       ss << cpp_strerror(id);
       return -ENOENT;
     }
-    if (!osdmap.crush->check_crush_rule(id, p.get_type(), p.get_size(), ss)) {
+    if (osdmap.crush->get_rule_type(id) != (int)p.get_type()) {
+      ss << "crush rule " << id << " type does not match pool";
       return -EINVAL;
     }
     p.crush_rule = id;
@@ -9843,11 +9813,6 @@ bool OSDMonitor::prepare_command_impl(MonOpRequestRef op,
       }
     }
 
-    if (crush.has_legacy_rule_ids()) {
-      err = -EINVAL;
-      ss << "crush maps with ruleset != ruleid are no longer allowed";
-      goto reply;
-    }
     if (!validate_crush_against_features(&crush, ss)) {
       err = -EINVAL;
       goto reply;
@@ -9866,6 +9831,7 @@ bool OSDMonitor::prepare_command_impl(MonOpRequestRef op,
       CrushTester tester(crush, ess);
       tester.set_min_x(0);
       tester.set_max_x(50);
+      tester.set_num_rep(3);  // arbitrary
       auto start = ceph::coarse_mono_clock::now();
       int r = tester.test_with_fork(g_conf()->mon_lease);
       auto duration = ceph::coarse_mono_clock::now() - start;
@@ -11155,9 +11121,8 @@ bool OSDMonitor::prepare_command_impl(MonOpRequestRef op,
       // make sure it is not in use.
       // FIXME: this is ok in some situations, but let's not bother with that
       // complexity now.
-      int ruleset = newcrush.get_rule_mask_ruleset(ruleno);
-      if (osdmap.crush_rule_in_use(ruleset)) {
-	ss << "crush ruleset " << name << " " << ruleset << " is in use";
+      if (osdmap.crush_rule_in_use(ruleno)) {
+	ss << "crush rule " << name << " (" << ruleno << ") is in use";
 	err = -EBUSY;
 	goto reply;
       }
@@ -13468,9 +13433,9 @@ bool OSDMonitor::prepare_command_impl(MonOpRequestRef op,
     string tss;
     int64_t value;
     if (field == "max_objects") {
-      value = strict_sistrtoll(val.c_str(), &tss);
+      value = strict_si_cast<uint64_t>(val, &tss);
     } else if (field == "max_bytes") {
-      value = strict_iecstrtoll(val.c_str(), &tss);
+      value = strict_iecstrtoll(val, &tss);
     } else {
       ceph_abort_msg("unrecognized option");
     }
@@ -14360,13 +14325,15 @@ void OSDMonitor::try_enable_stretch_mode(stringstream& ss, bool *okay,
   dout(20) << __func__ << dendl;
   *okay = false;
   CrushWrapper crush = _get_pending_crush();
-  int dividing_id;
-  int retval = crush.get_validated_type_id(dividing_bucket, &dividing_id);
-  if (retval == -1) {
+  int dividing_id = -1;
+  if (auto type_id = crush.get_validated_type_id(dividing_bucket);
+      !type_id.has_value()) {
     ss << dividing_bucket << " is not a valid crush bucket type";
     *errcode = -ENOENT;
-    ceph_assert(!commit || retval != -1);
+    ceph_assert(!commit);
     return;
+  } else {
+    dividing_id = *type_id;
   }
   vector<int> subtrees;
   crush.get_subtree_of_type(dividing_id, &subtrees);

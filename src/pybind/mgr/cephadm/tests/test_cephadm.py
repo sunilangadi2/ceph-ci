@@ -240,6 +240,11 @@ class TestCephadm(object):
                 style='cephadm',
                 fsid='fsid',
             ),
+            dict(
+                name='haproxy.test.bar',
+                style='cephadm',
+                fsid='fsid',
+            ),
 
         ])
     ))
@@ -248,8 +253,7 @@ class TestCephadm(object):
         with with_host(cephadm_module, 'test'):
             CephadmServe(cephadm_module)._refresh_host_daemons('test')
             dds = wait(cephadm_module, cephadm_module.list_daemons())
-            assert len(dds) == 1
-            assert dds[0].name() == 'rgw.myrgw.foobar'
+            assert {d.name() for d in dds} == {'rgw.myrgw.foobar', 'haproxy.test.bar'}
 
     @mock.patch("cephadm.serve.CephadmServe._run_cephadm", _run_cephadm('[]'))
     def test_daemon_action(self, cephadm_module: CephadmOrchestrator):
@@ -863,8 +867,6 @@ spec:
             ps = PlacementSpec(hosts=['test'], count=1)
             spec = NFSServiceSpec(
                 service_id='name',
-                pool='pool',
-                namespace='namespace',
                 placement=ps)
             unmanaged_spec = ServiceSpec.from_json(spec.to_json())
             unmanaged_spec.unmanaged = True
@@ -981,8 +983,6 @@ spec:
             ), CephadmOrchestrator.apply_rgw),
             (NFSServiceSpec(
                 service_id='name',
-                pool='pool',
-                namespace='namespace'
             ), CephadmOrchestrator.apply_nfs),
             (IscsiServiceSpec(
                 service_id='name',
@@ -1108,7 +1108,7 @@ spec:
                         assert len(cephadm_module.cache.get_daemons_by_type('mgr')) == 3
 
                         # put one host in offline state and one host in maintenance state
-                        cephadm_module.inventory._inventory['test2']['status'] = 'offline'
+                        cephadm_module.offline_hosts = {'test2'}
                         cephadm_module.inventory._inventory['test3']['status'] = 'maintenance'
                         cephadm_module.inventory.save()
 

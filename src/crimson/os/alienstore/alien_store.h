@@ -43,7 +43,10 @@ public:
     AlienStore* store;
     CollectionRef ch;
   };
-  AlienStore(const std::string& path, const ConfigValues& values);
+  AlienStore(const std::string& type,
+             const std::string& path,
+             const ConfigValues& values,
+             seastar::alien::instance& alien);
   ~AlienStore() final;
 
   seastar::future<> start() final;
@@ -126,8 +129,9 @@ private:
   static constexpr int N_CORES_FOR_SEASTAR = 3;
   constexpr static unsigned MAX_KEYS_PER_OMAP_GET_CALL = 32;
   mutable std::unique_ptr<crimson::os::ThreadPool> tp;
+  const std::string type;
   const std::string path;
-  std::unique_ptr<seastar::alien::instance> alien;
+  seastar::alien::instance& alien;
   uint64_t used_bytes = 0;
   std::unique_ptr<ObjectStore> store;
   std::unique_ptr<CephContext> cct;

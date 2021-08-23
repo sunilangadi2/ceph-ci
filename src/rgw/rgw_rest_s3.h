@@ -277,8 +277,8 @@ public:
   int get_data(bufferlist& bl) override;
   void send_response() override;
 
-  int get_encrypt_filter(std::unique_ptr<rgw::putobj::DataProcessor> *filter,
-                         rgw::putobj::DataProcessor *cb) override;
+  int get_encrypt_filter(std::unique_ptr<rgw::sal::DataProcessor> *filter,
+                         rgw::sal::DataProcessor *cb) override;
   int get_decrypt_filter(std::unique_ptr<RGWGetObj_Filter>* filter,
                          RGWGetObj_Filter* cb,
                          map<string, bufferlist>& attrs,
@@ -316,8 +316,8 @@ public:
 
   void send_response() override;
   int get_data(ceph::bufferlist& bl, bool& again) override;
-  int get_encrypt_filter(std::unique_ptr<rgw::putobj::DataProcessor> *filter,
-                         rgw::putobj::DataProcessor *cb) override;
+  int get_encrypt_filter(std::unique_ptr<rgw::sal::DataProcessor> *filter,
+                         rgw::sal::DataProcessor *cb) override;
 };
 
 class RGWDeleteObj_ObjStore_S3 : public RGWDeleteObj_ObjStore {
@@ -416,6 +416,30 @@ class RGWOptionsCORS_ObjStore_S3 : public RGWOptionsCORS_ObjStore {
 public:
   RGWOptionsCORS_ObjStore_S3() {}
   ~RGWOptionsCORS_ObjStore_S3() override {}
+
+  void send_response() override;
+};
+
+class RGWGetBucketEncryption_ObjStore_S3 : public RGWGetBucketEncryption_ObjStore {
+public:
+  RGWGetBucketEncryption_ObjStore_S3() {}
+  ~RGWGetBucketEncryption_ObjStore_S3() override {}
+
+  void send_response() override;
+};
+
+class RGWPutBucketEncryption_ObjStore_S3 : public RGWPutBucketEncryption_ObjStore {
+public:
+  RGWPutBucketEncryption_ObjStore_S3() {}
+  ~RGWPutBucketEncryption_ObjStore_S3() override {}
+
+  void send_response() override;
+};
+
+class RGWDeleteBucketEncryption_ObjStore_S3 : public RGWDeleteBucketEncryption_ObjStore {
+public:
+  RGWDeleteBucketEncryption_ObjStore_S3() {}
+  ~RGWDeleteBucketEncryption_ObjStore_S3() override {}
 
   void send_response() override;
 };
@@ -699,6 +723,9 @@ protected:
   }
   bool is_block_public_access_op() {
     return s->info.args.exists("publicAccessBlock");
+  }
+  bool is_bucket_encryption_op() {
+    return s->info.args.exists("encryption");
   }
 
   RGWOp *get_obj_op(bool get_data) const;

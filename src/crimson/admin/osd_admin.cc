@@ -17,9 +17,6 @@
 #include "crimson/osd/exceptions.h"
 #include "crimson/osd/osd.h"
 
-using crimson::osd::OSD;
-using namespace crimson::common;
-
 namespace {
 seastar::logger& logger()
 {
@@ -27,9 +24,13 @@ seastar::logger& logger()
 }
 }  // namespace
 
-namespace crimson::admin {
-
+using std::string_view;
+using std::unique_ptr;
+using crimson::osd::OSD;
 using crimson::common::local_conf;
+using namespace crimson::common;
+
+namespace crimson::admin {
 
 template <class Hook, class... Args>
 std::unique_ptr<AdminSocketHook> make_asok_hook(Args&&... args)
@@ -218,7 +219,7 @@ public:
       }
       for (const auto& [labels, metric] : metric_family) {
         if (metric && metric->is_enabled()) {
-          dump_metric_value(f.get(), full_name, *metric);
+          dump_metric_value(f.get(), full_name, *metric, labels);
         }
       }
     }
@@ -231,20 +232,26 @@ private:
 
   static void dump_metric_value(Formatter* f,
                                 string_view full_name,
-                                const registered_metric& metric)
+                                const registered_metric& metric,
+                                const seastar::metrics::impl::labels_type& labels)
   {
+    f->open_object_section(full_name);
+    for (const auto& [key, value] : labels) {
+      f->dump_string(key, value);
+    }
+    auto value_name = "value";
     switch (auto v = metric(); v.type()) {
     case data_type::GAUGE:
-      f->dump_float(full_name, v.d());
+      f->dump_float(value_name, v.d());
       break;
     case data_type::COUNTER:
-      f->dump_unsigned(full_name, v.ui());
+      f->dump_unsigned(value_name, v.ui());
       break;
     case data_type::DERIVE:
-      f->dump_int(full_name, v.i());
+      f->dump_int(value_name, v.i());
       break;
     case data_type::HISTOGRAM: {
-      f->open_object_section(full_name);
+      f->open_object_section(value_name);
       auto&& h = v.get_histogram();
       f->dump_float("sum", h.sample_sum);
       f->dump_unsigned("count", h.sample_count);
@@ -262,13 +269,14 @@ private:
         f->close_section();
       }
       f->close_section(); // "buckets"
-      f->close_section(); // full_name
+      f->close_section(); // value_name
     }
       break;
     default:
       std::abort();
       break;
     }
+    f->close_section(); // full_name
   }
 };
 template std::unique_ptr<AdminSocketHook> make_asok_hook<DumpMetricsHook>();

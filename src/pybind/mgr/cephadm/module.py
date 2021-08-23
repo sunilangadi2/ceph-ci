@@ -24,7 +24,7 @@ from prettytable import PrettyTable
 from ceph.deployment import inventory
 from ceph.deployment.drive_group import DriveGroupSpec
 from ceph.deployment.service_spec import \
-    NFSServiceSpec, ServiceSpec, PlacementSpec, assert_valid_host, \
+    ServiceSpec, PlacementSpec, assert_valid_host, \
     HostPlacementSpec, IngressSpec
 from ceph.utils import str_to_datetime, datetime_to_str, datetime_now
 from cephadm.serve import CephadmServe
@@ -59,7 +59,7 @@ from .schedule import HostAssignment
 from .inventory import Inventory, SpecStore, HostCache, EventStore, ClientKeyringStore, ClientKeyringSpec
 from .upgrade import CephadmUpgrade
 from .template import TemplateMgr
-from .utils import CEPH_TYPES, GATEWAY_TYPES, forall_hosts, cephadmNoImage
+from .utils import CEPH_IMAGE_TYPES, forall_hosts, cephadmNoImage
 from .configchecks import CephadmConfigChecks
 
 try:
@@ -91,12 +91,13 @@ Host *
 """
 
 # Default container images -----------------------------------------------------
-DEFAULT_IMAGE = 'docker.io/ceph/ceph'
-DEFAULT_PROMETHEUS_IMAGE = 'docker.io/prom/prometheus:v2.18.1'
-DEFAULT_NODE_EXPORTER_IMAGE = 'docker.io/prom/node-exporter:v0.18.1'
-DEFAULT_GRAFANA_IMAGE = 'docker.io/ceph/ceph-grafana:6.7.4'
-DEFAULT_ALERT_MANAGER_IMAGE = 'docker.io/prom/alertmanager:v0.20.0'
+DEFAULT_IMAGE = 'quay.io/ceph/ceph'
+DEFAULT_PROMETHEUS_IMAGE = 'quay.io/prometheus/prometheus:v2.18.1'
+DEFAULT_NODE_EXPORTER_IMAGE = 'quay.io/prometheus/node-exporter:v0.18.1'
+DEFAULT_ALERT_MANAGER_IMAGE = 'quay.io/prometheus/alertmanager:v0.20.0'
+DEFAULT_GRAFANA_IMAGE = 'quay.io/ceph/ceph-grafana:6.7.4'
 DEFAULT_HAPROXY_IMAGE = 'docker.io/library/haproxy:2.3'
+DEFAULT_KEEPALIVED_IMAGE = 'docker.io/arcts/keepalived'
 # ------------------------------------------------------------------------------
 
 
@@ -214,7 +215,7 @@ class CephadmOrchestrator(orchestrator.Orchestrator, MgrModule,
         ),
         Option(
             'container_image_keepalived',
-            default='arcts/keepalived',
+            default=DEFAULT_KEEPALIVED_IMAGE,
             desc='Keepalived container image',
         ),
         Option(
@@ -466,6 +467,7 @@ class CephadmOrchestrator(orchestrator.Orchestrator, MgrModule,
         self.template = TemplateMgr(self)
 
         self.requires_post_actions: Set[str] = set()
+        self.need_connect_dashboard_rgw = False
 
         self.config_checker = CephadmConfigChecks(self)
 
@@ -1230,6 +1232,9 @@ class CephadmOrchestrator(orchestrator.Orchestrator, MgrModule,
 
     @orchestrator._cli_read_command('orch client-keyring ls')
     def _client_keyring_ls(self, format: Format = Format.plain) -> HandleCommandResult:
+        """
+        List client keyrings under cephadm management
+        """
         if format != Format.plain:
             output = to_format(self.keys.keys.values(), format, many=True, cls=ClientKeyringSpec)
         else:
@@ -1257,6 +1262,9 @@ class CephadmOrchestrator(orchestrator.Orchestrator, MgrModule,
             owner: Optional[str] = None,
             mode: Optional[str] = None,
     ) -> HandleCommandResult:
+        """
+        Add or update client keyring under cephadm management
+        """
         if not entity.startswith('client.'):
             raise OrchestratorError('entity must start with client.')
         if owner:
@@ -1285,6 +1293,9 @@ class CephadmOrchestrator(orchestrator.Orchestrator, MgrModule,
             self,
             entity: str,
     ) -> HandleCommandResult:
+        """
+        Remove client keyring from cephadm management
+        """
         self.keys.rm(entity)
         self._kick_serve_loop()
         return HandleCommandResult()
@@ -1337,8 +1348,7 @@ class CephadmOrchestrator(orchestrator.Orchestrator, MgrModule,
     def _get_container_image(self, daemon_name: str) -> Optional[str]:
         daemon_type = daemon_name.split('.', 1)[0]  # type: ignore
         image: Optional[str] = None
-        if daemon_type in CEPH_TYPES or \
-                daemon_type in GATEWAY_TYPES:
+        if daemon_type in CEPH_IMAGE_TYPES:
             # get container image
             image = str(self.get_foreign_ceph_option(
                 utils.name_to_config_section(daemon_name),
@@ -1382,11 +1392,17 @@ class CephadmOrchestrator(orchestrator.Orchestrator, MgrModule,
             if (
                 self.cache.host_had_daemon_refresh(h.hostname)
                 and h.status.lower() not in ['maintenance', 'offline']
+                and h.hostname not in self.offline_hosts
                 and '_no_schedule' not in h.labels
             )
         ]
 
     def _check_valid_addr(self, host: str, addr: str) -> str:
+        # make sure mgr is not resolving own ip
+        if addr in self.get_mgr_id():
+            raise OrchestratorError(
+                "Can not automatically resolve ip address of host where active mgr is running. Please explicitly provide the address.")
+
         # make sure hostname is resolvable before trying to make a connection
         try:
             ip_addr = utils.resolve_ip(addr)
@@ -1434,6 +1450,25 @@ Then run the following:
         if spec.addr == spec.hostname and ip_addr:
             spec.addr = ip_addr
 
+        if spec.hostname in self.inventory:
+            r = "Host '{}' already exists".format(spec.hostname)
+
+            # addr
+            if self.inventory.get_addr(spec.hostname) != spec.addr:
+                self.inventory.set_addr(spec.hostname, spec.addr)
+                r += ", addr updated to '{}'".format(spec.addr)
+
+            # labels
+            added_labels = []
+            for label in spec.labels:
+                if not self.inventory.has_label(spec.hostname, label):
+                    self.inventory.add_label(spec.hostname, label)
+                    added_labels.append(label)
+            if added_labels:
+                r += ", labels '{}' added".format(", ".join(added_labels))
+
+            return r
+
         # prime crush map?
         if spec.location:
             self.check_mon_command({
@@ -1443,8 +1478,7 @@ Then run the following:
                 'args': [f'{k}={v}' for k, v in spec.location.items()],
             })
 
-        if spec.hostname not in self.inventory:
-            self.cache.prime_empty_host(spec.hostname)
+        self.cache.prime_empty_host(spec.hostname)
         self.inventory.add_host(spec)
         self.offline_hosts_remove(spec.hostname)
         self.event.set()  # refresh stray health check
@@ -1695,7 +1729,7 @@ Then run the following:
 
         self._set_maintenance_healthcheck()
 
-        return f"Ceph cluster {self._cluster_fsid} on {hostname} moved to maintenance"
+        return f'Daemons for Ceph cluster {self._cluster_fsid} stopped on host {hostname}. Host {hostname} moved to maintenance mode'
 
     @handle_orch_error
     @host_exists()
@@ -1791,9 +1825,6 @@ Then run the following:
                 virtual_ip=spec.get_virtual_ip(),
                 ports=spec.get_port_start(),
             )
-            if service_type == 'nfs':
-                spec = cast(NFSServiceSpec, spec)
-                sm[nm].rados_config_location = spec.rados_config_location()
             if spec.service_type == 'ingress':
                 # ingress has 2 daemons running per host
                 sm[nm].size *= 2
@@ -1881,6 +1912,8 @@ Then run the following:
         if not dds:
             raise OrchestratorError(f'No daemons exist under service name "{service_name}".'
                                     + ' View currently running services using "ceph orch ls"')
+        if action == 'stop' and service_name.split('.')[0].lower() in ['mgr', 'mon', 'osd']:
+            return [f'Stopping entire {service_name} service is prohibited.']
         self.log.info('%s service %s' % (action.capitalize(), service_name))
         return [
             self._schedule_daemon_action(dd.name(), action)
@@ -1928,10 +1961,10 @@ Then run the following:
             if action != 'redeploy':
                 raise OrchestratorError(
                     f'Cannot execute {action} with new image. `action` needs to be `redeploy`')
-            if daemon_type not in CEPH_TYPES and daemon_type not in GATEWAY_TYPES:
+            if daemon_type not in CEPH_IMAGE_TYPES:
                 raise OrchestratorError(
                     f'Cannot redeploy {daemon_type}.{daemon_id} with a new image: Supported '
-                    f'types are: {", ".join(CEPH_TYPES + GATEWAY_TYPES)}')
+                    f'types are: {", ".join(CEPH_IMAGE_TYPES)}')
 
             self.check_mon_command({
                 'prefix': 'config set',
@@ -2276,7 +2309,7 @@ Then run the following:
                                              forcename=name)
 
             if not did_config:
-                self.cephadm_services[service_type].config(spec, daemon_id)
+                self.cephadm_services[service_type].config(spec)
                 did_config = True
 
             daemon_spec = self.cephadm_services[service_type].make_daemon_spec(
@@ -2532,7 +2565,7 @@ Then run the following:
             for name, dd in dm.items():
                 if image_info.image_id == dd.container_image_id:
                     r['up_to_date'].append(dd.name())
-                elif dd.daemon_type in (CEPH_TYPES + GATEWAY_TYPES):
+                elif dd.daemon_type in CEPH_IMAGE_TYPES:
                     r['needs_update'][dd.name()] = {
                         'current_name': dd.container_image_name,
                         'current_id': dd.container_image_id,
@@ -2647,3 +2680,7 @@ Then run the following:
             daemons_table += "{:<20} {:<15}\n".format(d.daemon_type, d.daemon_id)
 
         return "Scheduled to remove the following daemons from host '{}'\n{}".format(hostname, daemons_table)
+
+    def trigger_connect_dashboard_rgw(self) -> None:
+        self.need_connect_dashboard_rgw = True
+        self.event.set()

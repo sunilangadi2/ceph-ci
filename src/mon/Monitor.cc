@@ -493,9 +493,13 @@ abort:
 
 void Monitor::handle_signal(int signum)
 {
-  ceph_assert(signum == SIGINT || signum == SIGTERM);
   derr << "*** Got Signal " << sig_str(signum) << " ***" << dendl;
-  shutdown();
+  if (signum == SIGHUP) {
+    sighup_handler(signum);
+  } else {
+    ceph_assert(signum == SIGINT || signum == SIGTERM);
+    shutdown();
+  }
 }
 
 CompatSet Monitor::get_initial_supported_features()
@@ -607,6 +611,7 @@ const char** Monitor::get_tracked_conf_keys() const
     "clog_to_graylog",
     "clog_to_graylog_host",
     "clog_to_graylog_port",
+    "mon_cluster_log_to_file",
     "host",
     "fsid",
     // periodic health to clog
@@ -6804,10 +6809,12 @@ bool Monitor::session_stretch_allowed(MonSession *s, MonOpRequestRef& op)
   if (s->con->peer_is_osd()) {
     dout(20) << __func__ << "checking OSD session" << s << dendl;
     // okay, check the crush location
-    int barrier_id;
-    int retval = osdmon()->osdmap.crush->get_validated_type_id(stretch_bucket_divider,
-							       &barrier_id);
-    ceph_assert(retval >= 0);
+    int barrier_id = [&] {
+      auto type_id = osdmon()->osdmap.crush->get_validated_type_id(
+	stretch_bucket_divider);
+      ceph_assert(type_id.has_value());
+      return *type_id;
+    }();
     int osd_bucket_id = osdmon()->osdmap.crush->get_parent_of_type(s->con->peer_id,
 								   barrier_id);
     const auto &mi = monmap->mon_info.find(name);

@@ -48,9 +48,9 @@ General
 * `Cloudbase Solutions <https://cloudbase.it/>`_
 * `Clyso <https://www.clyso.com/en/>`_
 * `croit <http://www.croit.io/>`_
-* `DiDi <https://www.didiglobal.com/>`_
 * `EasyStack <https://www.easystack.io/>`_
 * `ISS <http://iss-integration.com/>`_
+* `Linode <https://linode.com/>`_
 * `QCT <https://www.qct.io/>`_
 * `SinoRail <http://www.sinorail.com/>`_
 * `Vexxhost <https://vexxhost.com>`_

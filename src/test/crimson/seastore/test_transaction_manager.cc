@@ -156,8 +156,6 @@ struct transaction_manager_test_t :
       public:
 	iterator(const iterator &) = default;
 	iterator(iterator &&) = default;
-	iterator &operator=(const iterator &) = default;
-	iterator &operator=(iterator &&) = default;
 
 	iterator &operator++() {
 	  assert(is_valid());
@@ -351,11 +349,11 @@ struct transaction_manager_test_t :
   };
 
   test_transaction_t create_transaction() {
-    return { itm.create_transaction(), {} };
+    return { create_mutate_transaction(), {} };
   }
 
-  test_transaction_t create_weak_transaction() {
-    return { itm.create_weak_transaction(), {} };
+  test_transaction_t create_weak_test_transaction() {
+    return { create_weak_transaction(), {} };
   }
 
   TestBlockRef alloc_extent(
@@ -363,10 +361,9 @@ struct transaction_manager_test_t :
     laddr_t hint,
     extent_len_t len,
     char contents) {
-    auto extent = itm.alloc_extent<TestBlock>(
-      *(t.t),
-      hint,
-      len).unsafe_get0();
+    auto extent = with_trans_intr(*(t.t), [&](auto& trans) {
+      return tm->alloc_extent<TestBlock>(trans, hint, len);
+    }).unsafe_get0();
     extent->set_contents(contents);
     EXPECT_FALSE(test_mappings.contains(extent->get_laddr(), t.mapping_delta));
     EXPECT_EQ(len, extent->get_length());
@@ -386,7 +383,7 @@ struct transaction_manager_test_t :
   }
 
   bool check_usage() {
-    auto t = create_weak_transaction();
+    auto t = create_weak_test_transaction();
     SpaceTrackerIRef tracker(segment_cleaner->get_empty_space_tracker());
     with_trans_intr(
       *t.t,
@@ -416,7 +413,7 @@ struct transaction_manager_test_t :
   }
 
   void check_mappings() {
-    auto t = create_weak_transaction();
+    auto t = create_weak_test_transaction();
     check_mappings(t);
   }
 
@@ -427,9 +424,9 @@ struct transaction_manager_test_t :
     ceph_assert(test_mappings.contains(addr, t.mapping_delta));
     ceph_assert(test_mappings.get(addr, t.mapping_delta).desc.len == len);
 
-    auto ext = itm.read_extent<TestBlock>(
-      *t.t, addr, len
-    ).unsafe_get0();
+    auto ext = with_trans_intr(*(t.t), [&](auto& trans) {
+      return tm->read_extent<TestBlock>(trans, addr, len);
+    }).unsafe_get0();
     EXPECT_EQ(addr, ext->get_laddr());
     return ext;
   }
@@ -443,9 +440,9 @@ struct transaction_manager_test_t :
 
     using ertr = with_trans_ertr<TransactionManager::read_extent_iertr>;
     using ret = ertr::future<TestBlockRef>;
-    auto ext = itm.read_extent<TestBlock>(
-      *t.t, addr, len
-    ).safe_then([](auto ext) -> ret {
+    auto ext = with_trans_intr(*(t.t), [&](auto& trans) {
+      return tm->read_extent<TestBlock>(trans, addr, len);
+    }).safe_then([](auto ext) -> ret {
       return ertr::make_ready_future<TestBlockRef>(ext);
     }).handle_error(
       [](const crimson::ct_error::eagain &e) {
@@ -470,7 +467,7 @@ struct transaction_manager_test_t :
       test_mappings.get(ref->get_laddr(), t.mapping_delta).desc.len ==
       ref->get_length());
 
-    auto ext = itm.get_mutable_extent(*t.t, ref)->cast<TestBlock>();
+    auto ext = tm->get_mutable_extent(*t.t, ref)->cast<TestBlock>();
     EXPECT_EQ(ext->get_laddr(), ref->get_laddr());
     EXPECT_EQ(ext->get_desc(), ref->get_desc());
     mutator.mutate(*ext, gen);
@@ -492,7 +489,9 @@ struct transaction_manager_test_t :
     ceph_assert(test_mappings.contains(offset, t.mapping_delta));
     ceph_assert(test_mappings.get(offset, t.mapping_delta).refcount > 0);
 
-    auto refcnt = itm.inc_ref(*t.t, offset).unsafe_get0();
+    auto refcnt = with_trans_intr(*(t.t), [&](auto& trans) {
+      return tm->inc_ref(trans, offset);
+    }).unsafe_get0();
     auto check_refcnt = test_mappings.inc_ref(offset, t.mapping_delta);
     EXPECT_EQ(refcnt, check_refcnt);
   }
@@ -501,7 +500,9 @@ struct transaction_manager_test_t :
     ceph_assert(test_mappings.contains(offset, t.mapping_delta));
     ceph_assert(test_mappings.get(offset, t.mapping_delta).refcount > 0);
 
-    auto refcnt = itm.dec_ref(*t.t, offset).unsafe_get0();
+    auto refcnt = with_trans_intr(*(t.t), [&](auto& trans) {
+      return tm->dec_ref(trans, offset);
+    }).unsafe_get0();
     auto check_refcnt = test_mappings.dec_ref(offset, t.mapping_delta);
     EXPECT_EQ(refcnt, check_refcnt);
     if (refcnt == 0)
@@ -536,7 +537,7 @@ struct transaction_manager_test_t :
   bool try_submit_transaction(test_transaction_t t) {
     using ertr = with_trans_ertr<TransactionManager::submit_transaction_iertr>;
     using ret = ertr::future<bool>;
-    bool success = itm.submit_transaction(*t.t
+    bool success = submit_transaction_fut(*t.t
     ).safe_then([]() -> ret {
       return ertr::make_ready_future<bool>(true);
     }).handle_error(

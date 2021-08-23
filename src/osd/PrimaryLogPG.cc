@@ -3462,7 +3462,17 @@ int PrimaryLogPG::get_manifest_ref_count(ObjectContextRef obc, std::string& fp_o
 
 bool PrimaryLogPG::recover_adjacent_clones(ObjectContextRef obc, OpRequestRef op)
 {
-  if (!obc->obs.oi.manifest.is_chunked() || !obc->ssc || !obc->ssc->snapset.clones.size()) {
+  if (!obc->ssc || !obc->ssc->snapset.clones.size()) {
+    return false;
+  }
+  MOSDOp *m = static_cast<MOSDOp*>(op->get_nonconst_req());
+  bool has_manifest_op = std::any_of(
+    begin(m->ops),
+    end(m->ops),
+    [](const auto& osd_op) {
+       return osd_op.op.op == CEPH_OSD_OP_SET_CHUNK;
+    });
+  if (!obc->obs.oi.manifest.is_chunked() && !has_manifest_op) {
     return false;
   }
   ceph_assert(op);
@@ -4799,7 +4809,7 @@ int PrimaryLogPG::trim_object(
 	ctx->mtime,
 	0)
       );
-    derr << "removing snap head" << dendl;
+    dout(10) << "removing snap head" << dendl;
     object_info_t& oi = head_obc->obs.oi;
     ctx->delta_stats.num_objects--;
     if (oi.is_dirty()) {
@@ -6801,8 +6811,7 @@ int PrimaryLogPG::do_osd_ops(OpContext *ctx, vector<OSDOp>& ops)
 	if (result < 0)
 	  break;
 
-	ceph_assert(op.extent.length);
-	if (obs.exists && !oi.is_whiteout()) {
+	if (op.extent.length && obs.exists && !oi.is_whiteout()) {
 	  t->zero(soid, op.extent.offset, op.extent.length);
 	  interval_set<uint64_t> ch;
 	  ch.insert(op.extent.offset, op.extent.length);

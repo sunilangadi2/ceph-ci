@@ -30,6 +30,8 @@ function munge_ceph_spec_in {
     shift
     local for_make_check=$1
     shift
+    local with_jaeger=$1
+    shift
     local OUTFILE=$1
     sed -e 's/@//g' < ceph.spec.in > $OUTFILE
     # http://rpm.org/user_doc/conditional_builds.html
@@ -259,7 +261,6 @@ if [ x$(uname)x = xFreeBSDx ]; then
         devel/libtool \
         devel/google-perftools \
         lang/cython \
-        devel/py-virtualenv \
         databases/leveldb \
         net/openldap24-client \
         archivers/snappy \
@@ -307,7 +308,7 @@ else
     [ $WITH_PMEM ] && with_pmem=true || with_pmem=false
     source /etc/os-release
     case "$ID" in
-    debian|ubuntu|devuan|elementary)
+    debian|ubuntu|devuan|elementary|softiron)
         echo "Using apt-get to install dependencies"
         $SUDO apt-get install -y devscripts equivs
         $SUDO apt-get install -y dpkg-dev
@@ -351,6 +352,9 @@ else
 	if $with_seastar; then
 	    build_profiles+=",pkg.ceph.crimson"
 	fi
+	if $with_jaeger; then
+	    build_profiles+=",pkg.ceph.jaeger"
+	fi
 	$SUDO env DEBIAN_FRONTEND=noninteractive mk-build-deps \
 	      --build-profiles "${build_profiles#,}" \
 	      --install --remove \
@@ -385,7 +389,7 @@ else
                 fi
                 ;;
         esac
-        munge_ceph_spec_in $with_seastar $with_zbd $for_make_check $DIR/ceph.spec
+        munge_ceph_spec_in $with_seastar $with_zbd $for_make_check $with_jaeger $DIR/ceph.spec
         # for python3_pkgversion macro defined by python-srpm-macros, which is required by python3-devel
         $SUDO dnf install -y python3-devel
         $SUDO $builddepcmd $DIR/ceph.spec 2>&1 | tee $DIR/yum-builddep.out
@@ -397,7 +401,7 @@ else
         echo "Using zypper to install dependencies"
         zypp_install="zypper --gpg-auto-import-keys --non-interactive install --no-recommends"
         $SUDO $zypp_install systemd-rpm-macros rpm-build || exit 1
-        munge_ceph_spec_in $with_seastar false $for_make_check $DIR/ceph.spec
+        munge_ceph_spec_in $with_seastar false $for_make_check $with_jaeger $DIR/ceph.spec
         $SUDO $zypp_install $(rpmspec -q --buildrequires $DIR/ceph.spec) || exit 1
         ;;
     *)
@@ -426,7 +430,7 @@ function activate_virtualenv() {
     local env_dir=$top_srcdir/install-deps-python3
 
     if ! test -d $env_dir ; then
-        virtualenv --python=python3 ${env_dir}
+        python3 -m venv ${env_dir}
         . $env_dir/bin/activate
         if ! populate_wheelhouse install ; then
             rm -rf $env_dir

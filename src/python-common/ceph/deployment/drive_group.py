@@ -337,21 +337,5 @@ class DriveGroupSpec(ServiceSpec):
                 self.service_id,
                 'filter_logic must be either <AND> or <OR>')
 
-    def __repr__(self) -> str:
-        keys = [
-            key for key in self._supported_features if getattr(self, key) is not None
-        ]
-        if 'encrypted' in keys and not self.encrypted:
-            keys.remove('encrypted')
-        if 'objectstore' in keys and self.objectstore == 'bluestore':
-            keys.remove('objectstore')
-        return "DriveGroupSpec(name={}->{})".format(
-            self.service_id,
-            ', '.join('{}={}'.format(key, repr(getattr(self, key))) for key in keys)
-        )
-
-    def __eq__(self, other: Any) -> bool:
-        return repr(self) == repr(other)
-
 
 yaml.add_representer(DriveGroupSpec, DriveGroupSpec.yaml_representer)

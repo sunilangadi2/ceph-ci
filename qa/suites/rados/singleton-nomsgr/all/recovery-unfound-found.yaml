@@ -19,6 +19,7 @@ tasks:
       osd:
         osd recovery sleep: .1
         osd objectstore: filestore
+        osd op queue: wpq
     log-ignorelist:
       - \(POOL_APP_NOT_ENABLED\)
       - \(OSDMAP_FLAGS\)

@@ -38,12 +38,17 @@ DATA_PATH = '/var/lib/ceph/{type_}/{cluster}-{id_}'
 log = logging.getLogger(__name__)
 
 
-def generate_caps(type_):
+def generate_caps(type_, override_system_defaults=False):
     """
     Each call will return the next capability for each system type
     (essentially a subset of possible role values).  Valid types are osd,
     mds and client.
+
+    If override_system_defaults is set, override the default system caps.
     """
+    if not override_system_defaults:
+        return
+
     defaults = dict(
         osd=dict(
             mon='allow *',

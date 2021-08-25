@@ -1023,6 +1023,7 @@ def cluster(ctx, config):
     keys_fp.seek(0)
     teuthology.feed_many_stdins_and_close(keys_fp, writes)
     run.wait(writes)
+    """
     for type_, id_, data in keys:
         run.wait(
             mons.run(
@@ -1041,6 +1042,7 @@ def cluster(ctx, config):
                 wait=False,
             ),
         )
+    """
 
     log.info('Running mkfs on mon nodes...')
     for remote, roles_for_host in mons.remotes.items():

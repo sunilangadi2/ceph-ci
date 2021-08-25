@@ -8624,8 +8624,8 @@ TEST_P(StoreTestSpecificAUSize, BluestoreBrokenNoSharedBlobRepairTest) {
   {
     cerr << "fscking/fixing" << std::endl;
     bstore->umount();
-    ASSERT_EQ(bstore->fsck(false), 3);
-    ASSERT_LE(bstore->repair(false), 3);
+    ASSERT_EQ(bstore->fsck(false), 2);
+    ASSERT_LE(bstore->repair(false), 2);
     ASSERT_EQ(bstore->fsck(false), 0);
   }
 

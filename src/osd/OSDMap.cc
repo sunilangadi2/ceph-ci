@@ -5631,7 +5631,7 @@ void OSDMap::check_health(CephContext *cct,
         }
 	continue;
       }
-      if (is_out(i) || (osd_state[i] & CEPH_OSD_NEW))
+      if (is_out(i))
         continue;
       ++num_in_osds;
       if (down_in_osds.count(i) || up_in_osds.count(i))

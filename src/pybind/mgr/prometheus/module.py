@@ -288,6 +288,11 @@ class Module(MgrModule):
             default='log'
         ),
         Option(
+            'caching',
+            type='bool',
+            default=True,
+        ),
+        Option(
             'rbd_stats_pools',
             default=''
         ),
@@ -308,6 +313,7 @@ class Module(MgrModule):
         self.collect_lock = threading.Lock()
         self.collect_time = 0.0
         self.scrape_interval: float = 15.0
+        self.caching = True
         self.stale_cache_strategy: str = self.STALE_CACHE_FAIL
         self.collect_cache: Optional[str] = None
         self.rbd_stats = {
@@ -1323,6 +1329,11 @@ class Module(MgrModule):
 
             @staticmethod
             def _metrics(instance: 'Module') -> Optional[str]:
+                if not self.caching:
+                    self.log.info('Cache disabled, collecting and returning without cache')
+                    cherrypy.response.headers['Content-Type'] = 'text/plain'
+                    return self.collect()
+
                 # Return cached data if available
                 if not instance.collect_cache:
                     raise cherrypy.HTTPError(503, 'No cached data available yet')
@@ -1378,7 +1389,9 @@ class Module(MgrModule):
             (server_addr, server_port)
         )
 
-        self.metrics_thread.start()
+        self.caching = cast(bool, self.get_localized_module_option('caching', True))
+        if self.caching:
+            self.metrics_thread.start()
 
         # Publish the URI that others may use to access the service we're
         # about to start serving

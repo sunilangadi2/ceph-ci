@@ -6065,4 +6065,5 @@ options:
   default: false
   services:
   - rgw
+  - osd
   with_legacy: true

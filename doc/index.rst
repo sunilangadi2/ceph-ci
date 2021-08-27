@@ -109,4 +109,4 @@ about Ceph, see our `Architecture`_ section.
    releases/index
    security/index
    Glossary <glossary>
-   Tracing <jaegertracing>
+   Tracing <jaegertracing/index>

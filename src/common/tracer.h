@@ -21,6 +21,7 @@ class Tracer {
 
  public:
   Tracer(jaegertracing::Config& conf);
+  Tracer(opentracing::string_view service_name);
   bool is_enabled() const;
   // creates and returns a new span with `trace_name`
   // this span represents a trace, since it has no parent.

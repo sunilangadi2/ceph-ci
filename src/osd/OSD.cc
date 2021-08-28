@@ -8467,6 +8467,7 @@ void OSD::_finish_splits(set<PGRef>& pgs)
        i != pgs.end();
        ++i) {
     PG *pg = i->get();
+    ceph_assert(pg && "got relevant pg");
 
     PeeringCtx rctx;
     pg->lock();
@@ -10555,10 +10556,11 @@ void OSDShard::prime_merges(const OSDMapRef& as_of_osdmap,
 
 void OSDShard::register_and_wake_split_child(PG *pg)
 {
+  dout(10) <<  __func__ << ": " << pg << " #:" << pg_slots.size() << dendl;
   epoch_t epoch;
   {
     std::lock_guard l(shard_lock);
-    dout(10) << pg->pg_id << " " << pg << dendl;
+    dout(10) << __func__ << ": " << pg->pg_id << " " << pg << dendl;
     auto p = pg_slots.find(pg->pg_id);
     ceph_assert(p != pg_slots.end());
     auto *slot = p->second.get();

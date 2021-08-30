@@ -1541,10 +1541,9 @@ void ECBackend::submit_transaction(
   op->tid = tid;
   op->reqid = reqid;
   op->client_op = client_op;
-  if (client_op)
-    op->trace = client_op->pg_trace;
   jspan span;
   if (client_op) {
+    op->trace = client_op->pg_trace;
     span = tracer.start_span("ECBackend::submit_transaction", client_op->osd_parent_span);
   }
   dout(10) << __func__ << ": op " << *op << " starting" << dendl;

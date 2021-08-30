@@ -1793,7 +1793,7 @@ void PrimaryLogPG::do_request(
     op->pg_trace.init("pg op", &trace_endpoint, &op->osd_trace);
     op->pg_trace.event("do request");
   }
-  auto span = tracer.start_span(__func__, op->osd_parent_span);
+  [[maybe_unused]] auto span = tracer.start_span(__func__, op->osd_parent_span);
 
 // make sure we have a new enough map
   auto p = waiting_for_map.find(op->get_source());
@@ -2157,7 +2157,7 @@ void PrimaryLogPG::do_op(OpRequestRef& op)
 	   << " flags " << ceph_osd_flag_string(m->get_flags())
 	   << dendl;
 
-  auto span = tracer.start_span(__func__, op->osd_parent_span);
+  [[maybe_unused]] auto span = tracer.start_span(__func__, op->osd_parent_span);
 
   // missing object?
   if (is_unreadable_object(head)) {
@@ -4169,7 +4169,7 @@ void PrimaryLogPG::execute_ctx(OpContext *ctx)
         reqid.name._num, reqid.tid, reqid.inc);
   }
 
-  auto span = tracer.start_span(__func__, ctx->op->osd_parent_span);
+  [[maybe_unused]] auto span = tracer.start_span(__func__, ctx->op->osd_parent_span);
 
   int result = prepare_transaction(ctx);
 
@@ -5932,7 +5932,7 @@ int PrimaryLogPG::do_osd_ops(OpContext *ctx, vector<OSDOp>& ops)
 
   dout(10) << "do_osd_op " << soid << " " << ops << dendl;
 
-  auto span = tracer.start_span(__func__, ctx->op->osd_parent_span);
+  [[maybe_unused]] auto span = tracer.start_span(__func__, ctx->op->osd_parent_span);
 
   ctx->current_osd_subop_num = 0;
   for (auto p = ops.begin(); p != ops.end(); ++p, ctx->current_osd_subop_num++, ctx->processed_subop_count++) {
@@ -8892,7 +8892,7 @@ void PrimaryLogPG::finish_ctx(OpContext *ctx, int log_op_type, int result)
 	   << dendl;
   utime_t now = ceph_clock_now();
 
-  auto span = tracer.start_span(__func__, ctx->op->osd_parent_span);
+  [[maybe_unused]] auto span = tracer.start_span(__func__, ctx->op->osd_parent_span);
 
   // Drop the reference if deduped chunk is modified
   if (ctx->new_obs.oi.is_dirty() &&
@@ -11277,7 +11277,7 @@ void PrimaryLogPG::op_applied(const eversion_t &applied_version)
 
 void PrimaryLogPG::eval_repop(RepGather *repop)
 {
-  auto span = tracer.start_span(__func__, repop->op->osd_parent_span);
+  [[maybe_unused]] auto span = tracer.start_span(__func__, repop->op->osd_parent_span);
 
   dout(10) << "eval_repop " << *repop
     << (repop->op && repop->op->get_req<MOSDOp>() ? "" : " (no op)") << dendl;
@@ -11334,7 +11334,7 @@ void PrimaryLogPG::issue_repop(RepGather *repop, OpContext *ctx)
           << " o " << soid
           << dendl;
 
-  auto span = tracer.start_span(__func__, ctx->op->osd_parent_span);
+  [[maybe_unused]] auto span = tracer.start_span(__func__, ctx->op->osd_parent_span);
 
   repop->v = ctx->at_version;
 

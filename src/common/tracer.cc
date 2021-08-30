@@ -44,7 +44,10 @@ std::unique_ptr<opentracing::Span> Tracer::start_trace(opentracing::string_view 
 
 std::unique_ptr<opentracing::Span> Tracer::start_span(opentracing::string_view span_name, std::unique_ptr<opentracing::Span>& parent_span) {
   if (is_enabled()) {
-    return open_tracer->StartSpan(span_name, { opentracing::ChildOf(&parent_span->context()) });
+    if (parent_span) {
+      return open_tracer->StartSpan(span_name, { opentracing::ChildOf(&parent_span->context()) });
+    }
+    return open_tracer->StartSpan(span_name);
   }
   return noop_tracer->StartSpan(span_name);
 }

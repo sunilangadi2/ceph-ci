@@ -7286,7 +7286,6 @@ void OSD::ms_fast_dispatch(Message *m)
     m->put();
     return;
   }
-
   // peering event?
   switch (m->get_type()) {
   case CEPH_MSG_PING:
@@ -7336,11 +7335,9 @@ void OSD::ms_fast_dispatch(Message *m)
 #endif
     tracepoint(osd, ms_fast_dispatch, reqid.name._type,
         reqid.name._num, reqid.tid, reqid.inc);
-
+  }
   auto op_req_span = tracer.start_span("op-request-created", dispatch_span);
   std::swap(op->osd_parent_span, op_req_span);
-
-  }
 
   if (m->trace)
     op->osd_trace.init("osd op", &trace_endpoint, &m->trace);
@@ -9890,16 +9887,16 @@ void OSD::enqueue_op(spg_t pg, OpRequestRef&& op, epoch_t epoch)
   op->osd_trace.event("enqueue op");
   op->osd_trace.keyval("priority", priority);
   op->osd_trace.keyval("cost", cost);
-  if (op->osd_parent_span) {
-    auto enqueue_span = tracer.start_span(__func__, op->osd_parent_span);
-    enqueue_span->Log({
-	{"priority", priority},
-	{"cost", cost},
-	{"epoch", epoch},
-	{"owner", owner},
-	{"type", type}
-	});
-  }
+
+  auto enqueue_span = tracer.start_span(__func__, op->osd_parent_span);
+  enqueue_span->Log({
+    {"priority", priority},
+    {"cost", cost},
+    {"epoch", epoch},
+    {"owner", owner},
+    {"type", type}
+    });
+
   op->mark_queued_for_pg();
   logger->tinc(l_osd_op_before_queue_op_lat, latency);
   if (type == MSG_OSD_PG_PUSH ||

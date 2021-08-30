@@ -938,12 +938,14 @@ void ECBackend::handle_sub_write(
   ECSubWrite &op,
   const ZTracer::Trace &trace)
 {
-  if (msg)
+  jspan span;
+  if (msg) {
     msg->mark_event("sub_op_started");
-  trace.event("handle_sub_write");
-  if (msg && msg->osd_parent_span) {
-    tracer.start_span(__func__, msg->osd_parent_span);
+    span = tracer.start_span(__func__, msg->osd_parent_span);
+
   }
+  trace.event("handle_sub_write");
+
   if (!get_parent()->pgb_is_primary())
     get_parent()->update_stats(op.stats);
   ObjectStore::Transaction localt;
@@ -1541,9 +1543,9 @@ void ECBackend::submit_transaction(
   op->client_op = client_op;
   if (client_op)
     op->trace = client_op->pg_trace;
-
-  if (client_op && client_op->osd_parent_span) {
-    tracer.start_span("ECBackend::submit_transaction", client_op->osd_parent_span);
+  jspan span;
+  if (client_op) {
+    span = tracer.start_span("ECBackend::submit_transaction", client_op->osd_parent_span);
   }
   dout(10) << __func__ << ": op " << *op << " starting" << dendl;
   start_rmw(op, std::move(t));
@@ -2113,9 +2115,9 @@ bool ECBackend::try_reads_to_commit()
       messages.push_back(std::make_pair(i->osd, r));
     }
   }
-
-   if (op->client_op && op->client_op->osd_parent_span) {
-      tracer.start_span("EC sub write", op->client_op->osd_parent_span);
+  jspan span;
+   if (op->client_op) {
+     span = tracer.start_span("EC sub write", op->client_op->osd_parent_span);
     }
 
   if (!messages.empty()) {

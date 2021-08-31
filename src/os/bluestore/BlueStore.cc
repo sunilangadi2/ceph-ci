@@ -17147,14 +17147,18 @@ int BlueStore::copy_allocator(Allocator* src_alloc, Allocator* dest_alloc, uint6
   dout(5) << "copy num_entries=" << idx << dendl;
   if (idx > *p_num_entries) {
     derr << "****spillover, num_entries=" << *p_num_entries << ", spillover=" << (idx - *p_num_entries) << dendl;
-    return -1;
+    //return -1;
+    ceph_assert(idx <= *p_num_entries);
   }
 
+#if 0
+  // probably safe to continue
   if (null_extent) {
     derr << "null entries were found!" << dendl;
     return -1;
   }
-
+#endif
+  
   *p_num_entries = idx;
 
   for (idx = 0; idx < *p_num_entries; idx++) {
@@ -17538,6 +17542,10 @@ void BlueStore::read_allocation_from_single_onode(
       stats.compressed_blob_count++;
     }
 
+    if (blob.is_shared()) {
+      stats.shared_blobs_count++;
+    }
+
     // process all physical extent in this blob
     for (auto p_extent = p_extent_vec.begin(); p_extent != p_extent_vec.end(); p_extent++) {
       auto offset = p_extent->offset;
@@ -17551,7 +17559,8 @@ void BlueStore::read_allocation_from_single_onode(
 
       // skip repeating extents
       auto lcl_itr = lcl_extnt_map.find(offset);
-      if (lcl_itr != lcl_extnt_map.end()) {
+      // shared blobs might have differnt length
+      if (!blob.is_shared() && (lcl_itr != lcl_extnt_map.end()) ) {
 	// repeated extents must have the same length!
 
 	// --Note--

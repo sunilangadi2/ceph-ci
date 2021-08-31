@@ -892,9 +892,7 @@ void rgw::auth::RoleApplier::modify_request_state(const DoutPrefixProvider *dpp,
   }
 
   s->token_claims.emplace_back("sts");
-  s->token_claims.emplace_back("role_name:" + role.tenant + "$" + role.name);
-  s->token_claims.emplace_back("role_session:" + token_attrs.role_session_name);
-  for (auto& it : token_attrs.token_claims) {
+  for (auto& it : s->token_claims) {
     s->token_claims.emplace_back(it);
   }
 }

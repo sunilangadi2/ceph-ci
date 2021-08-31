@@ -4786,7 +4786,7 @@ options:
   type: bool
   level: dev
   desc: Remove allocation info from RocksDB and store the info in a new allocation file
-  default: true
+  default: false
   with_legacy: true
 - name: bluestore_fsck_on_umount_deep
   type: bool

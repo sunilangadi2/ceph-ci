@@ -295,10 +295,6 @@ class DriveGroupSpec(ServiceSpec):
 
         assert self.service_id is not None  # verified in super().validate
 
-        if not isinstance(self.placement.host_pattern, str) and \
-                self.placement.host_pattern is not None:
-            raise DriveGroupValidationError(self.service_id, 'host_pattern must be of type string')
-
         if self.data_devices is None:
             raise DriveGroupValidationError(self.service_id, "`data_devices` element is required.")
 

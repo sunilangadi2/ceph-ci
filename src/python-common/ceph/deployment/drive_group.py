@@ -239,10 +239,6 @@ class DriveGroupSpec(ServiceSpec):
                specification
         """
         args: Dict[str, Any] = {}
-        # legacy json (pre Octopus)
-        if 'host_pattern' in json_drive_group and 'placement' not in json_drive_group:
-            json_drive_group['placement'] = {'host_pattern': json_drive_group['host_pattern']}
-            del json_drive_group['host_pattern']
 
         args['service_type'] = json_drive_group.pop('service_type', 'osd')
 

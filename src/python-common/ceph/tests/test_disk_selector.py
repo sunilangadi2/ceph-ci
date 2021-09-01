@@ -424,19 +424,9 @@ class TestDriveGroup(object):
             limit=0,
         )
 
-    def test_journal_device_prop(self, test_fix):
-        test_fix = test_fix(disk_format='filestore')
-        assert test_fix.journal_devices == DeviceSelection(
-            size=':20G'
-        )
-
     def test_wal_device_prop_empty(self, test_fix):
         test_fix = test_fix(empty=True)
         assert test_fix.wal_devices is None
-
-    def test_filestore_format_prop(self, test_fix):
-        test_fix = test_fix(disk_format='filestore')
-        assert test_fix.objectstore == 'filestore'
 
     def test_bluestore_format_prop(self, test_fix):
         test_fix = test_fix(disk_format='bluestore')
@@ -445,10 +435,6 @@ class TestDriveGroup(object):
     def test_default_format_prop(self, test_fix):
         test_fix = test_fix(empty=True)
         assert test_fix.objectstore == 'bluestore'
-
-    def test_journal_size(self, test_fix):
-        test_fix = test_fix(disk_format='filestore')
-        assert test_fix.journal_size == '5G'
 
     def test_osds_per_device(self, test_fix):
         test_fix = test_fix(osds_per_device='3')

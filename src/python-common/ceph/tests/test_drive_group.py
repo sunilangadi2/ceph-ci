@@ -24,6 +24,16 @@ from ceph.deployment.drive_group import DriveGroupSpec, DeviceSelection, \
             }
         ]
     ),
+    (
+        [
+            {
+                'service_type': 'osd',
+                'service_id': 'testing_drivegroup',
+                'data_devices': {'paths': ['/dev/sda']},
+                'unmanaged': True,
+            }
+        ]
+    ),
 ])
 def test_DriveGroup(test_input):
     dg = [DriveGroupSpec.from_json(inp) for inp in test_input][0]
@@ -98,6 +108,13 @@ spec:
 """
     ),
     (
+        'Failed to validate OSD spec "mydg": `placement` key required', """
+service_type: osd
+service_id: mydg
+data_devices:
+  all: true
+"""
+    ),
 ])
 def test_DriveGroup_fail(match, test_input):
     with pytest.raises(SpecValidationError, match=match):

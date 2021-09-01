@@ -238,27 +238,20 @@ class DriveGroupSpec(ServiceSpec):
         :param json_drive_group: A valid json string with a Drive Group
                specification
         """
-        args: Dict[str, Any] = {}
-
-        args['service_type'] = json_drive_group.pop('service_type', 'osd')
+        args: Dict[str, Any] = json_drive_group.copy()
 
         # service_id was not required in early octopus.
-        args['service_id'] = json_drive_group.pop('service_id', '')
+        if 'service_id' not in args:
+            args['service_id'] = ''
         s_id = args['service_id']
-        try:
-            args['placement'] = PlacementSpec.from_json(json_drive_group.pop('placement'))
-        except KeyError:
-            raise DriveGroupValidationError(s_id, '`placement` key required')
 
         # spec: was not mandatory in octopus
-        if 'spec' in json_drive_group:
-            args.update(cls._drive_group_spec_from_json(s_id, json_drive_group.pop('spec')))
+        if 'spec' in args:
+            args['spec'].update(cls._drive_group_spec_from_json(s_id, args['spec']))
         else:
-            args.update(cls._drive_group_spec_from_json(s_id, json_drive_group))
+            args.update(cls._drive_group_spec_from_json(s_id, args))
 
-        args['unmanaged'] = json_drive_group.pop('unmanaged', False)
-
-        return cls(**args)
+        return super(DriveGroupSpec, cls)._from_json_impl(args)
 
     @classmethod
     def _drive_group_spec_from_json(cls, name: str, json_drive_group: dict) -> dict:
@@ -290,6 +283,9 @@ class DriveGroupSpec(ServiceSpec):
         super(DriveGroupSpec, self).validate()
 
         assert self.service_id is not None  # verified in super().validate
+
+        if not self.unmanaged and self.placement.is_empty():
+            raise DriveGroupValidationError(self.service_id, '`placement` key required')
 
         if self.data_devices is None:
             raise DriveGroupValidationError(self.service_id, "`data_devices` element is required.")

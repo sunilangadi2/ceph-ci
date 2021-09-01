@@ -293,8 +293,7 @@ class DriveGroupSpec(ServiceSpec):
         # type: () -> None
         super(DriveGroupSpec, self).validate()
 
-        if not self.service_id:
-            raise DriveGroupValidationError('', 'service_id is required')
+        assert self.service_id is not None  # verified in super().validate
 
         if not isinstance(self.placement.host_pattern, str) and \
                 self.placement.host_pattern is not None:

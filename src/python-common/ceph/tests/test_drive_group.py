@@ -97,6 +97,7 @@ spec:
   unknown_key: 1
 """
     ),
+    (
 ])
 def test_DriveGroup_fail(match, test_input):
     with pytest.raises(SpecValidationError, match=match):

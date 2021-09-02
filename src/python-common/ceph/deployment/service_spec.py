@@ -295,8 +295,12 @@ class PlacementSpec(object):
             raise SpecValidationError(
                 "count-per-host cannot be combined explicit placement with names or networks"
             )
-        if self.host_pattern and self.hosts:
-            raise SpecValidationError('cannot combine host patterns and hosts')
+        if self.host_pattern:
+            if not isinstance(self.host_pattern, str):
+                raise SpecValidationError('host_pattern must be of type string')
+            if self.hosts:
+                raise SpecValidationError('cannot combine host patterns and hosts')
+
         for h in self.hosts:
             h.validate()
 
@@ -595,7 +599,8 @@ class ServiceSpec(object):
         if self.service_id:
             ret['service_id'] = self.service_id
         ret['service_name'] = self.service_name()
-        ret['placement'] = self.placement.to_json()
+        if self.placement.to_json():
+            ret['placement'] = self.placement.to_json()
         if self.unmanaged:
             ret['unmanaged'] = self.unmanaged
         if self.networks:
@@ -618,11 +623,12 @@ class ServiceSpec(object):
             raise SpecValidationError('Cannot add Service: type required')
 
         if self.service_type in self.REQUIRES_SERVICE_ID:
-            if not self.service_id:
-                raise SpecValidationError('Cannot add Service: id required')
-            if not re.match('^[a-zA-Z0-9_.-]+$', self.service_id):
-                raise SpecValidationError('Service id contains invalid characters, '
-                                          'only [a-zA-Z0-9_.-] allowed')
+            if self.service_type != 'osd' or self.service_id != '':
+                if not self.service_id:
+                    raise SpecValidationError('Cannot add Service: id required')
+                if not re.match('^[a-zA-Z0-9_.-]+$', self.service_id):
+                    raise SpecValidationError('Service id contains invalid characters, '
+                                              'only [a-zA-Z0-9_.-] allowed')
         elif self.service_id:
             raise SpecValidationError(
                     f'Service of type \'{self.service_type}\' should not contain a service id')
@@ -644,7 +650,8 @@ class ServiceSpec(object):
                 )
 
     def __repr__(self) -> str:
-        return "{}({!r})".format(self.__class__.__name__, self.__dict__)
+        y = yaml.dump(cast(dict, self), default_flow_style=False)
+        return f"{self.__class__.__name__}.from_json(yaml.safe_load('''{y}'''))"
 
     def __eq__(self, other: Any) -> bool:
         return (self.__class__ == other.__class__

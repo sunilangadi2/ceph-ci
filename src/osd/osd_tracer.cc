@@ -3,10 +3,11 @@
 
 #include "osd_tracer.h"
 
-namespace tracing {
-namespace osd {
 
 #ifdef HAVE_JAEGER
+
+namespace tracing {
+namespace osd {
 
 using namespace jaeger_configuration;
 jaegertracing::Config jaeger_config(false, const_sampler, reporter_default_config, headers_config, baggage_config, "osd", std::vector<jaegertracing::Tag>());
@@ -17,6 +18,8 @@ jaegertracing::Config jaeger_config(false, const_sampler, reporter_default_confi
 thread_local tracing::Tracer tracer(tracing::osd::jaeger_config);
 
 #else // !HAVE_JAEGER
+
 tracing::Tracer tracer;
+
 #endif
 

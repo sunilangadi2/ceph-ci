@@ -175,12 +175,8 @@
 #define tracepoint(...)
 #endif
 
-#include "common/tracer.h"
-#ifdef HAVE_JAEGER
- thread_local tracing::Tracer tracer(jaeger_configuration::jaeger_osd_config);
-#else
- tracing::Tracer tracer;
-#endif
+#include "osd_tracer.h"
+
 
 #define dout_context cct
 #define dout_subsys ceph_subsys_osd
@@ -7336,8 +7332,7 @@ void OSD::ms_fast_dispatch(Message *m)
     tracepoint(osd, ms_fast_dispatch, reqid.name._type,
         reqid.name._num, reqid.tid, reqid.inc);
   }
-  auto op_req_span = tracer.start_span("op-request-created", dispatch_span);
-  std::swap(op->osd_parent_span, op_req_span);
+  op->osd_parent_span = tracer.start_span("op-request-created", dispatch_span);
 
   if (m->trace)
     op->osd_trace.init("osd op", &trace_endpoint, &m->trace);

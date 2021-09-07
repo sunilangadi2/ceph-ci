@@ -77,7 +77,7 @@
 #undef dout_prefix
 #define dout_prefix _prefix(_dout, this)
 
-#include "common/tracer.h"
+#include "osd_tracer.h"
 
 MEMPOOL_DEFINE_OBJECT_FACTORY(PrimaryLogPG, replicatedpg, osd);
 

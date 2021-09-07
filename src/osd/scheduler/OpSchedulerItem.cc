@@ -14,7 +14,7 @@
 
 #include "osd/scheduler/OpSchedulerItem.h"
 #include "osd/OSD.h"
-#include "common/tracer.h"
+#include "osd/osd_tracer.h"
 
 
 namespace ceph::osd::scheduler {

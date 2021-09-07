@@ -25,6 +25,7 @@
 #include "ECMsgTypes.h"
 
 #include "PrimaryLogPG.h"
+#include "osd_tracer.h"
 
 #define dout_context cct
 #define dout_subsys ceph_subsys_osd

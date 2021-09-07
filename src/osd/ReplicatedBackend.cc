@@ -23,6 +23,7 @@
 #include "include/random.h"
 #include "include/util.h"
 #include "OSD.h"
+#include "osd_tracer.h"
 
 #define dout_context cct
 #define dout_subsys ceph_subsys_osd

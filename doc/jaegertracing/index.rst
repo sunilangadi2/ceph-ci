@@ -7,7 +7,7 @@ standardization.
 
 
 TERMINOLOGY
-------------
+-----------
 
 * TRACE: A trace shows the data/execution path through a system.
 * SPAN: A single unit of a trace, it is a data structure that stores
@@ -35,7 +35,7 @@ In addition, spans are being sent to local jaeger agent, so the jaeger agent mus
 otherwise, spans of hosts without active jaeger agent will be lost.
 
 HOW TO ENABLE TRACING IN CEPH
----------------------------------
+-----------------------------
 
 tracing in Ceph is disabled by default.
 it could be enabled globally, or for each entity seperately (e.g. rgw).
@@ -52,7 +52,7 @@ it could be enabled globally, or for each entity seperately (e.g. rgw).
 
 
 TRACES IN RGW
----------------------------------
+-------------
 
 traces of RGW can be found under Service `rgw` in Jaeger Frontend.
 
@@ -70,7 +70,7 @@ standardization.
 
 
 TERMINOLOGY
-------------
+-----------
 
 * TRACE: A trace shows the data/execution path through a system.
 * SPAN: A single unit of a trace, it is a data structure that stores
@@ -98,7 +98,7 @@ In addition, spans are being sent to local jaeger agent, so the jaeger agent mus
 otherwise, spans of hosts without active jaeger agent will be lost.
 
 HOW TO ENABLE TRACING IN CEPH
----------------------------------
+-----------------------------
 
 tracing in Ceph is disabled by default.
 it could be enabled globally, or for each entity seperately (e.g. rgw).
@@ -115,7 +115,7 @@ it could be enabled globally, or for each entity seperately (e.g. rgw).
 
 
 TRACES IN RGW
----------------------------------
+-------------
 
 traces of RGW can be found under Service `rgw` in Jaeger Frontend.
 

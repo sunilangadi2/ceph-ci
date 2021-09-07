@@ -4,6 +4,7 @@
 #ifndef TRACER_H
 #define TRACER_H
 
+
 #ifdef HAVE_JAEGER
 
 #define SIGNED_RIGHT_SHIFT_IS 1
@@ -33,12 +34,15 @@ class Tracer {
 
 } // namespace tracing
 
-extern thread_local tracing::Tracer tracer;
-
 namespace jaeger_configuration {
 
-extern jaegertracing::Config jaeger_rgw_config;
-extern jaegertracing::Config jaeger_osd_config;
+inline jaegertracing::samplers::Config const_sampler("const", 1, "", 0, jaegertracing::samplers::Config::defaultSamplingRefreshInterval());
+
+inline jaegertracing::reporters::Config reporter_default_config(jaegertracing::reporters::Config::kDefaultQueueSize, jaegertracing::reporters::Config::defaultBufferFlushInterval(), true, jaegertracing::reporters::Config::kDefaultLocalAgentHostPort, "");
+
+inline jaegertracing::propagation::HeadersConfig headers_config("", "", "", "");
+
+inline jaegertracing::baggage::RestrictionsConfig baggage_config(false, "", std::chrono::steady_clock::duration());
 
 }
 
@@ -75,21 +79,6 @@ struct Tracer {
 };
 }
 
-extern tracing::Tracer tracer;
-
 #endif // !HAVE_JAEGER
-
-
-namespace tracing {
-
-const auto OP = "op";
-const auto BUCKET_NAME = "bucket_name";
-const auto USER_ID = "user_id";
-const auto OBJECT_NAME = "object_name";
-const auto RETURN = "return";
-const auto UPLOAD_ID = "upload_id";
-const auto TYPE = "type";
-const auto REQUEST = "request";
-}
 
 #endif // TRACER_H

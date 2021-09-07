@@ -71,11 +71,6 @@ TracepointProvider::Traits rgw_rados_tracepoint_traits("librgw_rados_tp.so",
                                                  "rgw_rados_tracing");
 }
 
-#ifdef HAVE_JAEGER
- thread_local tracing::Tracer tracer(jaeger_configuration::jaeger_rgw_config);
-#else
- tracing::Tracer tracer;
-#endif
 
 static sig_t sighandler_alrm;
 

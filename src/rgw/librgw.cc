@@ -78,11 +78,6 @@ static void handle_sigterm(int signum)
   dout(20) << __func__ << " SIGUSR1 ignored" << dendl;
 }
 
-#ifdef HAVE_JAEGER
- thread_local tracing::Tracer tracer(jaeger_configuration::jaeger_rgw_config);
-#else
- tracing::Tracer tracer;
-#endif
 
 namespace rgw {
 

@@ -2,7 +2,6 @@
 // vim: ts=8 sw=2 smarttab
 #pragma once
 
-#include "acconfig.h"
 #include "common/tracer.h"
 
 

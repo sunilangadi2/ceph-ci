@@ -4,6 +4,7 @@
 #ifndef TRACER_H
 #define TRACER_H
 
+#include "acconfig.h"
 
 #ifdef HAVE_JAEGER
 
@@ -47,6 +48,9 @@ inline jaegertracing::baggage::RestrictionsConfig baggage_config(false, "", std:
 }
 
 #else  // !HAVE_JAEGER
+
+#include <string_view>
+
 class Value {
  public:
   template <typename T> Value(T val) {}

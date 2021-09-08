@@ -35,6 +35,7 @@
 #include "common/Throttle.h"
 #include "common/ceph_mutex.h"
 #include "rgw_cache.h"
+#include "cpp_redis/cpp_redis"
 
 struct D3nDataCache;
 

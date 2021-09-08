@@ -209,6 +209,10 @@ target_include_directories(rgw_common
   SYSTEM PUBLIC "services"
   PUBLIC "${CMAKE_SOURCE_DIR}/src/rgw"
   PRIVATE "${LUA_INCLUDE_DIR}")
+if(WITH_CPP_REDIS)
+  target_include_directories(rgw_common PUBLIC "${CMAKE_SOURCE_DIR}/src/cpp_redis/includes")
+  target_include_directories(rgw_common PUBLIC "${CMAKE_SOURCE_DIR}/src/cpp_redis/tacopie/includes")
+endif()
 if(WITH_RADOSGW_KAFKA_ENDPOINT)
   # used by rgw_kafka.cc
   target_link_libraries(rgw_common
@@ -287,6 +291,11 @@ target_include_directories(rgw_a PUBLIC "${CMAKE_SOURCE_DIR}/src/dmclock/support
 target_include_directories(rgw_a SYSTEM PUBLIC "../rapidjson/include")
 target_include_directories(rgw_a SYSTEM PUBLIC "${CMAKE_SOURCE_DIR}/src/rgw")
 
+if(WITH_CPP_REDIS)
+  target_include_directories(rgw_a PUBLIC "${CMAKE_SOURCE_DIR}/src/cpp_redis/includes")
+  target_include_directories(rgw_a PUBLIC "${CMAKE_SOURCE_DIR}/src/cpp_redis/tacopie/includes")
+endif()
+
 if(WITH_RADOSGW_AMQP_ENDPOINT)
   find_package(RabbitMQ REQUIRED)
 endif()
@@ -359,8 +368,19 @@ target_link_libraries(radosgwd radosgw librados
   ${LIB_RESOLV}
   ${CURL_LIBRARIES} ${EXPAT_LIBRARIES} ${BLKID_LIBRARIES}
   ${ALLOC_LIBS})
+
+if(WITH_CPP_REDIS)
+  add_dependencies(radosgw-admin cpp_redis)
+  target_link_libraries(radosgw-admin cpp_redis)
+endif()
+
 set_target_properties(radosgwd PROPERTIES OUTPUT_NAME radosgw)
 install(TARGETS radosgwd DESTINATION bin)
+
+if(WITH_CPP_REDIS)
+  add_dependencies(radosgwd cpp_redis)
+  target_link_libraries(radosgwd cpp_redis)
+endif()
 
 set(radosgw_admin_srcs
   rgw_admin.cc

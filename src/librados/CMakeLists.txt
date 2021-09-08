@@ -6,6 +6,12 @@ add_library(librados_impl STATIC
   librados_tp.cc)
 
 # C/C++ API
+
+if(WITH_CPP_REDIS)
+  target_include_directories(librados_impl PUBLIC "${CMAKE_SOURCE_DIR}/src/cpp_redis/includes")
+  target_include_directories(librados_impl PUBLIC "${CMAKE_SOURCE_DIR}/src/cpp_redis/tacopie/includes")
+endif()
+
 add_library(librados ${CEPH_SHARED}
   librados_c.cc
   librados_cxx.cc

@@ -369,11 +369,6 @@ target_link_libraries(radosgwd radosgw librados
   ${CURL_LIBRARIES} ${EXPAT_LIBRARIES} ${BLKID_LIBRARIES}
   ${ALLOC_LIBS})
 
-if(WITH_CPP_REDIS)
-  add_dependencies(radosgw-admin cpp_redis)
-  target_link_libraries(radosgw-admin cpp_redis)
-endif()
-
 set_target_properties(radosgwd PROPERTIES OUTPUT_NAME radosgw)
 install(TARGETS radosgwd DESTINATION bin)
 
@@ -395,6 +390,11 @@ target_link_libraries(radosgw-admin ${rgw_libs} librados
   OATH::OATH
   ${CURL_LIBRARIES} ${EXPAT_LIBRARIES} ${BLKID_LIBRARIES})
 install(TARGETS radosgw-admin DESTINATION bin)
+
+if(WITH_CPP_REDIS)
+  add_dependencies(radosgw-admin cpp_redis)
+  target_link_libraries(radosgw-admin cpp_redis)
+endif()
 
 set(radosgw_es_srcs
   rgw_es_main.cc)

@@ -282,6 +282,10 @@ if(WITH_CEPHFS_JAVA)
   add_subdirectory(java)
 endif()
 
+if(WITH_CPP_REDIS)
+  add_subdirectory(cpp_redis)
+endif()
+
 # sort out which allocator to use
 if(ALLOCATOR STREQUAL "tcmalloc")
   set(ALLOC_LIBS gperftools::tcmalloc)
@@ -788,6 +792,10 @@ if(WITH_LIBCEPHFS)
   add_library(cephfs ${CEPH_SHARED} ${libcephfs_srcs})
   target_link_libraries(cephfs PRIVATE client ceph-common
     ${CRYPTO_LIBS} ${EXTRALIBS})
+  if(WITH_CPP_REDIS)
+    target_include_directories(cephfs PUBLIC "${CMAKE_SOURCE_DIR}/src/cpp_redis/includes")
+    target_include_directories(cephfs PUBLIC "${CMAKE_SOURCE_DIR}/src/cpp_redis/tacopie/includes")
+  endif()
   if(ENABLE_SHARED)
     set_target_properties(cephfs PROPERTIES
       OUTPUT_NAME cephfs

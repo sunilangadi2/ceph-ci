@@ -26,7 +26,7 @@ class Tracer {
   Tracer(jaegertracing::Config& conf);
   Tracer(opentracing::string_view service_name);
 
-  void init(jaegertracing::Config& conf);
+  void init(const jaegertracing::Config& conf);
   void shutdown();
 
   bool is_enabled() const;
@@ -43,13 +43,13 @@ class Tracer {
 
 namespace jaeger_configuration {
 
-inline jaegertracing::samplers::Config const_sampler("const", 1, "", 0, jaegertracing::samplers::Config::defaultSamplingRefreshInterval());
+inline const jaegertracing::samplers::Config const_sampler("const", 1, "", 0, jaegertracing::samplers::Config::defaultSamplingRefreshInterval());
 
-inline jaegertracing::reporters::Config reporter_default_config(jaegertracing::reporters::Config::kDefaultQueueSize, jaegertracing::reporters::Config::defaultBufferFlushInterval(), true, jaegertracing::reporters::Config::kDefaultLocalAgentHostPort, "");
+inline const jaegertracing::reporters::Config reporter_default_config(jaegertracing::reporters::Config::kDefaultQueueSize, jaegertracing::reporters::Config::defaultBufferFlushInterval(), true, jaegertracing::reporters::Config::kDefaultLocalAgentHostPort, "");
 
-inline jaegertracing::propagation::HeadersConfig headers_config("", "", "", "");
+inline const jaegertracing::propagation::HeadersConfig headers_config("", "", "", "");
 
-inline jaegertracing::baggage::RestrictionsConfig baggage_config(false, "", std::chrono::steady_clock::duration());
+inline const jaegertracing::baggage::RestrictionsConfig baggage_config(false, "", std::chrono::steady_clock::duration());
 
 }
 

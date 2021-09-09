@@ -15,11 +15,11 @@ Tracer::Tracer(jaegertracing::Config& conf):open_tracer(jaegertracing::Tracer::m
 
 Tracer::Tracer(opentracing::string_view service_name) {
   using namespace jaeger_configuration;
-  jaegertracing::Config conf(false, const_sampler, reporter_default_config, headers_config, baggage_config, service_name, std::vector<jaegertracing::Tag>());
+  const jaegertracing::Config conf(false, const_sampler, reporter_default_config, headers_config, baggage_config, service_name, std::vector<jaegertracing::Tag>());
   open_tracer = jaegertracing::Tracer::make(conf);
 }
 
-void Tracer::init(jaegertracing::Config& conf) {
+void Tracer::init(const jaegertracing::Config& conf) {
   if(!open_tracer) {
     open_tracer = jaegertracing::Tracer::make(conf);
   }

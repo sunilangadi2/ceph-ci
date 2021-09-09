@@ -33,7 +33,7 @@ class Tracer {
   // this span represents a trace, since it has no parent.
   jspan start_trace(opentracing::string_view trace_name);
   // creates and returns a new span with `span_name` which parent span is `parent_span'
-  jspan start_span(opentracing::string_view span_name, jspan& parent_span);
+  jspan add_span(opentracing::string_view span_name, jspan& parent_span);
 
 };
 
@@ -84,7 +84,7 @@ namespace tracing {
 struct Tracer {
   bool is_enabled() const { return false; }
   jspan start_trace(std::string_view) { return {}; }
-  jspan start_span(std::string_view, const jspan&) { return {}; }
+  jspan add_span(std::string_view, const jspan&) { return {}; }
   void init(std::string_view service_name) {}
   void shutdown() {}
 };

@@ -7335,7 +7335,7 @@ void OSD::ms_fast_dispatch(Message *m)
     tracepoint(osd, ms_fast_dispatch, reqid.name._type,
         reqid.name._num, reqid.tid, reqid.inc);
   }
-  op->osd_parent_span = tracing::osd::tracer.start_span("op-request-created", dispatch_span);
+  op->osd_parent_span = tracing::osd::tracer.add_span("op-request-created", dispatch_span);
 
   if (m->trace)
     op->osd_trace.init("osd op", &trace_endpoint, &m->trace);
@@ -9886,7 +9886,7 @@ void OSD::enqueue_op(spg_t pg, OpRequestRef&& op, epoch_t epoch)
   op->osd_trace.keyval("priority", priority);
   op->osd_trace.keyval("cost", cost);
 
-  auto enqueue_span = tracing::osd::tracer.start_span(__func__, op->osd_parent_span);
+  auto enqueue_span = tracing::osd::tracer.add_span(__func__, op->osd_parent_span);
   enqueue_span->Log({
     {"priority", priority},
     {"cost", cost},

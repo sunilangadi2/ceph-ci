@@ -36,7 +36,7 @@ jspan Tracer::start_trace(opentracing::string_view trace_name) {
   return noop_tracer->StartSpan(trace_name);
 }
 
-jspan Tracer::start_span(opentracing::string_view span_name, jspan& parent_span) {
+jspan Tracer::add_span(opentracing::string_view span_name, jspan& parent_span) {
   if (is_enabled()) {
     if (parent_span) {
       return open_tracer->StartSpan(span_name, { opentracing::ChildOf(&parent_span->context()) });

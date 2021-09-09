@@ -25,7 +25,7 @@ void PGOpItem::run(
   PGRef& pg,
   ThreadPool::TPHandle &handle)
 {
-  [[maybe_unused]] auto span = tracing::osd::tracer.start_span("PGOpItem::run", op->osd_parent_span);
+  [[maybe_unused]] auto span = tracing::osd::tracer.add_span("PGOpItem::run", op->osd_parent_span);
   osd->dequeue_op(pg, op, handle);
   pg->unlock();
 }

@@ -22,14 +22,20 @@ class Tracer {
   std::shared_ptr<opentracing::Tracer> open_tracer;
 
  public:
+  Tracer() = default;
   Tracer(jaegertracing::Config& conf);
   Tracer(opentracing::string_view service_name);
+
+  void init(jaegertracing::Config& conf);
+  void shutdown();
+
   bool is_enabled() const;
   // creates and returns a new span with `trace_name`
   // this span represents a trace, since it has no parent.
   jspan start_trace(opentracing::string_view trace_name);
   // creates and returns a new span with `span_name` which parent span is `parent_span'
   jspan start_span(opentracing::string_view span_name, jspan& parent_span);
+
 };
 
 

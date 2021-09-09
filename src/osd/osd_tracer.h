@@ -4,11 +4,14 @@
 
 #include "common/tracer.h"
 
+namespace tracing {
+namespace osd {
 
 #ifdef HAVE_JAEGER
  extern jaegertracing::Config jaeger_config;
- extern thread_local tracing::Tracer tracer;
-#else
- extern tracing::Tracer tracer;
 #endif
 
+extern tracing::Tracer tracer;
+
+} // namespace osd
+} // namespace tracing

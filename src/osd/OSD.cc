@@ -217,6 +217,7 @@ static ostream& _prefix(std::ostream* _dout, int whoami, epoch_t epoch) {
   return *_dout << "osd." << whoami << " " << epoch << " ";
 }
 
+
 //Initial features in new superblock.
 //Features here are also automatically upgraded
 CompatSet OSD::get_osd_initial_compat_set() {
@@ -3529,7 +3530,7 @@ int OSD::init()
   std::lock_guard lock(osd_lock);
   if (is_stopping())
     return 0;
-
+  tracing::osd::tracer.init(tracing::osd::jaeger_config);
   tick_timer.init();
   tick_timer_without_osd_lock.init();
   service.recovery_request_timer.init();
@@ -4508,6 +4509,8 @@ int OSD::shutdown()
   objecter_messenger->shutdown();
   hb_front_server_messenger->shutdown();
   hb_back_server_messenger->shutdown();
+
+  tracing::osd::tracer.shutdown();
 
   return r;
 }
@@ -7276,7 +7279,7 @@ void OSD::dispatch_session_waiting(const ceph::ref_t<Session>& session, OSDMapRe
 
 void OSD::ms_fast_dispatch(Message *m)
 {
-  auto dispatch_span = tracer.start_trace(__func__);
+  auto dispatch_span = tracing::osd::tracer.start_trace(__func__);
   FUNCTRACE(cct);
   if (service.is_stopping()) {
     m->put();
@@ -7332,7 +7335,7 @@ void OSD::ms_fast_dispatch(Message *m)
     tracepoint(osd, ms_fast_dispatch, reqid.name._type,
         reqid.name._num, reqid.tid, reqid.inc);
   }
-  op->osd_parent_span = tracer.start_span("op-request-created", dispatch_span);
+  op->osd_parent_span = tracing::osd::tracer.start_span("op-request-created", dispatch_span);
 
   if (m->trace)
     op->osd_trace.init("osd op", &trace_endpoint, &m->trace);
@@ -9883,7 +9886,7 @@ void OSD::enqueue_op(spg_t pg, OpRequestRef&& op, epoch_t epoch)
   op->osd_trace.keyval("priority", priority);
   op->osd_trace.keyval("cost", cost);
 
-  auto enqueue_span = tracer.start_span(__func__, op->osd_parent_span);
+  auto enqueue_span = tracing::osd::tracer.start_span(__func__, op->osd_parent_span);
   enqueue_span->Log({
     {"priority", priority},
     {"cost", cost},

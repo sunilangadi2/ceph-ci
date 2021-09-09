@@ -19,6 +19,16 @@ Tracer::Tracer(opentracing::string_view service_name) {
   open_tracer = jaegertracing::Tracer::make(conf);
 }
 
+void Tracer::init(jaegertracing::Config& conf) {
+  if(!open_tracer) {
+    open_tracer = jaegertracing::Tracer::make(conf);
+  }
+}
+
+void Tracer::shutdown() {
+  open_tracer.reset();
+}
+
 jspan Tracer::start_trace(opentracing::string_view trace_name) {
   if (is_enabled()) {
     return open_tracer->StartSpan(trace_name);
@@ -40,7 +50,5 @@ bool Tracer::is_enabled() const {
   return g_ceph_context->_conf->jaeger_tracing_enable;
 }
 } // namespace tracing
-
-
 
 #endif // HAVE_JAEGER

@@ -76,6 +76,7 @@ def with_osd_daemon(cephadm_module: CephadmOrchestrator, _run_cephadm, host: str
             {
                 'osd': 1,
                 'up_from': 0,
+                'up': True,
                 'uuid': 'uuid'
             }
         ]

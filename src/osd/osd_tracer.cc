@@ -9,7 +9,7 @@ namespace osd {
 #ifdef HAVE_JAEGER
 
 using namespace jaeger_configuration;
-jaegertracing::Config jaeger_config(false, const_sampler, reporter_default_config, headers_config, baggage_config, "osd", std::vector<jaegertracing::Tag>());
+const jaegertracing::Config jaeger_config(false, const_sampler, reporter_default_config, headers_config, baggage_config, "osd", std::vector<jaegertracing::Tag>());
 
 tracing::Tracer tracer;
 

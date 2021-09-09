@@ -8,7 +8,7 @@ namespace tracing {
 namespace osd {
 
 #ifdef HAVE_JAEGER
- extern jaegertracing::Config jaeger_config;
+ extern const jaegertracing::Config jaeger_config;
 #endif
 
 extern tracing::Tracer tracer;

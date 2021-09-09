@@ -249,6 +249,9 @@ Daemons
 .. automethod:: Orchestrator.remove_daemons
 .. automethod:: Orchestrator.daemon_action
 
+.. autoclass:: DaemonDescription
+.. autoclass:: DaemonDescriptionStatus
+
 OSD management
 --------------
 

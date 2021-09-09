@@ -13,7 +13,6 @@
 #include <jaegertracing/Tracer.h>
 
 typedef std::unique_ptr<opentracing::Span> jspan;
-
 namespace tracing {
 
 class Tracer {
@@ -26,7 +25,7 @@ class Tracer {
   Tracer(jaegertracing::Config& conf);
   Tracer(opentracing::string_view service_name);
 
-  void init(const jaegertracing::Config& conf);
+  void init(opentracing::string_view service_name);
   void shutdown();
 
   bool is_enabled() const;
@@ -86,6 +85,8 @@ struct Tracer {
   bool is_enabled() const { return false; }
   jspan start_trace(std::string_view) { return {}; }
   jspan start_span(std::string_view, const jspan&) { return {}; }
+  void init(std::string_view service_name) {}
+  void shutdown() {}
 };
 }
 

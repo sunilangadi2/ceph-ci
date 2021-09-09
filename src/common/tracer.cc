@@ -14,13 +14,13 @@ const std::shared_ptr<opentracing::Tracer> Tracer::noop_tracer = opentracing::Ma
 Tracer::Tracer(jaegertracing::Config& conf):open_tracer(jaegertracing::Tracer::make(conf)) {}
 
 Tracer::Tracer(opentracing::string_view service_name) {
-  using namespace jaeger_configuration;
-  const jaegertracing::Config conf(false, const_sampler, reporter_default_config, headers_config, baggage_config, service_name, std::vector<jaegertracing::Tag>());
-  open_tracer = jaegertracing::Tracer::make(conf);
+  init(service_name);
 }
 
-void Tracer::init(const jaegertracing::Config& conf) {
+void Tracer::init(opentracing::string_view service_name) {
   if(!open_tracer) {
+    using namespace jaeger_configuration;
+    const jaegertracing::Config conf(false, const_sampler, reporter_default_config, headers_config, baggage_config, service_name, std::vector<jaegertracing::Tag>());
     open_tracer = jaegertracing::Tracer::make(conf);
   }
 }

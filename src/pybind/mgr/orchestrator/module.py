@@ -531,6 +531,17 @@ class OrchestratorCli(OrchestratorClientMixin, MgrModule,
             out.append(table.get_string())
             return HandleCommandResult(stdout='\n'.join(out))
 
+    @_cli_write_command('orch osd zap')
+    def _zap_osd(self, osd_id: str, force: bool = False) -> HandleCommandResult:
+        """
+        Zap (erase!) all devices associated with an OSD, so they can be re-used
+        """
+        if not force:
+            raise OrchestratorError('must pass --force to PERMANENTLY ERASE DEVICE DATA')
+        completion = self.zap_osd(osd_id)
+        raise_if_exception(completion)
+        return HandleCommandResult(stdout=completion.result_str())
+
     @_cli_write_command('orch device zap')
     def _zap_device(self, hostname: str, path: str, force: bool = False) -> HandleCommandResult:
         """
@@ -824,9 +835,10 @@ Usage:
     def _osd_rm_start(self,
                       osd_id: List[str],
                       replace: bool = False,
-                      force: bool = False) -> HandleCommandResult:
+                      force: bool = False,
+                      zap: bool = False) -> HandleCommandResult:
         """Remove OSD daemons"""
-        completion = self.remove_osds(osd_id, replace=replace, force=force)
+        completion = self.remove_osds(osd_id, replace=replace, force=force, zap=zap)
         raise_if_exception(completion)
         return HandleCommandResult(stdout=completion.result_str())
 

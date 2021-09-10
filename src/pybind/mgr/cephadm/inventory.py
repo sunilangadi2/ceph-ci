@@ -726,6 +726,14 @@ class HostCache():
                     return dd
         raise orchestrator.OrchestratorError(f'Unable to find {daemon_name} daemon(s)')
 
+    def has_daemon(self, daemon_name: str) -> bool:
+        assert not daemon_name.startswith('ha-rgw.')
+        for _, dm in self.daemons.items():
+            for _, dd in dm.items():
+                if dd.name() == daemon_name:
+                    return True
+        return False
+
     def get_daemons_with_volatile_status(self) -> Iterator[Tuple[str, Dict[str, orchestrator.DaemonDescription]]]:
         def alter(host: str, dd_orig: orchestrator.DaemonDescription) -> orchestrator.DaemonDescription:
             dd = copy(dd_orig)

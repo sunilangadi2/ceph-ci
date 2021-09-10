@@ -334,6 +334,12 @@ class CephadmOrchestrator(orchestrator.Orchestrator, MgrModule,
             default=10 * 60,
             desc='how frequently to autotune daemon memory'
         ),
+        Option(
+            'max_osd_draining_count',
+            type='int',
+            default=10,
+            desc='max number of osds that will be drained simultaneously when osds are removed or repaved'
+        ),
     ]
 
     def __init__(self, *args: Any, **kwargs: Any):
@@ -393,6 +399,7 @@ class CephadmOrchestrator(orchestrator.Orchestrator, MgrModule,
             self._temp_files: List = []
             self.ssh_key: Optional[str] = None
             self.ssh_pub: Optional[str] = None
+            self.max_osd_draining_count = 10
 
         self.notify('mon_map', None)
         self.config_notify()
@@ -1976,6 +1983,24 @@ Then run the following:
         return result
 
     @handle_orch_error
+    def zap_osd(self, osd_id: str) -> str:
+        host = self.cache.get_daemon('osd.' + osd_id).hostname
+        if host is None:
+            raise OrchestratorError('Zap failed: failed to find daemon for osd %s.' % osd_id)
+        if self.to_remove_osds.contains_osd(int(osd_id)):
+            raise OrchestratorError(
+                'Cannot zap OSD %s because it is already in the removal queue.' % osd_id)
+        self.log.info('Zap osd %s on %s' % (osd_id, host))
+        out, err, code = CephadmServe(self)._run_cephadm(
+            host, 'osd', 'ceph-volume',
+            ['--', 'lvm', 'zap', '--destroy', '--osd-id', osd_id],
+            error_ok=True)
+        self.cache.invalidate_host_devices(host)
+        if code:
+            raise OrchestratorError('Zap failed: %s' % '\n'.join(out + err))
+        return '\n'.join(out + err)
+
+    @handle_orch_error
     def zap_device(self, host: str, path: str) -> str:
         self.log.info('Zap device %s:%s' % (host, path))
         out, err, code = CephadmServe(self)._run_cephadm(
@@ -2489,7 +2514,8 @@ Then run the following:
     @handle_orch_error
     def remove_osds(self, osd_ids: List[str],
                     replace: bool = False,
-                    force: bool = False) -> str:
+                    force: bool = False,
+                    zap: bool = False) -> str:
         """
         Takes a list of OSDs and schedules them for removal.
         The function that takes care of the actual removal is
@@ -2510,6 +2536,7 @@ Then run the following:
                 self.to_remove_osds.enqueue(OSD(osd_id=int(daemon.daemon_id),
                                                 replace=replace,
                                                 force=force,
+                                                zap=zap,
                                                 hostname=daemon.hostname,
                                                 process_started_at=datetime_now(),
                                                 remove_util=self.to_remove_osds.rm_util))

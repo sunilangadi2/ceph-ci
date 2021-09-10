@@ -861,7 +861,8 @@ spec:
             ),  # noqa: E124
             ('mon.', False, ServiceSpec(
                 service_type='mon',
-                placement=PlacementSpec(hosts=[HostPlacementSpec('test', '127.0.0.0/24', 'x')], count=1),
+                placement=PlacementSpec(
+                    hosts=[HostPlacementSpec('test', '127.0.0.0/24', 'x')], count=1),
                 unmanaged=True)
             ),  # noqa: E124
         ]

@@ -78,7 +78,6 @@ static void handle_sigterm(int signum)
   dout(20) << __func__ << " SIGUSR1 ignored" << dendl;
 }
 
-
 namespace rgw {
 
   using std::string;

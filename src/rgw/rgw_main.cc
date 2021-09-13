@@ -71,7 +71,6 @@ TracepointProvider::Traits rgw_rados_tracepoint_traits("librgw_rados_tp.so",
                                                  "rgw_rados_tracing");
 }
 
-
 static sig_t sighandler_alrm;
 
 class RGWProcess;

@@ -6474,7 +6474,7 @@ int RGWSelectObj_ObjStore_S3::range_request(int64_t ofs, int64_t len,void *buff,
 
   range_request_complete_future.wait(); //wait until whole range is retrieved //TODO timeout
 
-  memcpy(buff,requested_buffer.data(),requested_buffer.size());
+  memcpy(buff,requested_buffer.data(),len);
 
   ldout(s->cct, 10) << "S3select: done waiting, buffer is complete buffer-size:" << requested_buffer.size() << dendl;
 

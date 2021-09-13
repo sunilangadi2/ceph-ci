@@ -22,7 +22,6 @@ class Tracer {
 
  public:
   Tracer() = default;
-  Tracer(jaegertracing::Config& conf);
   Tracer(opentracing::string_view service_name);
 
   void init(opentracing::string_view service_name);

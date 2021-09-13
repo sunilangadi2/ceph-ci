@@ -11,8 +11,6 @@ namespace tracing {
 
 const std::shared_ptr<opentracing::Tracer> Tracer::noop_tracer = opentracing::MakeNoopTracer();
 
-Tracer::Tracer(jaegertracing::Config& conf):open_tracer(jaegertracing::Tracer::make(conf)) {}
-
 Tracer::Tracer(opentracing::string_view service_name) {
   init(service_name);
 }

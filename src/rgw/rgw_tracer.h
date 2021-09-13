@@ -16,7 +16,6 @@ const auto TYPE = "type";
 const auto REQUEST = "request";
 
 #ifdef HAVE_JAEGER
- extern jaegertracing::Config jaeger_config;
  extern thread_local tracing::Tracer tracer;
 #else
  extern tracing::Tracer tracer;

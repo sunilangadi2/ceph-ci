@@ -303,8 +303,8 @@ class OSDService(CephService):
             error_ok=True)
         return out, err, code
 
-    def get_osdspec_affinity(self, osd_id: str) -> str:
-        return self.mgr.get('osd_metadata').get(osd_id, {}).get('osdspec_affinity', '')
+    def get_osd_metadata(self) -> dict:
+        return self.mgr.get('osd_metadata')
 
     def post_remove(self, daemon: DaemonDescription, is_failed_deploy: bool) -> None:
         # Do not remove the osd.N keyring, if we failed to deploy the OSD, because

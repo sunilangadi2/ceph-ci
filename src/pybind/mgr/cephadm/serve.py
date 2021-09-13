@@ -3,7 +3,7 @@ import json
 import logging
 import uuid
 from collections import defaultdict
-from typing import TYPE_CHECKING, Optional, List, cast, Dict, Any, Union, Tuple
+from typing import TYPE_CHECKING, Optional, List, cast, Dict, Any, Union, Tuple, DefaultDict
 
 from ceph.deployment import inventory
 from ceph.deployment.drive_group import DriveGroupSpec
@@ -428,17 +428,12 @@ class CephadmServe:
                 'rank_generation') is not None else None
             if sd.daemon_type == 'osd':
                 sd.osdspec_affinity = self.mgr.osd_service.get_osdspec_affinity(sd.daemon_id)
-            if 'state' in d:
-                sd.status_desc = d['state']
-                sd.status = {
-                    'running': DaemonDescriptionStatus.running,
-                    'stopped': DaemonDescriptionStatus.stopped,
-                    'error': DaemonDescriptionStatus.error,
-                    'unknown': DaemonDescriptionStatus.error,
-                }[d['state']]
-            else:
-                sd.status_desc = 'unknown'
-                sd.status = None
+            sd.status = {
+                'running': DaemonDescriptionStatus.running,
+                'stopped': DaemonDescriptionStatus.stopped,
+                'error': DaemonDescriptionStatus.error,
+                'unknown': DaemonDescriptionStatus.unknown,
+            }.get(d.get('state', 'unknown'), DaemonDescriptionStatus.unknown)
             dm[sd.name()] = sd
         self.log.debug('Refreshed host %s daemons (%d)' % (host, len(dm)))
         self.mgr.cache.update_host_daemons(host, dm)
@@ -574,6 +569,33 @@ class CephadmServe:
                     'detail': daemon_detail,
                 }
         self.mgr.set_health_checks(self.mgr.health_checks)
+
+    def _check_for_moved_osds(self) -> None:
+        all_osds: DefaultDict[int, List[orchestrator.DaemonDescription]] = defaultdict(list)
+        for dd in self.mgr.cache.get_daemons_by_type('osd'):
+            assert dd.daemon_id
+            all_osds[int(dd.daemon_id)].append(dd)
+        for osd_id, dds in all_osds.items():
+            if len(dds) <= 1:
+                continue
+            running = [dd for dd in dds if dd.status == DaemonDescriptionStatus.running]
+            error = [dd for dd in dds if dd.status == DaemonDescriptionStatus.error]
+            msg = f'Found duplicate OSDs: {", ".join(str(dd) for dd in dds)}'
+            logger.info(msg)
+            if len(running) != 1:
+                continue
+            osd = self.mgr.get_osd_by_id(osd_id)
+            if not osd or not osd['up']:
+                continue
+            for e in error:
+                assert e.hostname
+                try:
+                    self._remove_daemon(e.name(), e.hostname, keep_keyring=True)
+                    self.mgr.events.for_daemon(
+                        e.name(), 'INFO', f"Removed duplicated daemon on host '{e.hostname}'")
+                except OrchestratorError as ex:
+                    self.mgr.events.from_orch_error(ex)
+                    logger.exception(f'failed to remove duplicated daemon {e}')
 
     def _apply_all_services(self) -> bool:
         r = False
@@ -1061,7 +1083,7 @@ class CephadmServe:
                         # prime cached service state with what we (should have)
                         # just created
                         sd = daemon_spec.to_daemon_description(
-                            DaemonDescriptionStatus.running, 'starting')
+                            DaemonDescriptionStatus.starting, 'starting')
                         self.mgr.cache.add_daemon(daemon_spec.host, sd)
                         if daemon_spec.daemon_type in REQUIRES_POST_ACTIONS:
                             self.mgr.requires_post_actions.add(daemon_spec.daemon_type)
@@ -1085,10 +1107,10 @@ class CephadmServe:
                     # we have to clean up the daemon. E.g. keyrings.
                     servict_type = daemon_type_to_service(daemon_spec.daemon_type)
                     dd = daemon_spec.to_daemon_description(DaemonDescriptionStatus.error, 'failed')
-                    self.mgr.cephadm_services[servict_type].post_remove(dd, is_failed_deploy=True)
+                    self.mgr.cephadm_services[servict_type].post_remove(dd, keep_keyring=True)
                 raise
 
-    def _remove_daemon(self, name: str, host: str) -> str:
+    def _remove_daemon(self, name: str, host: str, keep_keyring: bool = False) -> str:
         """
         Remove a daemon
         """
@@ -1114,7 +1136,7 @@ class CephadmServe:
             self.mgr.cache.invalidate_host_daemons(host)
 
             self.mgr.cephadm_services[daemon_type_to_service(
-                daemon_type)].post_remove(daemon, is_failed_deploy=False)
+                daemon_type)].post_remove(daemon, keep_keyring=keep_keyring)
 
             return "Removed {} from host '{}'".format(name, host)
 

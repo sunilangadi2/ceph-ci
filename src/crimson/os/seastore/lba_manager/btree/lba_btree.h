@@ -27,6 +27,11 @@ public:
 
   using mapped_space_visitor_t = LBAManager::scan_mapped_space_func_t;
 
+  struct lba_tree_inner_stats_t {
+    uint64_t num_alloc_extents = 0;
+    uint64_t num_alloc_extents_iter_nexts = 0;
+  } static lba_tree_inner_stats;
+
   class iterator {
   public:
     iterator(const iterator &rhs) noexcept :
@@ -252,26 +257,30 @@ public:
   static base_iertr::future<> iterate_repeat(
     op_context_t c,
     iterator_fut &&iter_fut,
+    bool need_count,
     F &&f,
     mapped_space_visitor_t *visitor=nullptr) {
     return std::move(
       iter_fut
-    ).si_then([c, visitor, f=std::forward<F>(f)](auto iter) {
+    ).si_then([c, need_count, visitor, f=std::forward<F>(f)](auto iter) {
       return seastar::do_with(
 	iter,
 	std::move(f),
-	[c, visitor](auto &pos, auto &f) {
+	[c, need_count, visitor](auto &pos, auto &f) {
 	  return trans_intr::repeat(
-	    [c, visitor, &f, &pos] {
+	    [c, need_count, visitor, &f, &pos] {
 	      return f(
 		pos
-	      ).si_then([c, visitor, &pos](auto done) {
+	      ).si_then([c, need_count, visitor, &pos](auto done) {
 		if (done == seastar::stop_iteration::yes) {
 		  return iterate_repeat_ret_inner(
 		    interruptible::ready_future_marker{},
 		    seastar::stop_iteration::yes);
 		} else {
 		  ceph_assert(!pos.is_end());
+		  if (need_count) {
+		    ++LBABtree::lba_tree_inner_stats.num_alloc_extents_iter_nexts;
+		  }
 		  return pos.next(
 		    c, visitor
 		  ).si_then([&pos](auto next) {
@@ -566,6 +575,17 @@ private:
       });
   }
 
+  /**
+   * handle_split
+   *
+   * Prepare iter for insertion.  iter should begin pointing at
+   * the valid insertion point (lower_bound(laddr)).
+   *
+   * Upon completion, iter will point at the
+   * position at which laddr should be inserted.  iter may, upon completion,
+   * point at the end of a leaf other than the end leaf if that's the correct
+   * insertion point.
+   */
   using find_insertion_iertr = base_iertr;
   using find_insertion_ret = find_insertion_iertr::future<>;
   static find_insertion_ret find_insertion(
@@ -573,6 +593,16 @@ private:
     laddr_t laddr,
     iterator &iter);
 
+  /**
+   * handle_split
+   *
+   * Split nodes in iter as needed for insertion. First, scan iter from leaf
+   * to find first non-full level.  Then, split from there towards leaf.
+   *
+   * Upon completion, iter will point at the newly split insertion point.  As
+   * with find_insertion, iter's leaf pointer may be end without iter being
+   * end.
+   */
   using handle_split_iertr = base_iertr;
   using handle_split_ret = handle_split_iertr::future<>;
   handle_split_ret handle_split(

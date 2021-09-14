@@ -1747,11 +1747,13 @@ void OSDService::queue_for_snap_trim(PG *pg)
 template <class MSG_TYPE>
 void OSDService::queue_scrub_event_msg(PG* pg,
 				       Scrub::scrub_prio_t with_priority,
-				       unsigned int qu_priority)
+				       unsigned int qu_priority,
+				       Scrub::act_token_t act_token)
 {
   const auto epoch = pg->get_osdmap_epoch();
-  auto msg = new MSG_TYPE(pg->get_pgid(), epoch);
-  dout(15) << "queue a scrub event (" << *msg << ") for " << *pg << ". Epoch: " << epoch << dendl;
+  auto msg = new MSG_TYPE(pg->get_pgid(), epoch, act_token);
+  dout(15) << "queue a scrub event (" << *msg << ") for " << *pg
+           << ". Epoch: " << epoch << " token: " << act_token << dendl;
 
   enqueue_back(OpSchedulerItem(
     unique_ptr<OpSchedulerItem::OpQueueable>(msg), cct->_conf->osd_scrub_cost,
@@ -1759,7 +1761,8 @@ void OSDService::queue_scrub_event_msg(PG* pg,
 }
 
 template <class MSG_TYPE>
-void OSDService::queue_scrub_event_msg(PG* pg, Scrub::scrub_prio_t with_priority)
+void OSDService::queue_scrub_event_msg(PG* pg,
+                                       Scrub::scrub_prio_t with_priority)
 {
   const auto epoch = pg->get_osdmap_epoch();
   auto msg = new MSG_TYPE(pg->get_pgid(), epoch);
@@ -1782,17 +1785,20 @@ void OSDService::queue_scrub_after_repair(PG* pg, Scrub::scrub_prio_t with_prior
 
 void OSDService::queue_for_rep_scrub(PG* pg,
 				     Scrub::scrub_prio_t with_priority,
-				     unsigned int qu_priority)
+				     unsigned int qu_priority,
+				     Scrub::act_token_t act_token)
 {
-  queue_scrub_event_msg<PGRepScrub>(pg, with_priority, qu_priority);
+  queue_scrub_event_msg<PGRepScrub>(pg, with_priority, qu_priority, act_token);
 }
 
 void OSDService::queue_for_rep_scrub_resched(PG* pg,
 					     Scrub::scrub_prio_t with_priority,
-					     unsigned int qu_priority)
+					     unsigned int qu_priority,
+					     Scrub::act_token_t act_token)
 {
   // Resulting scrub event: 'SchedReplica'
-  queue_scrub_event_msg<PGRepScrubResched>(pg, with_priority, qu_priority);
+  queue_scrub_event_msg<PGRepScrubResched>(pg, with_priority, qu_priority,
+					   act_token);
 }
 
 void OSDService::queue_for_scrub_granted(PG* pg, Scrub::scrub_prio_t with_priority)
@@ -10205,7 +10211,8 @@ void OSD::maybe_override_max_osd_capacity_for_qos()
   // If the scheduler enabled is mclock, override the default
   // osd capacity with the value obtained from running the
   // osd bench test. This is later used to setup mclock.
-  if (cct->_conf.get_val<std::string>("osd_op_queue") == "mclock_scheduler") {
+  if ((cct->_conf.get_val<std::string>("osd_op_queue") == "mclock_scheduler") &&
+      (cct->_conf.get_val<bool>("osd_mclock_skip_benchmark") == false)) {
     std::string max_capacity_iops_config;
     bool force_run_benchmark =
       cct->_conf.get_val<bool>("osd_mclock_force_run_benchmark_on_init");
@@ -10804,15 +10811,16 @@ void OSDShard::prime_merges(const OSDMapRef& as_of_osdmap,
 
 void OSDShard::register_and_wake_split_child(PG *pg)
 {
+  dout(15) <<  __func__ << ": " << pg << " #:" << pg_slots.size() << dendl;
   epoch_t epoch;
   {
     std::lock_guard l(shard_lock);
-    dout(10) << pg->pg_id << " " << pg << dendl;
+    dout(10) << __func__ << ": " << pg->pg_id << " " << pg << dendl;
     auto p = pg_slots.find(pg->pg_id);
     ceph_assert(p != pg_slots.end());
     auto *slot = p->second.get();
-    dout(20) << pg->pg_id << " waiting_for_split " << slot->waiting_for_split
-	     << dendl;
+    dout(20) << __func__ << ": " << pg->pg_id << " waiting_for_split "
+	     << slot->waiting_for_split << dendl;
     ceph_assert(!slot->pg);
     ceph_assert(!slot->waiting_for_split.empty());
     _attach_pg(slot, pg);

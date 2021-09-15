@@ -16,9 +16,9 @@ const auto TYPE = "type";
 const auto REQUEST = "request";
 
 #ifdef HAVE_JAEGER
- extern thread_local tracing::Tracer tracer;
+extern thread_local tracing::Tracer tracer;
 #else
- extern tracing::Tracer tracer;
+extern tracing::Tracer tracer;
 #endif
 
 } // namespace rgw

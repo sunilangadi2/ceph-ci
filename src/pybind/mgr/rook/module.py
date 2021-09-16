@@ -445,7 +445,7 @@ class RookOrchestrator(MgrModule, orchestrator.Orchestrator):
     @handle_orch_error
     def apply_mds(self, spec):
         # type: (ServiceSpec) -> str
-        return self.rook_cluster.apply_filesystem(spec)
+        return self.rook_cluster.apply_filesystem(spec, self)
 
     @handle_orch_error
     def apply_rgw(self, spec):

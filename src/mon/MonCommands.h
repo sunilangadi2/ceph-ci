@@ -339,6 +339,9 @@ COMMAND_WITH_FLAG("mds rmfailed name=role,type=CephString "
 	"remove failed rank", "mds", "rw", FLAG(HIDDEN))
 COMMAND_WITH_FLAG("mds cluster_down", "take MDS cluster down", "mds", "rw", FLAG(OBSOLETE))
 COMMAND_WITH_FLAG("mds cluster_up", "bring MDS cluster up", "mds", "rw", FLAG(OBSOLETE))
+COMMAND_WITH_FLAG("mds addfailed name=role,type=CephString "
+        "name=yes_i_really_mean_it,type=CephBool,req=false",
+	"add failed rank", "mds", "rw", FLAG(HIDDEN))
 COMMAND_WITH_FLAG("mds compat show", "show mds compatibility settings",
 	"mds", "r", FLAG(DEPRECATED))
 COMMAND("fs compat show "

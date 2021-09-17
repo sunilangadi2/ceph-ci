@@ -1526,6 +1526,40 @@ int MDSMonitor::filesystem_command(
     ss << "removed mds gid " << gid;
     return 0;
     }
+  } else if (prefix == "mds addfailed") {
+    bool confirm = false;
+    cmd_getval(cmdmap, "yes_i_really_mean_it", confirm);
+    if (!confirm) {
+         ss << "WARNING: this can make your filesystem inaccessible! "
+               "Add --yes-i-really-mean-it if you are sure you wish to continue.";
+         return -EPERM;
+    }
+    
+    std::string role_str;
+    cmd_getval(cmdmap, "role", role_str);
+    mds_role_t role;
+    const auto fs_names = op->get_session()->get_allowed_fs_names();
+    int r = fsmap.parse_role(role_str, &role, ss, fs_names);
+    if (r < 0) {
+      ss << "invalid role '" << role_str << "'";
+      return -EINVAL;
+    }
+    string_view fs_name = fsmap.get_filesystem(role.fscid)->mds_map.get_fs_name();
+    if (!op->get_session()->fs_name_capable(fs_name, MON_CAP_W)) {
+      ss << "Permission denied.";
+      return -EPERM;
+    }
+
+    fsmap.modify_filesystem(
+        role.fscid,
+        [role](std::shared_ptr<Filesystem> fs)
+    {
+      fs->mds_map.failed.insert(role.rank);
+    });
+
+    ss << "added failed mds." << role;
+    return 0;
+    /* TODO: convert to fs commands to update defaults */
   } else if (prefix == "mds rmfailed") {
     bool confirm = false;
     cmd_getval(cmdmap, "yes_i_really_mean_it", confirm);

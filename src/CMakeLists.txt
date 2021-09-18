@@ -439,7 +439,7 @@ if(WITH_JAEGER)
 
   build_jaeger()
 
-  include_directories(${CMAKE_BINARY_DIR}/external/include)
+  include_directories(SYSTEM INTERFACE ${CMAKE_BINARY_DIR}/external/include)
   # for testing jaeger build
   add_custom_target(jaeger_base DEPENDS ${jaeger_base})
   add_library(jaeger-base INTERFACE)

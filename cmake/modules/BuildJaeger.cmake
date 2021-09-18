@@ -24,7 +24,7 @@ function(set_library_properties_for_external_project _target _lib)
     INTERFACE_LINK_LIBRARIES "${_libpath}"
     IMPORTED_LINK_INTERFACE_LANGUAGES "CXX"
     IMPORTED_LOCATION "${_libpath}"
-    INTERFACE_INCLUDE_DIRECTORIES "${_includepath}")
+    INTERFACE_SYSTEM_INCLUDE_DIRECTORIES "${_includepath}")
 endfunction()
 
 function(build_jaeger)
@@ -79,7 +79,7 @@ function(build_jaeger)
     INSTALL_COMMAND ${install_cmd}
     DEPENDS ${dependencies}
     BUILD_BYPRODUCTS ${CMAKE_BINARY_DIR}/external/lib/libjaegertracing.so
-    )
+    LOG_BUILD ON)
 
   set_library_properties_for_external_project(opentracing::libopentracing
   opentracing)

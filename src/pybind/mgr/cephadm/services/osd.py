@@ -133,7 +133,7 @@ class OSDService(CephService):
                 created.append(osd_id)
                 daemon_spec: CephadmDaemonDeploySpec = CephadmDaemonDeploySpec(
                     service_name=service_name,
-                    daemon_id=osd_id,
+                    daemon_id=str(osd_id),
                     host=host,
                     daemon_type='osd',
                 )
@@ -306,12 +306,12 @@ class OSDService(CephService):
     def get_osdspec_affinity(self, osd_id: str) -> str:
         return self.mgr.get('osd_metadata').get(osd_id, {}).get('osdspec_affinity', '')
 
-    def post_remove(self, daemon: DaemonDescription, is_failed_deploy: bool) -> None:
+    def post_remove(self, daemon: DaemonDescription, keep_keyring: bool) -> None:
         # Do not remove the osd.N keyring, if we failed to deploy the OSD, because
         # we cannot recover from it. The OSD keys are created by ceph-volume and not by
         # us.
-        if not is_failed_deploy:
-            super().post_remove(daemon, is_failed_deploy=is_failed_deploy)
+        if not keep_keyring:
+            super().post_remove(daemon, keep_keyring=keep_keyring)
 
 
 class OsdIdClaims(object):

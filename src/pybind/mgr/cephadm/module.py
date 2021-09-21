@@ -1426,7 +1426,7 @@ Then run the following:
 
                 if d.daemon_type != 'osd':
                     self.cephadm_services[str(d.daemon_type)].pre_remove(d)
-                    self.cephadm_services[str(d.daemon_type)].post_remove(d, is_failed_deploy=False)
+                    self.cephadm_services[str(d.daemon_type)].post_remove(d, keep_keyring=False)
                 else:
                     cmd_args = {
                         'prefix': 'osd purge-actual',
@@ -2059,6 +2059,15 @@ Then run the following:
                 r[str(osd_id)] = o.get('uuid', '')
         return r
 
+    def get_osd_by_id(self, osd_id: int) -> Optional[Dict[str, Any]]:
+        osd = [x for x in self.get('osd_map')['osds']
+               if x['osd'] == osd_id]
+
+        if len(osd) != 1:
+            return None
+
+        return osd[0]
+
     def _trigger_preview_refresh(self,
                                  specs: Optional[List[DriveGroupSpec]] = None,
                                  service_name: Optional[str] = None,
@@ -2238,9 +2247,14 @@ Then run the following:
     @handle_orch_error
     def add_daemon(self, spec: ServiceSpec) -> List[str]:
         ret: List[str] = []
-        for d_type in service_to_daemon_types(spec.service_type):
-            ret.extend(self._add_daemon(d_type, spec))
-        return ret
+        try:
+            with orchestrator.set_exception_subject('service', spec.service_name(), overwrite=True):
+                for d_type in service_to_daemon_types(spec.service_type):
+                    ret.extend(self._add_daemon(d_type, spec))
+                return ret
+        except OrchestratorError as e:
+            self.events.from_orch_error(e)
+            raise
 
     @handle_orch_error
     def apply_mon(self, spec: ServiceSpec) -> str:

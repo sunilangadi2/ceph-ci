@@ -58,8 +58,19 @@ class IscsiService(CephService):
                 'val': key_data,
             })
 
+        #add mgr ip address to trusted list with dashboard
+        mgr_ips = []
+        trusted_ip_list = spec.trusted_ip_list if spec.trusted_ip_list else ''
+        for dd in self.mgr.cache.get_daemons_by_service('mgr'):
+            assert dd.hostname is not None
+            mgr_ips.append(self.mgr.inventory.get_addr(dd.hostname))
+        if trusted_ip_list:
+            trusted_ip_list += ','
+        trusted_ip_list += ",".join(mgr_ips)
+
         context = {
             'client_name': '{}.{}'.format(utils.name_to_config_section('iscsi'), igw_id),
+            'trusted_ip_list': trusted_ip_list,
             'spec': spec
         }
         igw_conf = self.mgr.template.render('services/iscsi/iscsi-gateway.cfg.j2', context)

@@ -29,14 +29,14 @@ describe('Hosts page', () => {
     });
 
     it('should display inventory', function () {
-      hosts.clickHostTab(hostnames[0], 'Physical Disks');
+      hosts.clickTab('cd-host-details', hostnames[0], 'Physical Disks');
       cy.get('cd-host-details').within(() => {
         hosts.getTableCount('total').should('be.gte', 0);
       });
     });
 
     it('should display daemons', function () {
-      hosts.clickHostTab(hostnames[0], 'Daemons');
+      hosts.clickTab('cd-host-details', hostnames[0], 'Daemons');
       cy.get('cd-host-details').within(() => {
         hosts.getTableCount('total').should('be.gte', 0);
       });

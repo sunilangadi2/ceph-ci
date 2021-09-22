@@ -236,8 +236,9 @@ void ZonedFreelistManager::allocate(
   uint64_t length,
   KeyValueDB::Transaction txn)
 {
-  dout(10) << __func__ << " 0x" << std::hex << offset << "~" << length << dendl;
   uint64_t zone_num = offset / zone_size;
+  dout(10) << __func__ << " 0x" << std::hex << offset << "~" << length
+	   << " zone 0x" << zone_num << std::dec << dendl;
   zone_state_t zone_state;
   zone_state.increment_write_pointer(length);
   write_zone_state_to_db(zone_num, zone_state, txn);
@@ -254,8 +255,9 @@ void ZonedFreelistManager::release(
   uint64_t length,
   KeyValueDB::Transaction txn)
 {
-  dout(10) << __func__ << " 0x" << std::hex << offset << "~" << length << dendl;
   uint64_t zone_num = offset / zone_size;
+  dout(10) << __func__ << " 0x" << std::hex << offset << "~" << length
+	   << " zone 0x" << zone_num << std::dec << dendl;
   zone_state_t zone_state;
   zone_state.increment_num_dead_bytes(length);
   write_zone_state_to_db(zone_num, zone_state, txn);

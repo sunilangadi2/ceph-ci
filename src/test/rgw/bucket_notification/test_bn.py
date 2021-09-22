@@ -1728,6 +1728,50 @@ def test_ps_s3_creation_triggers_on_master_ssl():
         del os.environ['RABBITMQ_CONFIG_FILE']
 
 
+def _get_body(response):
+    body = response['Body']
+    got = body.read()
+    if type(got) is bytes:
+        got = got.decode()
+    return got
+
+
+@attr('sample_test')
+def test_http_post_object_upload():
+    """ test that uploads object using HTTP POST """
+
+    import boto3
+    from collections import OrderedDict
+    import requests
+
+    endpoint = "http://%s:%d" % (get_config_host(),get_config_port())
+
+    conn1 = boto3.client(service_name='s3',
+                         aws_access_key_id=get_access_key(),
+                         aws_secret_access_key=get_secret_key(),
+                         endpoint_url=endpoint
+                        )
+
+    bucket_name = gen_bucket_name()
+
+    key_name = 'foo.txt'
+
+    resp = conn1.generate_presigned_post(Bucket=bucket_name, Key=key_name,)
+
+    url = resp['url']
+
+    payload = OrderedDict([("key" , "foo.txt"),("acl" , "public-read"),\
+    ("Content-Type" , "text/plain"),('file', ('bar'))])
+
+    bucket = conn1.create_bucket(ACL='public-read-write', Bucket=bucket_name)
+
+    r = requests.post(url, files=payload, verify=True)
+    assert_equal(r.status_code, 204)
+    response = conn1.get_object(Bucket=bucket_name, Key='foo.txt')
+    body = _get_body(response)
+    assert_equal(body, 'bar')
+
+
 @attr('amqp_test')
 def test_ps_s3_multipart_on_master():
     """ test multipart object upload on master"""
@@ -1898,7 +1942,7 @@ def test_ps_s3_metadata_on_master():
     time.sleep(5)
     # check amqp receiver
     events = receiver.get_and_reset_events()
-    assert_equal(len(events), 3) # PUT, COPY, Multipart start, Multipart End
+    assert_equal(len(events), 3) # PUT, COPY, Multipart Complete
     for event in events:
         assert(event['Records'][0]['s3']['object']['key'] in expected_keys)
 

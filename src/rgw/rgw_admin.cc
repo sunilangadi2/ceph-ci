@@ -9505,7 +9505,7 @@ next:
     }
     const rgw::lua::context script_ctx = rgw::lua::to_context(*str_script_ctx);
     if (script_ctx == rgw::lua::context::none) {
-      cerr << "ERROR: invalid script context: " << *str_script_ctx << ". must be one of: preRequest, postRequest, background" <<  std::endl;
+      cerr << "ERROR: invalid script context: " << *str_script_ctx << ". must be one of: preRequest, postRequest, background" << std::endl;
       return EINVAL;
     }
     if (script_ctx == rgw::lua::context::background && !tenant.empty()) {
@@ -9526,7 +9526,7 @@ next:
     }
     const rgw::lua::context script_ctx = rgw::lua::to_context(*str_script_ctx);
     if (script_ctx == rgw::lua::context::none) {
-      cerr << "ERROR: invalid script context: " << *str_script_ctx << ". must be one of: preRequest, postRequest, background" <<  std::endl;
+      cerr << "ERROR: invalid script context: " << *str_script_ctx << ". must be one of: preRequest, postRequest, background" << std::endl;
       return EINVAL;
     }
     std::string script;
@@ -9549,7 +9549,7 @@ next:
     }
     const rgw::lua::context script_ctx = rgw::lua::to_context(*str_script_ctx);
     if (script_ctx == rgw::lua::context::none) {
-      cerr << "ERROR: invalid script context: " << *str_script_ctx << ". must be one of: preRequest, postRequest, background" <<  std::endl;
+      cerr << "ERROR: invalid script context: " << *str_script_ctx << ". must be one of: preRequest, postRequest, background" << std::endl;
       return EINVAL;
     }
     const auto rc = rgw::lua::delete_script(dpp(), store, tenant, null_yield, script_ctx);

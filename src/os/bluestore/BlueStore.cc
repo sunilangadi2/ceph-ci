@@ -291,6 +291,7 @@ static void get_coll_range(const coll_t& cid, int bits,
   ghobject_t *start, ghobject_t *end)
 {
   spg_t pgid;
+  constexpr uint32_t MAX_HASH = std::numeric_limits<uint32_t>::max();
   if (cid.is_pg(&pgid)) {
     start->shard_id = pgid.shard;
     *temp_start = *start;
@@ -306,19 +307,23 @@ static void get_coll_range(const coll_t& cid, int bits,
     temp_start->hobj.set_bitwise_key_u32(reverse_hash);
 
     uint64_t end_hash = reverse_hash  + (1ull << (32 - bits));
-    if (end_hash > 0xffffffffull)
-      end_hash = 0xffffffffull;
-
-    end->hobj.set_bitwise_key_u32(end_hash);
-    temp_end->hobj.set_bitwise_key_u32(end_hash);
+    if (end_hash > MAX_HASH) {
+      // make sure end hobj is even greater than the maximum possible hobj
+      end->hobj.set_bitwise_key_u32(MAX_HASH);
+      temp_end->hobj.set_bitwise_key_u32(MAX_HASH);
+      end->hobj.nspace = "\xff";
+    } else {
+      end->hobj.set_bitwise_key_u32(end_hash);
+      temp_end->hobj.set_bitwise_key_u32(end_hash);
+    }
   } else {
     start->shard_id = shard_id_t::NO_SHARD;
     start->hobj.pool = -1ull;
 
     *end = *start;
     start->hobj.set_bitwise_key_u32(0);
-    end->hobj.set_bitwise_key_u32(0xffffffff);
-
+    end->hobj.set_bitwise_key_u32(MAX_HASH);
+    end->hobj.nspace = "\xff";
     // no separate temp section
     *temp_start = *end;
     *temp_end = *end;

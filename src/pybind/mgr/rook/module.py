@@ -305,7 +305,7 @@ class RookOrchestrator(MgrModule, orchestrator.Orchestrator):
             for zone in all_zones.get('items', []):
                 rgw_realm = zone['metadata']['name']
                 rgw_zone = rgw_realm
-                svc = 'rgw.' + rgw_realm + '.' + rgw_zone
+                svc = 'rgw.' + rgw_realm
                 if svc in spec:
                     continue
                 active = zone['spec']['gateway']['instances'];
@@ -317,7 +317,7 @@ class RookOrchestrator(MgrModule, orchestrator.Orchestrator):
                     port = zone['spec']['gateway']['port'] or 80
                 spec[svc] = orchestrator.ServiceDescription(
                     spec=RGWSpec(
-                        service_id=rgw_realm + '.' + rgw_zone,
+                        service_id=rgw_realm,
                         rgw_realm=rgw_realm,
                         rgw_zone=rgw_zone,
                         ssl=ssl,
@@ -450,7 +450,9 @@ class RookOrchestrator(MgrModule, orchestrator.Orchestrator):
     @handle_orch_error
     def apply_rgw(self, spec):
         # type: (RGWSpec) -> str
-        return self.rook_cluster.apply_objectstore(spec)
+        num_of_osds = self.get_ceph_option('osd_pool_default_size')
+        assert type(num_of_osds) is int
+        return self.rook_cluster.apply_objectstore(spec, num_of_osds)
 
     @handle_orch_error
     def apply_nfs(self, spec):

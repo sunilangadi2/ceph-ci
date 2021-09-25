@@ -601,6 +601,8 @@ def safe_kill(pid):
     os.kill annoyingly raises exception if process already dead.  Ignore it.
     """
     try:
+        # XXX: since os.kill()s fails in case of process launched with root
+        # perms, get rid of them in favour of 'sudo kill -9'?
         return os.kill(pid, signal.SIGKILL)
     except OSError as e:
         if e.errno == errno.ESRCH:

@@ -1301,7 +1301,13 @@ cmake .. \
     -DWITH_LTTNG:BOOL=OFF \
     -DWITH_BABELTRACE:BOOL=OFF \
 %endif
+%if 0%{with seastar}
+    -DCMAKE_BUILD_TYPE=RelWithDebInfo \
+%endif
     $CEPH_EXTRA_CMAKE_ARGS \
+%if 0%{with seastar}
+    -DCMAKE_BUILD_TYPE=RelWithDebInfo \
+%endif
 %if 0%{with ocf}
     -DWITH_OCF:BOOL=ON \
 %endif

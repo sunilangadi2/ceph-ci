@@ -72,8 +72,11 @@ bool KeyServerData::get_service_secret(CephContext *cct, uint32_t service_id,
 				uint64_t secret_id, CryptoKey& secret) const
 {
   auto iter = rotating_secrets.find(service_id);
-  if (iter == rotating_secrets.end())
+  if (iter == rotating_secrets.end()) {
+    ldout(cct, 10) << __func__ << " no rotating_secrets for service " << service_id
+		   << " " << ceph_entity_type_name(service_id) << dendl;
     return false;
+  }
 
   const RotatingSecrets& secrets = iter->second;
   auto riter = secrets.secrets.find(secret_id);
@@ -149,6 +152,11 @@ int KeyServer::start_server()
   _check_rotating_secrets();
   _dump_rotating_secrets();
   return 0;
+}
+
+void KeyServer::dump()
+{
+  _dump_rotating_secrets();
 }
 
 bool KeyServer::_check_rotating_secrets()

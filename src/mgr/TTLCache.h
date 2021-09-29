@@ -23,6 +23,7 @@ template <class Key, class Value> class Cache {
   std::vector<string> allowed_keys = {"osd_map", "pg_dump", "pg_stats"};
 
   void mark_miss() {
+
     misses++;
   }
 

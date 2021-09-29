@@ -171,8 +171,10 @@ bool KeyServer::_check_rotating_secrets()
   added += _rotate_secret(CEPH_ENTITY_TYPE_MGR);
 
   if (added) {
-    ldout(cct, 10) << __func__ << " added " << added << dendl;
     data.rotating_ver++;
+    ldout(cct, 10) << __func__ << " added " << added
+		   << ", rotating_ver=" << data.rotating_ver
+		   << dendl;
     //data.next_rotating_time = ceph_clock_now(cct);
     //data.next_rotating_time += std::min(cct->_conf->auth_mon_ticket_ttl, cct->_conf->auth_service_ticket_ttl);
     _dump_rotating_secrets();
@@ -367,11 +369,18 @@ void KeyServer::encode_plaintext(bufferlist &bl)
 bool KeyServer::updated_rotating(bufferlist& rotating_bl, version_t& rotating_ver)
 {
   std::scoped_lock l{lock};
+  ldout(cct, 20) << __func__ << " before: data.rotating_ver=" << data.rotating_ver
+		 << " vs rotating_ver " << rotating_ver << dendl;
 
-  _check_rotating_secrets(); 
+  bool r = _check_rotating_secrets();
+  
+  ldout(cct, 20) << __func__ << " after: data.rotating_ver=" << data.rotating_ver
+		 << " vs rotating_ver " << rotating_ver << dendl;
 
-  if (data.rotating_ver <= rotating_ver)
+  if (data.rotating_ver <= rotating_ver) {
+    ceph_assert(!r);
     return false;
+  }
  
   data.encode_rotating(rotating_bl);
 

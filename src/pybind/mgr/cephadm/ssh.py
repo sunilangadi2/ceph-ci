@@ -135,7 +135,8 @@ class SSHManager:
         cmd = "sudo " + " ".join(quote(x) for x in cmd)
         logger.debug(f'Running command: {cmd}')
         try:
-            r = await conn.run(cmd, input=stdin.decode() if stdin else None)
+            # set encoding to `None` to send and receive raw bytes
+            r = await conn.run(cmd, input=stdin, encoding=None)
         # handle these Exceptions otherwise you might get a weird error like TypeError: __init__() missing 1 required positional argument: 'reason' (due to the asyncssh error interacting with raise_if_exception)
         except (asyncssh.ChannelOpenError, Exception) as e:
             # SSH connection closed or broken, will create new connection next call
@@ -143,8 +144,8 @@ class SSHManager:
             await self._reset_con(host)
             self.mgr.offline_hosts.add(host)
             raise OrchestratorError(f'Unable to reach remote host {host}. {str(e)}')
-        out = r.stdout.rstrip('\n')
-        err = r.stderr.rstrip('\n')
+        out = r.stdout.decode().rstrip('\n')
+        err = r.stderr.decode().rstrip('\n')
         return out, err, r.returncode
 
     def execute_command(self,

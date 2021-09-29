@@ -497,6 +497,22 @@ static int update_auth(MonitorDBStore& st, const string& keyring_path)
     inc.encode(bl, CEPH_FEATURES_ALL);
   }
 
+  // prime rotating secrets
+  {
+    KeyServer ks(g_ceph_context, nullptr);
+    bufferlist rbl;
+    bool r = ks.prepare_rotating_update(rbl);
+    ceph_assert(r);
+    ks.dump();
+    KeyServerData::Incremental auth_inc;
+    auth_inc.op = KeyServerData::AUTH_INC_SET_ROTATING;
+    AuthMonitor::Incremental inc;
+    inc.inc_type = AuthMonitor::AUTH_DATA;
+    encode(auth_inc, inc.auth_data);
+    inc.auth_type = CEPH_AUTH_CEPHX;
+    inc.encode(bl, CEPH_FEATURES_ALL);
+  }
+
   const string prefix("auth");
   auto last_committed = st.get(prefix, "last_committed") + 1;
   auto t = make_shared<MonitorDBStore::Transaction>();

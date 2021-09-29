@@ -436,6 +436,13 @@ class RookOrchestrator(MgrModule, orchestrator.Orchestrator):
 
         return self.rook_cluster.update_mon_count(spec.placement.count)
 
+    def apply_rbd_mirror(self, spec: ServiceSpec) -> OrchResult[str]:
+        try:
+            self.rook_cluster.rbd_mirror(spec)
+            return OrchResult("Success")
+        except Exception as e:
+            return OrchResult(None, e)
+
     @handle_orch_error
     def apply_mds(self, spec):
         # type: (ServiceSpec) -> str

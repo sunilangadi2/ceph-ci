@@ -388,7 +388,6 @@ class CephadmServe:
         health_changed = False
         for k in [
                 'CEPHADM_HOST_CHECK_FAILED',
-                'CEPHADM_FAILED_DAEMON',
                 'CEPHADM_REFRESH_FAILED',
         ]:
             if k in self.mgr.health_checks:
@@ -410,19 +409,7 @@ class CephadmServe:
                 'detail': failures,
             }
             health_changed = True
-        failed_daemons = []
-        for dd in self.mgr.cache.get_daemons():
-            if dd.status is not None and dd.status == DaemonDescriptionStatus.error:
-                failed_daemons.append('daemon %s on %s is in %s state' % (
-                    dd.name(), dd.hostname, dd.status_desc
-                ))
-        if failed_daemons:
-            self.mgr.health_checks['CEPHADM_FAILED_DAEMON'] = {
-                'severity': 'warning',
-                'summary': '%d failed cephadm daemon(s)' % len(failed_daemons),
-                'count': len(failed_daemons),
-                'detail': failed_daemons,
-            }
+        if self.mgr.update_failed_daemon_health_check():
             health_changed = True
         if health_changed:
             self.mgr.set_health_checks(self.mgr.health_checks)

@@ -743,6 +743,27 @@ class CephadmOrchestrator(orchestrator.Orchestrator, MgrModule,
         if host in self.offline_hosts:
             self.offline_hosts.remove(host)
 
+    def update_failed_daemon_health_check(self) -> bool:
+        updated = False
+        if 'CEPHADM_FAILED_DAEMON' in self.health_checks:
+            del self.health_checks['CEPHADM_FAILED_DAEMON']
+            updated = True
+        failed_daemons = []
+        for dd in self.cache.get_daemons():
+            if dd.status is not None and dd.status == DaemonDescriptionStatus.error:
+                failed_daemons.append('daemon %s on %s is in %s state' % (
+                    dd.name(), dd.hostname, dd.status_desc
+                ))
+        if failed_daemons:
+            self.health_checks['CEPHADM_FAILED_DAEMON'] = {
+                'severity': 'warning',
+                'summary': '%d failed cephadm daemon(s)' % len(failed_daemons),
+                'count': len(failed_daemons),
+                'detail': failed_daemons,
+            }
+            updated = True
+        return updated
+
     @staticmethod
     def can_run() -> Tuple[bool, str]:
         if asyncssh is not None:

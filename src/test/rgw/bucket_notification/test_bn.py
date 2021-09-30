@@ -1744,6 +1744,9 @@ def test_http_post_object_upload():
     from collections import OrderedDict
     import requests
 
+    hostname = get_ip()
+    zonegroup = 'default'
+
     endpoint = "http://%s:%d" % (get_config_host(),get_config_port())
 
     conn1 = boto3.client(service_name='s3',
@@ -1753,6 +1756,7 @@ def test_http_post_object_upload():
                         )
 
     bucket_name = gen_bucket_name()
+    topic_name = bucket_name + TOPIC_SUFFIX
 
     key_name = 'foo.txt'
 
@@ -1767,9 +1771,42 @@ def test_http_post_object_upload():
 
     r = requests.post(url, files=payload, verify=True)
     assert_equal(r.status_code, 204)
-    response = conn1.get_object(Bucket=bucket_name, Key='foo.txt')
-    body = _get_body(response)
-    assert_equal(body, 'bar')
+    #response = conn1.get_object(Bucket=bucket_name, Key='foo.txt')
+    #body = _get_body(response)
+    #assert_equal(body, 'bar')
+
+    # start amqp receivers
+    exchange = 'ex1'
+    task1, receiver1 = create_amqp_receiver_thread(exchange, topic_name+'_1')
+    task1.start()
+
+    # create s3 topics
+    endpoint_address = 'amqp://' + hostname
+    endpoint_args = 'push-endpoint=' + endpoint_address + '&amqp-exchange=' + exchange + '&amqp-ack-level=broker'
+    topic_conf1 = PSTopicS3(conn1, topic_name+'_1', zonegroup, endpoint_args=endpoint_args)
+    topic_arn1 = topic_conf1.set_config()
+
+    # create s3 notifications
+    notification_name = bucket_name + NOTIFICATION_SUFFIX
+    topic_conf_list = [{'Id': notification_name+'_1', 'TopicArn': topic_arn1,
+                        'Events': ['s3:ObjectCreated:Post']
+                       }]
+    s3_notification_conf = PSNotificationS3(conn1, bucket_name, topic_conf_list)
+    response, status = s3_notification_conf.set_config()
+    assert_equal(status/100, 2)
+
+    # check amqp receiver
+    events = receiver1.get_and_reset_events()
+    assert_equal(len(events), 1)
+
+    # cleanup
+    stop_amqp_receiver(receiver1, task1)
+    s3_notification_conf.del_config()
+    topic_conf1.del_config()
+    for key in bucket.list():
+        key.delete()
+    # delete the bucket
+    conn1.delete_bucket(Bucket=bucket_name)
 
 
 @attr('amqp_test')

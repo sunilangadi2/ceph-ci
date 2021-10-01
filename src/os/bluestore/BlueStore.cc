@@ -9400,17 +9400,10 @@ int BlueStore::_fsck_on_open(BlueStore::FSCKDepth depth, bool repair)
 	}
 
 	used_blocks.flip();
-	uint64_t pos = used_blocks.find_first();
 
 	// skip conventional zones
-	while (pos != decltype(used_blocks)::npos &&
-	       (pos * min_alloc_size) / zone_size < first_sequential_zone) {
-	  dout(40) << " (conventional) zone 0x" << std::hex
-		   << (pos * min_alloc_size) / zone_size
-		   << " dead 0x" << (pos * min_alloc_size) << "~" << min_alloc_size
-		   << std::dec << dendl;
-	  pos = used_blocks.find_next(pos);
-	}
+	uint64_t pos = (first_sequential_zone * zone_size) / min_alloc_size - 1;
+	pos = used_blocks.find_next(pos);
 
 	uint64_t zone_dead = 0;
 	for (uint32_t zone = first_sequential_zone;

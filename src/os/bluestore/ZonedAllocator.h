@@ -106,7 +106,7 @@ public:
   void reset_zone(uint32_t zone);
 
   void init_from_zone_pointers(
-    std::vector<zone_state_t> _zone_states);
+    std::vector<zone_state_t> &&_zone_states);
   void init_add_free(uint64_t offset, uint64_t length) override {}
   void init_rm_free(uint64_t offset, uint64_t length) override {}
 

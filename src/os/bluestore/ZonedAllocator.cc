@@ -150,7 +150,7 @@ void ZonedAllocator::dump(std::function<void(uint64_t offset,
 }
 
 void ZonedAllocator::init_from_zone_pointers(
-  std::vector<zone_state_t> _zone_states)
+  std::vector<zone_state_t> &&_zone_states)
 {
   // this is called once, based on the device's zone pointers
   std::lock_guard l(lock);

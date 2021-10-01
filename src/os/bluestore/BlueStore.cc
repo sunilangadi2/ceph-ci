@@ -5634,7 +5634,7 @@ int BlueStore::_init_alloc(std::map<uint64_t, uint64_t> *zone_adjustments)
 				  bdev->get_conventional_region_size() - reserved);
 
     // init sequential zone based on the device's write pointers
-    a->init_from_zone_pointers(zones);
+    a->init_from_zone_pointers(std::move(zones));
     dout(1) << __func__
 	    << " loaded zone pointers: "
 	    << std::hex

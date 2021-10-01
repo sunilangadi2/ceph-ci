@@ -13,9 +13,6 @@
  *
  */
 
-// Copied from KernelDevice with HM-SMR specific functionality added.  Will be
-// further specialized for HM-SMR.
-
 #ifndef CEPH_BLK_HMSMRDEVICE_H
 #define CEPH_BLK_HMSMRDEVICE_H
 

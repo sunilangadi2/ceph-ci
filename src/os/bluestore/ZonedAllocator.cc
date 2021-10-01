@@ -207,6 +207,7 @@ int64_t ZonedAllocator::pick_zone_to_clean(float min_score, uint64_t min_saved)
 		   << " live bytes" << std::dec
 		   << " but below min_score " << min_score
 		   << dendl;
+    best = -1;
   } else {
     ldout(cct, 10) << " no zones found that are good cleaning candidates" << dendl;
   }

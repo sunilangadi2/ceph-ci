@@ -5632,6 +5632,7 @@ int BlueStore::_init_alloc(std::map<uint64_t, uint64_t> *zone_adjustments)
     auto reserved = _get_ondisk_reserved();
     // for now we require a conventional zone
     ceph_assert(bdev->get_conventional_region_size());
+    ceph_assert(shared_alloc.a != alloc);  // zoned allocator doesn't use conventional region
     shared_alloc.a->init_add_free(reserved,
 				  bdev->get_conventional_region_size() - reserved);
 

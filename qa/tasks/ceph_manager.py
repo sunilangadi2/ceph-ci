@@ -1560,6 +1560,9 @@ class CephManager:
         stderr = kwargs.pop('stderr', StringIO())
         return self.run_cluster_cmd(args=args, stdout=stdout, stderr=stderr, **kwargs)
 
+    def cepho(self, *args, **kwargs):
+        return self.ceph(*args, **kwargs).stdout.getvalue()
+
     def run_cluster_cmd(self, **kwargs):
         """
         Run a Ceph command and return the object representing the process
@@ -2480,7 +2483,7 @@ class CephManager:
         osd map --format=json converted to a python object
         :returns: the python object
         """
-        out = self.raw_cluster_cmd('--format=json', 'osd', 'map', pool, name)
+        out = self.cepho(f"--format=json osd map {pool} {name}")
         return json.loads('\n'.join(out.split('\n')[1:]))
 
     def get_osd_dump_json(self):
@@ -2488,7 +2491,7 @@ class CephManager:
         osd dump --format=json converted to a python object
         :returns: the python object
         """
-        out = self.raw_cluster_cmd('osd', 'dump', '--format=json')
+        out = self.cepho("osd dump --format=json")
         return json.loads('\n'.join(out.split('\n')[1:]))
 
     def get_osd_dump(self):

@@ -11805,7 +11805,7 @@ int BlueStore::_open_super_meta()
   }
 
   // smr fields
-
+  {
     bufferlist bl;
     int r = db->get(PREFIX_SUPER, "zone_size", &bl);
     if (r >= 0) {

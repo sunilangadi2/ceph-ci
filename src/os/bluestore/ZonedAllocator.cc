@@ -173,12 +173,13 @@ int64_t ZonedAllocator::pick_zone_to_clean(float min_score, uint64_t min_saved)
   int32_t best = -1;
   float best_score = 0.0;
   for (size_t i = first_seq_zone_num; i < num_zones; ++i) {
-    int64_t live_bytes = zone_states[i].write_pointer - zone_states[i].num_dead_bytes;
     // value (score) = benefit / cost
     //    benefit = how much net free space we'll get (dead bytes)
     //    cost = how many bytes we'll have to rewrite (live bytes)
     // avoid divide by zero on a zone with no live bytes
-    float score = (float)zone_states[i].num_dead_bytes / (float)(live_bytes + 1);
+    float score =
+      (float)zone_states[i].num_dead_bytes /
+      (float)(zone_states[i].get_num_live_bytes() + 1);
     if (score > 0) {
       ldout(cct, 20) << " zone 0x" << std::hex << i
 		     << " dead 0x" << zone_states[i].num_dead_bytes

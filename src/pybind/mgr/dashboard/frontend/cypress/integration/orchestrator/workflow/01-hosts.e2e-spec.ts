@@ -67,7 +67,7 @@ describe('Hosts page', () => {
     });
 
     it('should check if mon service is running', () => {
-      hosts.clickHostTab(hostnames[1], 'Daemons');
+      hosts.clickTab('cd-host-details', hostnames[1], 'Daemons');
       cy.get('cd-host-details').within(() => {
         services.checkServiceStatus('mon');
       });
@@ -78,7 +78,7 @@ describe('Hosts page', () => {
       services.addService('rgw', false, '3');
       services.checkExist(serviceName, true);
       hosts.navigateTo();
-      hosts.clickHostTab(hostnames[1], 'Daemons');
+      hosts.clickTab('cd-host-details', hostnames[1], 'Daemons');
       cy.get('cd-host-details').within(() => {
         services.checkServiceStatus('rgw');
       });

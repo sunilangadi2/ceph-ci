@@ -8689,7 +8689,7 @@ int BlueStore::_fsck_on_open(BlueStore::FSCKDepth depth, bool repair)
   sb_info_map_t sb_info;
 
   /// map of oid -> (first_)offset for each zone
-  std::vector<std::unordered_map<ghobject_t, uint64_t>> zone_refs;
+  std::vector<std::unordered_map<ghobject_t, uint64_t>> zone_refs;   // FIXME: this may be a lot of RAM!
 
   uint64_t num_objects = 0;
   uint64_t num_extents = 0;

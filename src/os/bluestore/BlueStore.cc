@@ -5335,7 +5335,7 @@ int BlueStore::_open_fm(KeyValueDB::Transaction t, bool read_only, bool fm_resto
 {
   int r;
 
-  dout(5) << __func__ << "::NCB::freelist_type=" << freelist_type << dendl;
+  dout(1) << __func__ << "::NCB::freelist_type=" << freelist_type << dendl;
   ceph_assert(fm == NULL);
   // fm_restore means we are transitioning from null-fm to bitmap-fm
   ceph_assert(!fm_restore || (freelist_type != "null"));
@@ -5534,7 +5534,7 @@ int BlueStore::_init_alloc()
   utime_t start_time = ceph_clock_now();
   if (!fm->is_null_manager()) {
     // This is the original path - loading allocation map from RocksDB and feeding into the allocator
-    dout(5) << __func__ << "::NCB::loading allocation from FM -> shared_alloc" << dendl;
+    dout(1) << __func__ << "::NCB::loading allocation from FM -> shared_alloc" << dendl;
     // initialize from freelist
     fm->enumerate_reset();
     uint64_t offset, length;
@@ -5550,13 +5550,13 @@ int BlueStore::_init_alloc()
       shared_alloc.a->get_capacity() - bytes << " time=" << duration << " seconds" << dendl;
   } else {
     // This is the new path reading the allocation map from a flat bluefs file and feeding them into the allocator
-
     if (!cct->_conf->bluestore_allocation_from_file) {
       derr << __func__ << "::NCB::cct->_conf->bluestore_allocation_from_file is set to FALSE with an active NULL-FM" << dendl;
       derr << __func__ << "::NCB::Please change the value of bluestore_allocation_from_file to TRUE in your ceph.conf file" << dendl;
       return -ENOTSUP; // Operation not supported
     }
-
+    dout(1) << __func__ << "::NCB::loading allocation from file" << dendl;
+    
     if (restore_allocator(shared_alloc.a, &num, &bytes) == 0) {
       dout(5) << __func__ << "::NCB::restore_allocator() completed successfully shared_alloc.a=" << shared_alloc.a << dendl;
     } else {
@@ -5905,6 +5905,7 @@ int BlueStore::_open_bluefs(bool create, bool read_only)
   }
   bluefs->set_volume_selector(vselector);
   r = bluefs->mount();
+  //bluefs->set_read_only_mode(read_only);
   if (r < 0) {
     derr << __func__ << " failed bluefs mount: " << cpp_strerror(r) << dendl;
   }
@@ -5915,6 +5916,7 @@ int BlueStore::_open_bluefs(bool create, bool read_only)
 void BlueStore::_close_bluefs(bool cold_close)
 {
   bluefs->umount(cold_close);
+  //bluefs->clear_read_only_mode();
   _minimal_close_bluefs();
 }
 
@@ -5954,7 +5956,7 @@ int BlueStore::_is_bluefs(bool create, bool* ret)
 */
 int BlueStore::_open_db_and_around(bool read_only, bool to_repair)
 {
-  dout(5) << __func__ << "::NCB::read_only=" << read_only << ", to_repair=" << to_repair << dendl;
+  dout(1) << __func__ << "::NCB::read_only=" << read_only << ", to_repair=" << to_repair << dendl;
   {
     string type;
     int r = read_meta("type", &type);
@@ -6039,7 +6041,7 @@ int BlueStore::_open_db_and_around(bool read_only, bool to_repair)
 
   // when function is called in repair mode (to_repair=true) we skip db->open()/create()
   if (!read_only && !to_repair && cct->_conf->bluestore_allocation_from_file) {
-    dout(5) << __func__ << "::NCB::Commit to Null-Manager" << dendl;
+    dout(1) << __func__ << "::NCB::Commit to Null-Manager" << dendl;
     commit_to_null_manager();
   }
 
@@ -7224,7 +7226,7 @@ int BlueStore::_mount()
 
 int BlueStore::umount()
 {
-  dout(5) << __func__ << "::NCB::entered" << dendl;
+  dout(1) << __func__ << "::NCB::entered" << dendl;
   ceph_assert(_kv_only || mounted);
   bool was_mounted = mounted;
   _osr_drain_all();
@@ -17049,37 +17051,21 @@ WRITE_CLASS_DENC(allocator_image_trailer)
 // we can safely ignore non-existing file
 int BlueStore::invalidate_allocation_file_on_bluefs()
 {
-  BlueFS::FileWriter *p_handle = nullptr;
-  if (!bluefs->dir_exists(allocator_dir)) {
-    dout(5) << "allocator_dir(" << allocator_dir << ") doesn't exist" << dendl;
-    // nothing to do -> return
-    return 0;
-  }
-
-  int ret = bluefs->stat(allocator_dir, allocator_file, nullptr, nullptr);
-  if (ret != 0) {
+  dout(1) << "calling std::fopen(" << allocator_file.c_str() << ", wb" << dendl;
+  FILE *filep = std::fopen(allocator_file.c_str(), "wb");
+  if (!filep) {
     dout(5) << "allocator_file(" << allocator_file << ") doesn't exist" << dendl;
     // nothing to do -> return
     return 0;
   }
 
-
-  ret = bluefs->open_for_write(allocator_dir, allocator_file, &p_handle, true);
-  if (ret != 0) {
-    derr << "Failed open_for_write with error-code " << ret << dendl;
-    return -1;
-  }
-
-  dout(5) << "invalidate using bluefs->truncate(p_handle, 0)" << dendl;
-  ret = bluefs->truncate(p_handle, 0);
-  if (ret != 0) {
-    derr << "Failed truncate with error-code " << ret << dendl;
-    bluefs->close_writer(p_handle);
-    return -1;
-  }
-
-  bluefs->fsync(p_handle);
-  bluefs->close_writer(p_handle);
+  dout(1) << "invalidate allocation file (overwriting header)" << dendl;
+  allocator_image_header header;
+  memset((void*)&header, 0, sizeof(header));
+  std::fwrite(&header, sizeof(header), 1, filep);
+  std::fflush(filep);
+  std::fclose(filep);
+  std::remove(allocator_file.c_str());
 
   return 0;
 }
@@ -17166,15 +17152,18 @@ int BlueStore::copy_allocator(Allocator* src_alloc, Allocator* dest_alloc, uint6
 }
 
 //-----------------------------------------------------------------------------------
-static uint32_t flush_extent_buffer_with_crc(BlueFS::FileWriter *p_handle, const char* buffer, const char *p_curr, uint32_t crc)
+static uint32_t flush_extent_buffer_with_crc(FILE *filep, const char* buffer, const char *p_curr, uint32_t crc)
 {
   std::ptrdiff_t length = p_curr - buffer;
-  p_handle->append(buffer, length);
-
+  //p_handle->append(buffer, length);
+  //dout(1) << "calling std::fwrite(" << length << ")" << dendl;
+  std::fwrite(buffer, length, 1, filep);
+  
   crc = ceph_crc32c(crc, (const uint8_t*)buffer, length);
   uint32_t encoded_crc = HTOCEPH_32(crc);
-  p_handle->append((byte*)&encoded_crc, sizeof(encoded_crc));
-
+  //p_handle->append((byte*)&encoded_crc, sizeof(encoded_crc));
+  //dout(1) << "calling std::fwrite(" << sizeof(encoded_crc) << ")" << dendl;
+  std::fwrite((byte*)&encoded_crc, sizeof(encoded_crc), 1, filep);
   return crc;
 }
 
@@ -17185,34 +17174,16 @@ int BlueStore::store_allocator(Allocator* src_allocator)
 {
   utime_t  start_time = ceph_clock_now();
   int ret = 0;
-
-  // create dir if doesn't exist already
-  if (!bluefs->dir_exists(allocator_dir) ) {
-    ret = bluefs->mkdir(allocator_dir);
-    if (ret != 0) {
-      derr << "Failed mkdir with error-code " << ret << dendl;
-      return -1;
-    }
-  }
-
-  // reuse previous file-allocation if exists
-  ret = bluefs->stat(allocator_dir, allocator_file, nullptr, nullptr);
-  bool overwrite_file = (ret == 0);
-  //derr <<  __func__ << "bluefs->open_for_write(" << overwrite_file << ")" << dendl;
-  BlueFS::FileWriter *p_handle = nullptr;
-  ret = bluefs->open_for_write(allocator_dir, allocator_file, &p_handle, overwrite_file);
-  if (ret != 0) {
-    derr <<  __func__ << "Failed open_for_write with error-code " << ret << dendl;
+  //dout(1) << "calling std::fopen(" << allocator_file.c_str() << ", wb" << dendl;
+  FILE *filep = std::fopen(allocator_file.c_str(), "wb");
+  if (!filep) {
+    derr <<  __func__ <<  "File opening failed" << dendl;
     return -1;
   }
 
-  uint64_t file_size = p_handle->file->fnode.size;
-  uint64_t allocated = p_handle->file->fnode.get_allocated();
-  dout(5) << "file_size=" << file_size << ", allocated=" << allocated << dendl;
-
   unique_ptr<Allocator> allocator(clone_allocator_without_bluefs(src_allocator));
   if (!allocator) {
-    bluefs->close_writer(p_handle);
+    std::fclose(filep);
     return -1;
   }
 
@@ -17226,7 +17197,8 @@ int BlueStore::store_allocator(Allocator* src_allocator)
     encode(header, header_bl);
     crc = header_bl.crc32c(crc);
     encode(crc, header_bl);
-    p_handle->append(header_bl);
+    //dout(1) << "calling std::fwrite(" << header_bl.length() << ")" << dendl;
+    std::fwrite(header_bl.c_str(), header_bl.length(), 1, filep);
   }
 
   crc = -1;					 // reset crc
@@ -17241,7 +17213,7 @@ int BlueStore::store_allocator(Allocator* src_allocator)
       ret = -1;
       return;
     }
-    //dout(5) <<  "" << extent_count << "[" << extent_offset << "," << extent_length << "]" << dendl;
+    //dout(1) <<  "" << extent_count << "[" << extent_offset << "," << extent_length << "]" << dendl;
     p_curr->offset = HTOCEPH_64(extent_offset);
     p_curr->length = HTOCEPH_64(extent_length);
     extent_count++;
@@ -17249,8 +17221,8 @@ int BlueStore::store_allocator(Allocator* src_allocator)
     p_curr++;
 
     if (p_curr == p_end) {
-      crc = flush_extent_buffer_with_crc(p_handle, (const char*)buffer, (const char*)p_curr, crc);
-      //dout(5) <<  " extent_count=" << extent_count << ", crc=" << crc << dendl;
+      crc = flush_extent_buffer_with_crc(filep, (const char*)buffer, (const char*)p_curr, crc);
+      //dout(1) <<  " extent_count=" << extent_count << ", crc=" << crc << dendl;
       p_curr = buffer; // recycle the buffer
     }
   };
@@ -17259,37 +17231,38 @@ int BlueStore::store_allocator(Allocator* src_allocator)
   if (ret != 0) {
     derr << "Illegal extent, fail store operation" << dendl;
     derr << "invalidate using bluefs->truncate(p_handle, 0)" << dendl;
-    bluefs->truncate(p_handle, 0);
-    bluefs->close_writer(p_handle);
+    
+    std::fclose(filep);
+    std::remove(allocator_file.c_str());
     return -1;
   }
 
   // if we got any leftovers -> add crc and append to file
   if (p_curr > buffer) {
-    crc = flush_extent_buffer_with_crc(p_handle, (const char*)buffer, (const char*)p_curr, crc);
-    //dout(5) <<  " extent_count=" << extent_count << ", crc=" << crc << dendl;
+    crc = flush_extent_buffer_with_crc(filep, (const char*)buffer, (const char*)p_curr, crc);
+    //dout(1) <<  " extent_count=" << extent_count << ", crc=" << crc << dendl;
   }
 
   {
     allocator_image_trailer trailer(timestamp, s_format_version, s_serial, extent_count, allocation_size);
     bufferlist trailer_bl;
-    //dout(5) << "trailer=\n" << trailer << dendl;
+    //dout(1) << "trailer=\n" << trailer << dendl;
     encode(trailer, trailer_bl);
     uint32_t crc = -1;
     crc = trailer_bl.crc32c(crc);
     encode(crc, trailer_bl);
-    p_handle->append(trailer_bl);
+    //dout(1) << "trailer_crc=" << crc << dendl;
+    //dout(1) << "calling std::fwrite(" << trailer_bl.length() << ")" << dendl;
+    std::fwrite(trailer_bl.c_str(), trailer_bl.length(), 1, filep);
   }
 
-  bluefs->fsync(p_handle);
-  bluefs->truncate(p_handle, p_handle->pos);
-  bluefs->fsync(p_handle);
+  std::fflush(filep);
 
   utime_t duration = ceph_clock_now() - start_time;
-  dout(5) <<"WRITE-extent_count=" << extent_count << ", file_size=" << p_handle->file->fnode.size << dendl;
-  dout(5) <<"p_handle->pos=" << p_handle->pos << " WRITE-duration=" << duration << " seconds" << dendl;
+  dout(1) <<"WRITE-extent_count=" << extent_count << ", file_size=" << std::ftell(filep) << dendl;
+  dout(1) <<"WRITE-duration=" << duration << " seconds" << dendl;
 
-  bluefs->close_writer(p_handle);
+  std::fclose(filep);  
   return 0;
 }
 
@@ -17341,16 +17314,20 @@ int calc_allocator_image_trailer_size()
 int BlueStore::restore_allocator(Allocator* allocator, uint64_t *num, uint64_t *bytes)
 {
   utime_t start_time = ceph_clock_now();
-  BlueFS::FileReader *p_temp_handle = nullptr;
-  int ret = bluefs->open_for_read(allocator_dir, allocator_file, &p_temp_handle, false);
-  if (ret != 0) {
-    derr << "Failed open_for_read with error-code " << ret << dendl;
+  //dout(1) << "calling std::fopen(" << allocator_file.c_str() << ", rb" << dendl;
+  FILE *filep = std::fopen(allocator_file.c_str(), "rb");
+  if (!filep) {
+    derr << "File opening failed" << dendl;
     return -1;
   }
-  unique_ptr<BlueFS::FileReader> p_handle(p_temp_handle);
+
+  std::fseek(filep, 0, SEEK_END); // seek to end
+  std::size_t file_size = std::ftell(filep);
+  //dout(1) << "file_size=" << file_size << ",sizeof(extent_t)=" << sizeof(extent_t) << dendl;
+  std::fseek(filep, 0, SEEK_SET); // seek to start
+  //dout(1) << "offset=" << std::ftell(filep) << dendl;
+  
   uint64_t read_alloc_size = 0;
-  uint64_t file_size = p_handle->file->fnode.size;
-  dout(5) << "file_size=" << file_size << ",sizeof(extent_t)=" << sizeof(extent_t) << dendl;
 
   // make sure we were able to store a valid copy
   if (file_size == 0) {
@@ -17363,8 +17340,11 @@ int BlueStore::restore_allocator(Allocator* allocator, uint64_t *num, uint64_t *
   allocator_image_header header;
   int                    header_size = calc_allocator_image_header_size();
   {
-    bufferlist header_bl,temp_bl;
-    int        read_bytes = bluefs->read(p_handle.get(), offset, header_size, &temp_bl, nullptr);
+    bufferlist header_bl;
+    char       buffer[header_size];
+    //dout(1) << "calling header std::fread(" << header_size << ")" << dendl;
+    int        read_bytes = std::fread(buffer, 1, header_size, filep);
+    //int        read_bytes = bluefs->read(p_handle.get(), offset, header_size, &temp_bl, nullptr);
     if (read_bytes != header_size) {
       derr << "Failed bluefs->read() for header::read_bytes=" << read_bytes << ", req_bytes=" << header_size << dendl;
       return -1;
@@ -17372,7 +17352,8 @@ int BlueStore::restore_allocator(Allocator* allocator, uint64_t *num, uint64_t *
 
     offset += read_bytes;
 
-    header_bl.claim_append(temp_bl);
+    //header_bl.claim_append(temp_bl);
+    header_bl.append(buffer, read_bytes);
     auto p = header_bl.cbegin();
     decode(header, p);
     //dout(5) << " header = \n" << header << dendl;
@@ -17402,7 +17383,9 @@ int BlueStore::restore_allocator(Allocator* allocator, uint64_t *num, uint64_t *
   uint64_t        extents_bytes_left = file_size - (header_size + trailer_size + sizeof(crc));
   while (extents_bytes_left) {
     int req_bytes  = std::min(extents_bytes_left, sizeof(buffer));
-    int read_bytes = bluefs->read(p_handle.get(), offset, req_bytes, nullptr, (char*)buffer);
+    //dout(1) << "calling main std::fread(" << req_bytes << ")" << dendl;
+    int read_bytes = std::fread(buffer, 1, req_bytes, filep);
+    //int read_bytes = bluefs->read(p_handle.get(), offset, req_bytes, nullptr, (char*)buffer);
     //dout(5) << " bluefs->read()::read_bytes=" << read_bytes << ", req_bytes=" << req_bytes << dendl;
     if (read_bytes != req_bytes) {
       derr << "Failed bluefs->read()::read_bytes=" << read_bytes << ", req_bytes=" << req_bytes << dendl;
@@ -17418,7 +17401,7 @@ int BlueStore::restore_allocator(Allocator* allocator, uint64_t *num, uint64_t *
     for (const extent_t *p_ext = buffer; p_ext < p_end; p_ext++) {
       uint64_t offset = CEPHTOH_64(p_ext->offset);
       uint64_t length = CEPHTOH_64(p_ext->length);
-      //dout(5) <<  "" << extent_count << "::[" << offset << "," << length << "]" << dendl;
+      //dout(1) <<  "" << extent_count << "::[" << offset << "," << length << "]" << dendl;
       read_alloc_size += length;
 
       if (length > 0) {
@@ -17431,8 +17414,10 @@ int BlueStore::restore_allocator(Allocator* allocator, uint64_t *num, uint64_t *
     }
 
     uint32_t calc_crc = ceph_crc32c(crc, (const uint8_t*)buffer, read_bytes);
-    read_bytes        = bluefs->read(p_handle.get(), offset, sizeof(crc), nullptr, (char*)&crc);
-    //dout(5) <<  "read-crc::read_bytes=" << read_bytes << ", offset=" << offset << dendl; 
+    //dout(1) << "calling crc std::fread(" << sizeof(crc) << "), foffset=" << std::ftell(filep) << dendl;
+    read_bytes        = std::fread((char*)&crc, 1, sizeof(crc), filep);
+    //read_bytes        = bluefs->read(p_handle.get(), offset, sizeof(crc), nullptr, (char*)&crc);
+    //dout(1) <<  "read-crc::read_bytes=" << read_bytes << ", offset=" << offset  << dendl; 
     if (read_bytes == sizeof(crc) ) {
       crc     = CEPHTOH_32(crc);
       if (crc != calc_crc) {
@@ -17452,17 +17437,21 @@ int BlueStore::restore_allocator(Allocator* allocator, uint64_t *num, uint64_t *
 
   }
 
-  // finally, read teh trailer and verify it is in good shape and that we got all the extents
+  // finally, read the trailer and verify it is in good shape and that we got all the extents
   {
-    bufferlist trailer_bl,temp_bl;
-    int        read_bytes = bluefs->read(p_handle.get(), offset, trailer_size, &temp_bl, nullptr);
+    bufferlist trailer_bl;
+    char       buffer[trailer_size];
+    //dout(1) << "calling trailer std::fread(" << trailer_size << ")" << dendl;
+    int        read_bytes = std::fread(buffer, 1, trailer_size, filep);
+    //int        read_bytes = bluefs->read(p_handle.get(), offset, trailer_size, &temp_bl, nullptr);
     if (read_bytes != trailer_size) {
       derr << "Failed bluefs->read() for trailer::read_bytes=" << read_bytes << ", req_bytes=" << trailer_size << dendl;
       return -1;
     }
     offset += read_bytes;
 
-    trailer_bl.claim_append(temp_bl);
+    //trailer_bl.claim_append(temp_bl);
+    trailer_bl.append(buffer, read_bytes);
     uint32_t crc_calc = -1;
     uint32_t crc;
     allocator_image_trailer trailer;

@@ -11806,13 +11806,16 @@ int BlueStore::_open_super_meta()
   }
 
   // smr fields
-  {
+
     bufferlist bl;
     int r = db->get(PREFIX_SUPER, "zone_size", &bl);
     if (r >= 0) {
       auto p = bl.cbegin();
       decode(zone_size, p);
       dout(1) << __func__ << " zone_size 0x" << std::hex << zone_size << std::dec << dendl;
+      ceph_assert(bdev->is_smr());
+    } else {
+      ceph_assert(!bdev->is_smr());
     }
   }
   {
@@ -11823,6 +11826,9 @@ int BlueStore::_open_super_meta()
       decode(first_sequential_zone, p);
       dout(1) << __func__ << " first_sequential_zone 0x" << std::hex
 	      << first_sequential_zone << std::dec << dendl;
+      ceph_assert(bdev->is_smr());
+    } else {
+      ceph_assert(!bdev->is_smr());
     }
   }
 

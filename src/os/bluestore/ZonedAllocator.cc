@@ -169,6 +169,7 @@ void ZonedAllocator::init_from_zone_pointers(
 
 int64_t ZonedAllocator::pick_zone_to_clean(float min_score, uint64_t min_saved)
 {
+  std::lock_guard l(lock);
   int32_t best = -1;
   float best_score = 0.0;
   for (size_t i = first_seq_zone_num; i < num_zones; ++i) {

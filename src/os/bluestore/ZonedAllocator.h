@@ -38,7 +38,7 @@ class ZonedAllocator : public Allocator {
   uint64_t first_seq_zone_num;
   uint64_t starting_zone_num;
   uint64_t num_zones;
-  uint32_t cleaning_zone = -1;
+  std::atomic<uint32_t> cleaning_zone = -1;
   std::vector<zone_state_t> zone_states;
 
   inline uint64_t get_offset(uint64_t zone_num) const {

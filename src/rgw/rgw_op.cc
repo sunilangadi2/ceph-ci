@@ -3923,7 +3923,7 @@ void RGWPutObj::execute(optional_yield y)
     upload = store->get_multipart_upload(s->bucket.get(), s->object->get_name(),
 					 multipart_upload_id);
     op_ret = upload->get_info(this, s->yield, s->obj_ctx, &pdest_placement);
-    if (op_ret < 0) {
+    if (op_ret < 0) { 
       if (op_ret != -ENOENT) {
         ldpp_dout(this, 0) << "ERROR: get_multipart_info returned " << op_ret << ": " << cpp_strerror(-op_ret) << dendl;
       } else {// -ENOENT: raced with upload complete/cancel, no need to spam log

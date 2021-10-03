@@ -2533,15 +2533,6 @@ void PG::handle_query_state(Formatter *f)
   dout(10) << "handle_query_state" << dendl;
   PeeringState::QueryState q(f);
   recovery_state.handle_event(q, 0);
-
-  // This code has moved to after the close of recovery_state array.
-  // I don't think that scrub is a recovery state
-  //if (is_primary() && is_active() && m_scrubber) {
-//     if (m_scrubber->is_scrub_active()) {
-//       m_scrubber->handle_query_state(f);
-//     }
-   // m_scrubber->sched_info(f, m_planned_scrub);
-  //}
 }
 
 void PG::init_collection_pool_opts()
@@ -2756,6 +2747,14 @@ void PG::dump_missing(Formatter *f)
 void PG::with_pg_stats(std::function<void(const pg_stat_t&, epoch_t lec)>&& f)
 {
   std::lock_guard l{pg_stats_publish_lock};
+  if (pg_stats_publish) {
+    f(*pg_stats_publish, pg_stats_publish->get_effective_last_epoch_clean());
+  }
+}
+
+void PG::modify_pg_stats(std::function<void(pg_stat_t&, epoch_t lec)>&& f)
+{
+  // might be called with pg_stats_publish_lock locked!
   if (pg_stats_publish) {
     f(*pg_stats_publish, pg_stats_publish->get_effective_last_epoch_clean());
   }

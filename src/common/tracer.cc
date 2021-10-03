@@ -22,7 +22,7 @@ namespace jaeger_tracing {
   std::shared_ptr<opentracing::v3::Tracer> tracer = nullptr;
 
   void init_tracer(const char* tracer_name) {
-    if (!tracer) {
+    if (!tracer) { 
 	YAML::Node yaml;
 	try{
 	  yaml = YAML::LoadFile("../src/jaegertracing/config.yml");

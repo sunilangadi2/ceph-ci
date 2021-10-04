@@ -1065,15 +1065,19 @@ struct LruOnodeCacheShard : public BlueStore::OnodeCacheShard {
   {
     if (o->put_cache()) {
       (level > 0) ? lru.push_front(*o) : lru.push_back(*o);
+      o->cache_age_bin = age_bins.front();
+      *(o->cache_age_bin) += 1;
     } else {
       ++num_pinned;
     }
     ++num; // we count both pinned and unpinned entries
+
     dout(20) << __func__ << " " << this << " " << o->oid << " added, num=" << num << dendl;
   }
   void _rm(BlueStore::Onode* o) override
   {
     if (o->pop_cache()) {
+      *(o->cache_age_bin) -= 1; 
       lru.erase(lru.iterator_to(*o));
     } else {
       ceph_assert(num_pinned);
@@ -1085,6 +1089,7 @@ struct LruOnodeCacheShard : public BlueStore::OnodeCacheShard {
   }
   void _pin(BlueStore::Onode* o) override
   {
+    *(o->cache_age_bin) -= 1; 
     lru.erase(lru.iterator_to(*o));
     ++num_pinned;
     dout(20) << __func__ << this << " " << " " << " " << o->oid << " pinned" << dendl;
@@ -1092,6 +1097,8 @@ struct LruOnodeCacheShard : public BlueStore::OnodeCacheShard {
   void _unpin(BlueStore::Onode* o) override
   {
     lru.push_front(*o);
+    o->cache_age_bin = age_bins.front();
+    *(o->cache_age_bin) += 1;
     ceph_assert(num_pinned);
     --num_pinned;
     dout(20) << __func__ << this << " " << " " << " " << o->oid << " unpinned" << dendl;
@@ -1125,6 +1132,7 @@ struct LruOnodeCacheShard : public BlueStore::OnodeCacheShard {
         ceph_assert(n == 0);
         lru.erase(p);
       }
+      *(o->cache_age_bin) -= 1; 
       auto pinned = !o->pop_cache();
       ceph_assert(!pinned);
       o->c->onode_map._remove(o->oid);
@@ -1186,11 +1194,15 @@ struct LruBufferCacheShard : public BlueStore::BufferCacheShard {
       lru.push_back(*b);
     }
     buffer_bytes += b->length;
+    b->cache_age_bin = age_bins.front();
+    *(b->cache_age_bin) += b->length;
     num = lru.size();
   }
   void _rm(BlueStore::Buffer *b) override {
     ceph_assert(buffer_bytes >= b->length);
     buffer_bytes -= b->length;
+    assert(*(b->cache_age_bin) >= b->length);
+    *(b->cache_age_bin) -= b->length;
     auto q = lru.iterator_to(*b);
     lru.erase(q);
     num = lru.size();
@@ -1202,11 +1214,16 @@ struct LruBufferCacheShard : public BlueStore::BufferCacheShard {
   void _adjust_size(BlueStore::Buffer *b, int64_t delta) override {
     ceph_assert((int64_t)buffer_bytes + delta >= 0);
     buffer_bytes += delta;
+    assert(*(b->cache_age_bin) + delta >= 0);
+    *(b->cache_age_bin) += delta;
   }
   void _touch(BlueStore::Buffer *b) override {
     auto p = lru.iterator_to(*b);
     lru.erase(p);
     lru.push_front(*b);
+    *(b->cache_age_bin) -= b->length;
+    b->cache_age_bin = age_bins.front();
+    *(b->cache_age_bin) += b->length;
     num = lru.size();
     _audit("_touch_buffer end");
   }
@@ -1223,6 +1240,8 @@ struct LruBufferCacheShard : public BlueStore::BufferCacheShard {
       BlueStore::Buffer *b = &*i;
       ceph_assert(b->is_clean());
       dout(20) << __func__ << " rm " << *b << dendl;
+      assert(*(b->cache_age_bin) >= b->length);
+      *(b->cache_age_bin) -= b->length;
       b->space->_rm_buffer(this, b);
     }
     num = lru.size();
@@ -1334,9 +1353,11 @@ public:
         ceph_abort_msg("bad cache_private");
       }
     }
+    b->cache_age_bin = age_bins.front();
     if (!b->is_empty()) {
       buffer_bytes += b->length;
       list_bytes[b->cache_private] += b->length;
+      *(b->cache_age_bin) += b->length;
     }
     num = hot.size() + warm_in.size();
   }
@@ -1349,6 +1370,8 @@ public:
       buffer_bytes -= b->length;
       ceph_assert(list_bytes[b->cache_private] >= b->length);
       list_bytes[b->cache_private] -= b->length;
+      assert(*(b->cache_age_bin) >= b->length);
+      *(b->cache_age_bin) -= b->length; 
     }
     switch (b->cache_private) {
     case BUFFER_WARM_IN:
@@ -1391,6 +1414,7 @@ public:
     if (!b->is_empty()) {
       buffer_bytes += b->length;
       list_bytes[b->cache_private] += b->length;
+      *(b->cache_age_bin) += b->length;
     }
     num = hot.size() + warm_in.size();
   }
@@ -1403,6 +1427,8 @@ public:
       buffer_bytes += delta;
       ceph_assert((int64_t)list_bytes[b->cache_private] + delta >= 0);
       list_bytes[b->cache_private] += delta;
+      assert(*(b->cache_age_bin) + delta >= 0);
+      *(b->cache_age_bin) += delta;
     }
   }
 
@@ -1421,6 +1447,9 @@ public:
       hot.push_front(*b);
       break;
     }
+    *(b->cache_age_bin) -= b->length;
+    b->cache_age_bin = age_bins.front();
+    *(b->cache_age_bin) += b->length;
     num = hot.size() + warm_in.size();
     _audit("_touch_buffer end");
   }
@@ -1468,7 +1497,9 @@ public:
         buffer_bytes -= b->length;
         ceph_assert(list_bytes[BUFFER_WARM_IN] >= b->length);
         list_bytes[BUFFER_WARM_IN] -= b->length;
-        to_evict_bytes -= b->length;
+        assert(*(b->cache_age_bin) >= b->length);
+        *(b->cache_age_bin) -= b->length;
+	to_evict_bytes -= b->length;
         evicted += b->length;
         b->state = BlueStore::Buffer::STATE_EMPTY;
         b->data.clear();
@@ -4228,12 +4259,16 @@ void BlueStore::MempoolThread::_adjust_cache_settings()
 {
   if (binned_kv_cache != nullptr) {
     binned_kv_cache->set_cache_ratio(store->cache_kv_ratio);
+    binned_kv_cache->import_intervals(store->kv_intervals); 
   }
   if (binned_kv_onode_cache != nullptr) {
     binned_kv_onode_cache->set_cache_ratio(store->cache_kv_onode_ratio);
+    binned_kv_onode_cache->import_intervals(store->kv_onode_intervals); 
   }
   meta_cache->set_cache_ratio(store->cache_meta_ratio);
+  meta_cache->import_intervals(store->meta_intervals); 
   data_cache->set_cache_ratio(store->cache_data_ratio);
+  data_cache->import_intervals(store->data_intervals); 
 }
 
 void BlueStore::MempoolThread::_resize_shards(bool interval_stats)
@@ -4783,6 +4818,39 @@ int BlueStore::_set_cache_sizes()
   cache_autotune = cct->_conf.get_val<bool>("bluestore_cache_autotune");
   cache_autotune_interval =
       cct->_conf.get_val<double>("bluestore_cache_autotune_interval");
+
+  std::string kv_intervals_str = cct->_conf.get_val<std::string>(
+      "bluestore_cache_autotune_kv_intervals");
+  std::istringstream kv_stream(kv_intervals_str);
+  std::copy(
+      std::istream_iterator<uint64_t>(kv_stream), 
+      std::istream_iterator<uint64_t>(), 
+      std::back_inserter(kv_intervals));
+
+  std::string kv_onode_intervals_str = cct->_conf.get_val<std::string>(
+      "bluestore_cache_autotune_kv_onode_intervals");
+  std::istringstream kv_onode_stream(kv_onode_intervals_str);
+  std::copy(
+      std::istream_iterator<uint64_t>(kv_onode_stream),
+      std::istream_iterator<uint64_t>(),
+      std::back_inserter(kv_onode_intervals));
+
+  std::string meta_intervals_str = cct->_conf.get_val<std::string>(
+      "bluestore_cache_autotune_meta_intervals");
+  std::istringstream meta_stream(meta_intervals_str);
+  std::copy(
+      std::istream_iterator<uint64_t>(meta_stream), 
+      std::istream_iterator<uint64_t>(), 
+      std::back_inserter(meta_intervals));
+
+  std::string data_intervals_str = cct->_conf.get_val<std::string>(
+      "bluestore_cache_autotune_data_intervals");
+  std::istringstream data_stream(data_intervals_str);
+  std::copy(
+      std::istream_iterator<uint64_t>(data_stream), 
+      std::istream_iterator<uint64_t>(), 
+      std::back_inserter(data_intervals));
+
   osd_memory_target = cct->_conf.get_val<Option::size_t>("osd_memory_target");
   osd_memory_base = cct->_conf.get_val<Option::size_t>("osd_memory_base");
   osd_memory_expected_fragmentation =

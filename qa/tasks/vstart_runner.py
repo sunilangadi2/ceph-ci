@@ -47,6 +47,7 @@ from IPy import IP
 import unittest
 import platform
 import logging
+import pdb
 
 from unittest import suite, loader
 
@@ -466,6 +467,8 @@ class LocalRemote(object):
                 subproc.stdin.write(stdin.encode())
             elif stdin == subprocess.PIPE or stdin == PIPE:
                 pass
+            elif isinstance(stdin, StringIO):
+                subproc.stdin.write(bytes(stdin.getvalue(),encoding='utf8'))
             else:
                 subproc.stdin.write(stdin)
 
@@ -1056,7 +1059,7 @@ def load_tests(modules, loader):
 
 def scan_tests(modules):
     overall_suite = load_tests(modules, loader.TestLoader())
-
+    pdb.set_trace()
     max_required_mds = 0
     max_required_clients = 0
     max_required_mgr = 0
@@ -1327,6 +1330,8 @@ def exec_test():
     # tools that the tests might want to use (add more here if needed)
     require_binaries = ["ceph-dencoder", "cephfs-journal-tool", "cephfs-data-scan",
                         "cephfs-table-tool", "ceph-fuse", "rados", "cephfs-meta-injection"]
+    # What binaries may be required is task specific
+    require_binaries = ["ceph-dencoder",  "rados"]
     missing_binaries = [b for b in require_binaries if not os.path.exists(os.path.join(BIN_PREFIX, b))]
     if missing_binaries and not opt_ignore_missing_binaries:
         log.error("Some ceph binaries missing, please build them: {0}".format(" ".join(missing_binaries)))
@@ -1519,4 +1524,5 @@ def exec_test():
 
 
 if __name__ == "__main__":
+    pdb.set_trace()
     exec_test()

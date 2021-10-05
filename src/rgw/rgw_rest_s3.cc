@@ -6143,7 +6143,14 @@ RGWSelectObj_ObjStore_S3::RGWSelectObj_ObjStore_S3():
   set_get_data(true);
   m_rgw_api = std::unique_ptr<s3selectEngine::rgw_s3select_api>(new s3selectEngine::rgw_s3select_api );
   fp_get_obj_size = [&]() { return get_obj_size(); };
-  fp_range_req = [&](int64_t s, int64_t len, void *buff,optional_yield* y) { return range_request(s, len, buff, y); }; 
+
+  fp_range_req = [&](int64_t start, int64_t len, void *buff,optional_yield* y)
+  { 
+    ldout(s->cct, 10) << "S3select: range-request start: " << start << " length: " << len << dendl;
+    auto status = range_request(start, len, buff, y); 
+
+    return status;
+  }; 
 
   m_rgw_api->set_get_size_api(fp_get_obj_size); 
   m_rgw_api->set_range_req_api(fp_range_req);
@@ -6370,8 +6377,8 @@ int RGWSelectObj_ObjStore_S3::run_s3select(const char* query, const char* input,
     }
     if (status < 0){
       if(m_parquet_type){
-      //m_result.append(m_s3_parquet_object->get_error_description()); //TODO get_error_description for runtime errors
-        ldout(s->cct, 10) << "s3select: failure while execution " << dendl;
+	m_result.append(m_s3_parquet_object->get_error_description());
+        ldout(s->cct, 10) << "s3select: failure while execution " << m_s3_parquet_object->get_error_description() << dendl;
       } 
       else {
         m_result.append(m_s3_csv_object->get_error_description());
@@ -6466,10 +6473,19 @@ int RGWSelectObj_ObjStore_S3::range_request(int64_t ofs, int64_t len,void *buff,
   requested_buffer.clear();
   m_request_range = len;
 
-  ldout(s->cct, 10) << "S3select: calling execute(async):" << " offset :" << ofs << " length :" << len << "buffer size : " << requested_buffer.size() << dendl;
+  ldout(s->cct, 10) << "S3select: calling execute(async):" << " request-offset :" << ofs << " request-length :" << len << " buffer size : " << requested_buffer.size() << dendl;
 
   range_request_complete = std::promise<void>();
-  range_request_complete_future = range_request_complete.get_future();
+  
+  try {
+    range_request_complete_future = range_request_complete.get_future();
+  }
+  catch( ... )
+  {
+    ldout(s->cct, 10) << "S3select: failed to get_future" << dendl;
+    return -1;
+  }
+
   RGWGetObj::execute(*y);
 
   range_request_complete_future.wait(); //wait until whole range is retrieved //TODO timeout
@@ -6478,7 +6494,7 @@ int RGWSelectObj_ObjStore_S3::range_request(int64_t ofs, int64_t len,void *buff,
 
   ldout(s->cct, 10) << "S3select: done waiting, buffer is complete buffer-size:" << requested_buffer.size() << dendl;
 
-  return requested_buffer.size();
+  return len;
 }
 
 void RGWSelectObj_ObjStore_S3::execute(optional_yield y)
@@ -6538,21 +6554,46 @@ int RGWSelectObj_ObjStore_S3::send_response_data(bufferlist& bl, off_t ofs, off_
 
   chunk_number++;
 
+  size_t append_in_callback = 0;
+  int part_no = 1;
+
   if (m_parquet_type)
   {
     //concat the requested buffer
-    for (auto &it : bl.buffers())
+    for (auto &it : bl.buffers()) //TODO why using for-loop
     {
-      requested_buffer.append(&(it)[0], it.length());
-    }
-    if (requested_buffer.size() < m_request_range)
-    {
-      ldout(s->cct, 10) << " s3select: need another round buffe-size: " << requested_buffer.size() << " request range length:" << m_request_range << dendl;
-      return 0;
+      if(it.length() == 0)
+      {
+	ldout(s->cct, 10) << "S3select: get zero-buffer while appending request-buffer " << dendl;
+      }
+
+      append_in_callback += it.length();
+      
+      ldout(s->cct, 10) << "S3select: part " << part_no++ << " it.length() = " << it.length() << dendl;
+
+      requested_buffer.append(&(it)[0]+ofs,len);
     }
 
-    ldout(s->cct, 10) << " s3select: buffer is complete " << requested_buffer.size() << " request range length:" << m_request_range << dendl;
-    range_request_complete.set_value(); //notify range_request
+    ldout(s->cct, 10) << "S3select:append_in_callback = " << append_in_callback << dendl;
+
+    if (requested_buffer.size() < m_request_range)
+    {
+      ldout(s->cct, 10) << "S3select: need another round buffe-size: " << requested_buffer.size() << " request range length:" << m_request_range << dendl;
+      return 0;
+    }
+    else
+    {//buffer is complete
+      ldout(s->cct, 10) << "S3select: buffer is complete " << requested_buffer.size() << " request range length:" << m_request_range << dendl;
+      try{
+	range_request_complete.set_value(); //notify range_request
+	m_request_range = 0;
+      }
+      catch(...)
+      {
+	ldout(s->cct, 10) << "S3select: failed to set value requested_buffer.size=" << requested_buffer.size() <<  " m_request_range=" << m_request_range << dendl;
+	return -1;
+      }
+    }
 
     return 0;
   }

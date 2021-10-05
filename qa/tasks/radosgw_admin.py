@@ -693,9 +693,14 @@ def task(ctx, config):
         if obj[:4] == 'meta' or obj[:4] == 'data' or obj[:18] == 'obj_delete_at_hint':
             continue
 
+        log.info("candidate object: %s" % (obj))
+
         (err, rgwlog) = rgwadmin(ctx, client, ['log', 'show', '--object', obj],
             check_status=True)
         assert len(rgwlog) > 0
+
+        for i, (k, v) in enumerate(rgwlog.items()):
+             log.info("log show object: %d %s %s" % (i, k, v))
 
         # exempt bucket_name2 from checking as it was only used for multi-region tests
         assert rgwlog['bucket'].find(bucket_name) == 0 or rgwlog['bucket'].find(bucket_name2) == 0

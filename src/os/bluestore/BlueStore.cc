@@ -5534,7 +5534,7 @@ int BlueStore::_init_alloc()
   utime_t start_time = ceph_clock_now();
   if (!fm->is_null_manager()) {
     // This is the original path - loading allocation map from RocksDB and feeding into the allocator
-    dout(1) << __func__ << "::NCB::loading allocation from FM -> shared_alloc" << dendl;
+    dout(5) << __func__ << "::NCB::loading allocation from FM -> shared_alloc" << dendl;
     // initialize from freelist
     fm->enumerate_reset();
     uint64_t offset, length;
@@ -5550,6 +5550,7 @@ int BlueStore::_init_alloc()
       shared_alloc.a->get_capacity() - bytes << " time=" << duration << " seconds" << dendl;
   } else {
     // This is the new path reading the allocation map from a flat bluefs file and feeding them into the allocator
+
     if (!cct->_conf->bluestore_allocation_from_file) {
       derr << __func__ << "::NCB::cct->_conf->bluestore_allocation_from_file is set to FALSE with an active NULL-FM" << dendl;
       derr << __func__ << "::NCB::Please change the value of bluestore_allocation_from_file to TRUE in your ceph.conf file" << dendl;
@@ -5905,7 +5906,6 @@ int BlueStore::_open_bluefs(bool create, bool read_only)
   }
   bluefs->set_volume_selector(vselector);
   r = bluefs->mount();
-  //bluefs->set_read_only_mode(read_only);
   if (r < 0) {
     derr << __func__ << " failed bluefs mount: " << cpp_strerror(r) << dendl;
   }
@@ -5916,7 +5916,6 @@ int BlueStore::_open_bluefs(bool create, bool read_only)
 void BlueStore::_close_bluefs(bool cold_close)
 {
   bluefs->umount(cold_close);
-  //bluefs->clear_read_only_mode();
   _minimal_close_bluefs();
 }
 
@@ -5956,7 +5955,7 @@ int BlueStore::_is_bluefs(bool create, bool* ret)
 */
 int BlueStore::_open_db_and_around(bool read_only, bool to_repair)
 {
-  dout(1) << __func__ << "::NCB::read_only=" << read_only << ", to_repair=" << to_repair << dendl;
+  dout(5) << __func__ << "::NCB::read_only=" << read_only << ", to_repair=" << to_repair << dendl;
   {
     string type;
     int r = read_meta("type", &type);
@@ -17177,7 +17176,7 @@ int BlueStore::store_allocator(Allocator* src_allocator)
   //dout(1) << "calling std::fopen(" << allocator_file.c_str() << ", wb" << dendl;
   FILE *filep = std::fopen(allocator_file.c_str(), "wb");
   if (!filep) {
-    derr <<  __func__ <<  "File opening failed" << dendl;
+    derr << "File opening failed" << dendl;
     return -1;
   }
 
@@ -17209,7 +17208,7 @@ int BlueStore::store_allocator(Allocator* src_allocator)
   uint64_t        allocation_size = 0;
   auto iterated_allocation = [&](uint64_t extent_offset, uint64_t extent_length) {
     if (extent_length == 0) {
-      derr <<  __func__ << "" << extent_count << "::[" << extent_offset << "," << extent_length << "]" << dendl;
+      derr << extent_count << "::[" << extent_offset << "," << extent_length << "]" << dendl;
       ret = -1;
       return;
     }

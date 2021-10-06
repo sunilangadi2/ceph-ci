@@ -7254,6 +7254,8 @@ int BlueStore::umount()
     int ret = store_allocator(shared_alloc.a);
     if (ret != 0) {
       derr << __func__ << "::NCB::store_allocator() failed (continue with bitmapFreelistManager)" << dendl;
+      _close_db_and_around(false);
+      // should we run fsck ???
       return ret;
     }
     dout(5) << __func__ << "::NCB::store_allocator() completed successfully" << dendl;
@@ -16842,7 +16844,7 @@ void RocksDBBlueFSVolumeSelector::dump(ostream& sout) {
 #define dout_prefix *_dout << "bluestore::NCB::" << __func__ << "::"
 
 //static const std::string allocator_dir    = "ALLOCATOR_NCB_DIR";
-static const std::string allocator_file2   = "ALLOCATOR_NCB_FILE";
+static const std::string allocator_file2   = "/tmp/ALLOCATOR_NCB_FILE";
 static uint32_t    s_format_version = 0x01; // support future changes to allocator-map file
 static uint32_t    s_serial         = 0x01;
 
@@ -17176,7 +17178,7 @@ int BlueStore::store_allocator(Allocator* src_allocator)
   //dout(1) << "calling std::fopen(" << allocator_file2.c_str() << ", wb" << dendl;
   FILE *filep = std::fopen(allocator_file2.c_str(), "wb");
   if (!filep) {
-    derr << "File opening failed" << dendl;
+    derr << ">>>File opening failed" << dendl;
     return -1;
   }
 

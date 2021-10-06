@@ -10,6 +10,13 @@
 #define dout_context g_ceph_context
 #define dout_subsys ceph_subsys_rgw
 
+bool verify_transport_security(CephContext *cct, const RGWEnv& env) {
+  if (g_conf().get_val<bool>("rgw_allow_secrets_in_cleartext")) {
+    return true;
+  }
+  return rgw_transport_is_secure(cct, env);
+}
+
 bool validate_and_update_endpoint_secret(rgw_pubsub_sub_dest& dest, CephContext *cct, const RGWEnv& env) {
   if (dest.push_endpoint.empty()) {
       return true;
@@ -24,7 +31,7 @@ bool validate_and_update_endpoint_secret(rgw_pubsub_sub_dest& dest, CephContext 
   ceph_assert(user.empty() == password.empty());
   if (!user.empty()) {
       dest.stored_secret = true;
-      if (!rgw_transport_is_secure(cct, env)) {
+      if (!verify_transport_security(cct, env)) {
         ldout(cct, 1) << "endpoint validation error: sending password over insecure transport" << dendl;
         return false;
       }
@@ -71,7 +78,7 @@ void RGWPSListTopicsOp::execute(optional_yield y) {
     ldpp_dout(this, 1) << "failed to get topics, ret=" << op_ret << dendl;
     return;
   }
-  if (topics_has_endpoint_secret(result) && !rgw_transport_is_secure(s->cct, *(s->info.env))) {
+  if (topics_has_endpoint_secret(result) && !verify_transport_security(s->cct, *(s->info.env))) {
     ldpp_dout(this, 1) << "topics contain secret and cannot be sent over insecure transport" << dendl;
     op_ret = -EPERM;
     return;
@@ -86,7 +93,7 @@ void RGWPSGetTopicOp::execute(optional_yield y) {
   }
   ps.emplace(static_cast<rgw::sal::RadosStore*>(store), s->owner.get_id().tenant);
   op_ret = ps->get_topic(topic_name, &result);
-  if (topic_has_endpoint_secret(result) && !rgw_transport_is_secure(s->cct, *(s->info.env))) {
+  if (topic_has_endpoint_secret(result) && !verify_transport_security(s->cct, *(s->info.env))) {
     ldpp_dout(this, 1) << "topic '" << topic_name << "' contain secret and cannot be sent over insecure transport" << dendl;
     op_ret = -EPERM;
     return;
@@ -135,7 +142,7 @@ void RGWPSGetSubOp::execute(optional_yield y) {
   ps.emplace(static_cast<rgw::sal::RadosStore*>(store), s->owner.get_id().tenant);
   auto sub = ps->get_sub(sub_name);
   op_ret = sub->get_conf(&result);
-  if (subscription_has_endpoint_secret(result) && !rgw_transport_is_secure(s->cct, *(s->info.env))) {
+  if (subscription_has_endpoint_secret(result) && !verify_transport_security(s->cct, *(s->info.env))) {
     ldpp_dout(this, 1) << "subscription '" << sub_name << "' contain secret and cannot be sent over insecure transport" << dendl;
     op_ret = -EPERM;
     return;

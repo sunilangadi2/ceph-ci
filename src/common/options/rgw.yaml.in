@@ -3240,3 +3240,10 @@ options:
   - rgw
   flags:
   - startup
+- name: rgw_allow_secrets_in_cleartext
+  type: bool
+  level: advanced
+  desc: Allows sending secrets (e.g. passwords) over non encrypted HTTP messages
+  default: false
+  services:
+  - rgw

@@ -16841,8 +16841,8 @@ void RocksDBBlueFSVolumeSelector::dump(ostream& sout) {
 #undef dout_prefix
 #define dout_prefix *_dout << "bluestore::NCB::" << __func__ << "::"
 
-static const std::string allocator_dir    = "ALLOCATOR_NCB_DIR";
-static const std::string allocator_file   = "ALLOCATOR_NCB_FILE";
+//static const std::string allocator_dir    = "ALLOCATOR_NCB_DIR";
+static const std::string allocator_file2   = "ALLOCATOR_NCB_FILE";
 static uint32_t    s_format_version = 0x01; // support future changes to allocator-map file
 static uint32_t    s_serial         = 0x01;
 
@@ -17050,10 +17050,10 @@ WRITE_CLASS_DENC(allocator_image_trailer)
 // we can safely ignore non-existing file
 int BlueStore::invalidate_allocation_file_on_bluefs()
 {
-  dout(1) << "calling std::fopen(" << allocator_file.c_str() << ", wb" << dendl;
-  FILE *filep = std::fopen(allocator_file.c_str(), "wb");
+  dout(1) << "calling std::fopen(" << allocator_file2.c_str() << ", wb" << dendl;
+  FILE *filep = std::fopen(allocator_file2.c_str(), "wb");
   if (!filep) {
-    dout(5) << "allocator_file(" << allocator_file << ") doesn't exist" << dendl;
+    dout(5) << "allocator_file(" << allocator_file2 << ") doesn't exist" << dendl;
     // nothing to do -> return
     return 0;
   }
@@ -17064,7 +17064,7 @@ int BlueStore::invalidate_allocation_file_on_bluefs()
   std::fwrite(&header, sizeof(header), 1, filep);
   std::fflush(filep);
   std::fclose(filep);
-  std::remove(allocator_file.c_str());
+  std::remove(allocator_file2.c_str());
 
   return 0;
 }
@@ -17173,8 +17173,8 @@ int BlueStore::store_allocator(Allocator* src_allocator)
 {
   utime_t  start_time = ceph_clock_now();
   int ret = 0;
-  //dout(1) << "calling std::fopen(" << allocator_file.c_str() << ", wb" << dendl;
-  FILE *filep = std::fopen(allocator_file.c_str(), "wb");
+  //dout(1) << "calling std::fopen(" << allocator_file2.c_str() << ", wb" << dendl;
+  FILE *filep = std::fopen(allocator_file2.c_str(), "wb");
   if (!filep) {
     derr << "File opening failed" << dendl;
     return -1;
@@ -17232,7 +17232,7 @@ int BlueStore::store_allocator(Allocator* src_allocator)
     derr << "invalidate using bluefs->truncate(p_handle, 0)" << dendl;
     
     std::fclose(filep);
-    std::remove(allocator_file.c_str());
+    std::remove(allocator_file2.c_str());
     return -1;
   }
 
@@ -17313,8 +17313,8 @@ int calc_allocator_image_trailer_size()
 int BlueStore::restore_allocator(Allocator* allocator, uint64_t *num, uint64_t *bytes)
 {
   utime_t start_time = ceph_clock_now();
-  //dout(1) << "calling std::fopen(" << allocator_file.c_str() << ", rb" << dendl;
-  FILE *filep = std::fopen(allocator_file.c_str(), "rb");
+  //dout(1) << "calling std::fopen(" << allocator_file2.c_str() << ", rb" << dendl;
+  FILE *filep = std::fopen(allocator_file2.c_str(), "rb");
   if (!filep) {
     derr << "File opening failed" << dendl;
     return -1;

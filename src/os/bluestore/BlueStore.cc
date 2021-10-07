@@ -5337,22 +5337,29 @@ int BlueStore::_open_fm(KeyValueDB::Transaction t, bool read_only, bool fm_resto
 
   dout(1) << __func__ << "::NCB::freelist_type=" << freelist_type << dendl;
   ceph_assert(fm == NULL);
+  string type;
+  r = read_meta("NCB_freelist_manager", &type);
+  if (r < 0) {
+    derr << __func__ << "::NCB::unable to read NCB_freelist_manager from meta" << dendl;
+    return -EIO;
+  }
+
+  dout(1) << __func__ << "::NCB::freelist_manager=" << type << dendl;
+  // When allocation-info is stored in a single file we set NCB_freelist_manager to "NULL_FM"
+  // This mean no allocation will be stored in RocksDB
+  if (type != "NULL_FM" && type != "REAL_FM") {
+    derr << __func__ << "::NCB:: Unexpected NCB_freelist_manager type from meta: <" << type << ">" << dendl;
+    ceph_assert(0);
+  }
+  
   // fm_restore means we are transitioning from null-fm to bitmap-fm
-  ceph_assert(!fm_restore || (freelist_type != "null"));
+  ceph_assert(!fm_restore || (type != "NULL_FM"));
   // fm restore must pass in a valid transaction
   ceph_assert(!fm_restore || (t != nullptr));
 
-  // When allocation-info is stored in a single file we set freelist_type to "null"
-  bool set_null_freemap = false;
-  if (freelist_type == "null") {
-    // use BitmapFreelistManager with the null option to stop allocations from going to RocksDB
-    // we will store the allocation info in a single file during umount()
-    freelist_type = "bitmap";
-    set_null_freemap = true;
-  }
   fm = FreelistManager::create(cct, freelist_type, PREFIX_ALLOC);
   ceph_assert(fm);
-  if (set_null_freemap) {
+  if (type == "NULL_FM") {
     fm->set_null_manager();
   }
   if (t) {
@@ -18109,7 +18116,7 @@ int BlueStore::reset_fm_for_restore()
   fm->shutdown();
   delete fm;
   fm = nullptr;
-  freelist_type = "bitmap";
+  //freelist_type = "bitmap";
   KeyValueDB::Transaction t = db->get_transaction();
   // call _open_fm() with fm_restore set to TRUE
   // this will mark the full device space as allocated (and not just the reserved space)
@@ -18186,7 +18193,7 @@ int BlueStore::push_allocation_to_rocksdb()
   // remove all objects of PREFIX_ALLOC_BITMAP from RocksDB to guarantee a clean start
   clear_allocation_objects_from_rocksdb(db, cct, path);
 
-  // then open fm in new mode with the full devie marked as alloctaed
+  // then open fm in new mode with the full device marked as allocated
   if (reset_fm_for_restore() != 0) {
     return db_cleanup(-1);
   }
@@ -18219,50 +18226,22 @@ int BlueStore::push_allocation_to_rocksdb()
 
 #endif // CEPH_BLUESTORE_TOOL_RESTORE_ALLOCATION
 
-//-------------------------------------------------------------------------------------
-static int commit_freelist_type(KeyValueDB *db, const std::string& freelist_type, CephContext *cct, const std::string &path)
-{
-  // When freelist_type to "bitmap" we will store allocation in RocksDB
-  // When allocation-info is stored in a single file we set freelist_type to "null"
-  // This will direct the startup code to read allocation from file and not RocksDB
-  KeyValueDB::Transaction t = db->get_transaction();
-  if (t == nullptr) {
-    derr << "db->get_transaction() failed!!!" << dendl;
-    return -1;
-  }
-
-  bufferlist bl;
-  bl.append(freelist_type);
-  t->set(PREFIX_SUPER, "freelist_type", bl);
-
-  return db->submit_transaction_sync(t);
-}
 
 //-------------------------------------------------------------------------------------
 int BlueStore::commit_to_null_manager()
 {
-  dout(5) << "Set FreelistManager to NULL FM..." << dendl;
+  dout(1) << "Set FreelistManager to NULL FM..." << dendl;
   fm->set_null_manager();
-  freelist_type = "null";
-#if 1
-  return commit_freelist_type(db, freelist_type, cct, path);
-#else
-  // should check how long this step take on a big configuration as deletes are expensive
-  if (commit_freelist_type(db, freelist_type, cct, path) == 0) {
-    // remove all objects of PREFIX_ALLOC_BITMAP from RocksDB to guarantee a clean start
-    clear_allocation_objects_from_rocksdb(db, cct, path);
-  }
-#endif
+  return write_meta("NCB_freelist_manager", "NULL_FM"); 
 }
 
 
 //-------------------------------------------------------------------------------------
 int BlueStore::commit_to_real_manager()
 {
-  dout(5) << "Set FreelistManager to Real FM..." << dendl;
+  dout(1) << "Set FreelistManager to Real FM..." << dendl;
   ceph_assert(!fm->is_null_manager());
-  freelist_type = "bitmap";
-  return commit_freelist_type(db, freelist_type, cct, path);
+  return write_meta("NCB_freelist_manager", "REAL_FM"); 
 }
 
 //================================================================================================================

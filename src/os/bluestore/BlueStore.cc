@@ -16844,7 +16844,8 @@ void RocksDBBlueFSVolumeSelector::dump(ostream& sout) {
 #define dout_prefix *_dout << "bluestore::NCB::" << __func__ << "::"
 
 //static const std::string allocator_dir    = "ALLOCATOR_NCB_DIR";
-static const std::string allocator_file2   = "/tmp/ALLOCATOR_NCB_FILE";
+//static const std::string allocator_file   = "/ALLOCATOR_NCB_FILE";
+#define allocator_file (path+"/ALLOCATOR_NCB_FILE")
 static uint32_t    s_format_version = 0x01; // support future changes to allocator-map file
 static uint32_t    s_serial         = 0x01;
 
@@ -17052,10 +17053,10 @@ WRITE_CLASS_DENC(allocator_image_trailer)
 // we can safely ignore non-existing file
 int BlueStore::invalidate_allocation_file_on_bluefs()
 {
-  dout(1) << "calling std::fopen(" << allocator_file2.c_str() << ", wb" << dendl;
-  FILE *filep = std::fopen(allocator_file2.c_str(), "wb");
+  dout(1) << "calling std::fopen(" << allocator_file.c_str() << ", wb" << dendl;
+  FILE *filep = std::fopen(allocator_file.c_str(), "wb");
   if (!filep) {
-    dout(5) << "allocator_file(" << allocator_file2 << ") doesn't exist" << dendl;
+    derr << "allocator_file(" << allocator_file << ") doesn't exist" << dendl;
     // nothing to do -> return
     return 0;
   }
@@ -17066,7 +17067,7 @@ int BlueStore::invalidate_allocation_file_on_bluefs()
   std::fwrite(&header, sizeof(header), 1, filep);
   std::fflush(filep);
   std::fclose(filep);
-  std::remove(allocator_file2.c_str());
+  std::remove(allocator_file.c_str());
 
   return 0;
 }
@@ -17094,6 +17095,9 @@ int load_bluefs_extents(BlueFS                *bluefs,
 
   for (auto itr = bluefs_extents.begin(); itr != bluefs_extents.end(); itr++) {
     extent_t e = { .offset = itr.get_start(), .length = itr.get_len() };
+#ifdef NCB_TRACE_ALLOCATION
+    dout(1) << "[" << e.offset << "," << e.length << "]" << dendl;
+#endif
     bluefs_extents_vec.push_back(e);
   }
 
@@ -17124,6 +17128,9 @@ int BlueStore::copy_allocator(Allocator* src_alloc, Allocator* dest_alloc, uint6
 
   uint64_t idx         = 0;
   auto copy_entries = [&](uint64_t extent_offset, uint64_t extent_length) {
+#ifdef NCB_TRACE_ALLOCATION
+    dout(1) << idx << "[" << extent_offset << "," << extent_length << "]" << dendl;
+#endif
     if (extent_length > 0) {
       if (idx < *p_num_entries) {
 	arr[idx] = {extent_offset, extent_length};
@@ -17175,10 +17182,11 @@ int BlueStore::store_allocator(Allocator* src_allocator)
 {
   utime_t  start_time = ceph_clock_now();
   int ret = 0;
-  //dout(1) << "calling std::fopen(" << allocator_file2.c_str() << ", wb" << dendl;
-  FILE *filep = std::fopen(allocator_file2.c_str(), "wb");
+  //dout(1) << "calling std::fopen(" << allocator_file.c_str() << ", wb" << dendl;
+  FILE *filep = std::fopen(allocator_file.c_str(), "wb");
   if (!filep) {
     derr << ">>>File opening failed" << dendl;
+    ceph_assert(filep);
     return -1;
   }
 
@@ -17214,7 +17222,9 @@ int BlueStore::store_allocator(Allocator* src_allocator)
       ret = -1;
       return;
     }
-    //dout(1) <<  "" << extent_count << "[" << extent_offset << "," << extent_length << "]" << dendl;
+#ifdef NCB_TRACE_ALLOCATION
+    dout(1) << extent_count << "[" << extent_offset << "," << extent_length << "]" << dendl;
+#endif
     p_curr->offset = HTOCEPH_64(extent_offset);
     p_curr->length = HTOCEPH_64(extent_length);
     extent_count++;
@@ -17234,7 +17244,7 @@ int BlueStore::store_allocator(Allocator* src_allocator)
     derr << "invalidate using bluefs->truncate(p_handle, 0)" << dendl;
     
     std::fclose(filep);
-    std::remove(allocator_file2.c_str());
+    std::remove(allocator_file.c_str());
     return -1;
   }
 
@@ -17315,8 +17325,8 @@ int calc_allocator_image_trailer_size()
 int BlueStore::restore_allocator(Allocator* allocator, uint64_t *num, uint64_t *bytes)
 {
   utime_t start_time = ceph_clock_now();
-  //dout(1) << "calling std::fopen(" << allocator_file2.c_str() << ", rb" << dendl;
-  FILE *filep = std::fopen(allocator_file2.c_str(), "rb");
+  //dout(1) << "calling std::fopen(" << allocator_file.c_str() << ", rb" << dendl;
+  FILE *filep = std::fopen(allocator_file.c_str(), "rb");
   if (!filep) {
     derr << "File opening failed" << dendl;
     return -1;
@@ -17402,7 +17412,9 @@ int BlueStore::restore_allocator(Allocator* allocator, uint64_t *num, uint64_t *
     for (const extent_t *p_ext = buffer; p_ext < p_end; p_ext++) {
       uint64_t offset = CEPHTOH_64(p_ext->offset);
       uint64_t length = CEPHTOH_64(p_ext->length);
-      //dout(1) <<  "" << extent_count << "::[" << offset << "," << length << "]" << dendl;
+#ifdef NCB_TRACE_ALLOCATION
+      dout(1) << extent_count << "::[" << offset << "," << length << "]" << dendl;
+#endif
       read_alloc_size += length;
 
       if (length > 0) {

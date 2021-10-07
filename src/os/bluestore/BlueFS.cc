@@ -790,6 +790,18 @@ int BlueFS::mount()
     for (auto& q : p.second->fnode.extents) {
       bool is_shared = is_shared_alloc(q.bdev);
       ceph_assert(!is_shared || (is_shared && shared_alloc));
+#ifdef NCB_TRACE_ALLOCATION
+      if (is_shared) {
+	uint64_t block_size = bdev[q.bdev]->get_block_size();
+	dout(1) << "BlueFS::mount()::NCB::[" << q.offset << "," << q.length << "]" << dendl;
+	if ((q.offset % block_size) != 0) {
+	  derr << "BlueFS::mount()::NCB:: unaligned offset [" << q.offset << "," << q.length << "]" << "***block_size=" << block_size << dendl;
+	}
+	if ((q.length % block_size) != 0) {
+	  derr << "BlueFS::mount()::NCB:: unaligned length [" << q.offset << "," << q.length << "]" << "***block_size=" << block_size << dendl;
+	}
+      }
+#endif
       if (is_shared && shared_alloc->need_init && shared_alloc->a) {
         shared_alloc->bluefs_used += q.length;
         alloc[q.bdev]->init_rm_free(q.offset, q.length);
@@ -847,6 +859,30 @@ void BlueFS::umount(bool avoid_compact)
 
   _close_writer(log_writer);
   log_writer = NULL;
+
+#ifdef NCB_TRACE_ALLOCATION
+  if (shared_alloc) {
+    interval_set<uint64_t> bluefs_extents;
+    int ret = get_block_extents(shared_alloc_id, &bluefs_extents);
+    if (ret == 0) {
+      uint64_t block_size = bdev[shared_alloc_id]->get_block_size();
+      for (auto itr = bluefs_extents.begin(); itr != bluefs_extents.end(); itr++) {
+	uint64_t offset = itr.get_start();
+	uint64_t length = itr.get_len();
+	
+	dout(1) << "BlueFS::umount()::NCB::[" << offset << "," << length << "]" << dendl;
+	if ((offset % block_size) != 0) {
+	  derr << "BlueFS::umount()::NCB:: unaligned offset [" << offset << "," << length << "]" << "***block_size=" << block_size << dendl;
+	}
+	if ((length % block_size) != 0) {
+	  derr << "BlueFS::umount()::NCB:: unaligned length [" << offset << "," << length << "]" << "***block_size=" << block_size << dendl;
+	}
+      }
+    } else {
+      derr  <<  "failed bluefs->get_block_extents()!!" << dendl;
+    }
+  }
+#endif
 
   vselector.reset(nullptr);
   _stop_alloc();

@@ -21,8 +21,15 @@ describe('Hosts page', () => {
       hosts.add(hostname, true);
     });
 
-    it('should delete a host and add it back', function () {
+    it('should drain and delete a host and then add it back', function () {
       const host = Cypress._.last(this.hosts)['name'];
+
+      // should drain the host first before deleting
+      hosts.editLabels(host, ['_no_schedule'], true);
+      hosts.clickHostTab(host.name, 'Daemons');
+      cy.get('cd-host-details').within(() => {
+        hosts.getTableCount('total').should('be.eq', 0);
+      });
       hosts.delete(host);
 
       // add it back

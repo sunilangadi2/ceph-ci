@@ -5331,6 +5331,8 @@ void BlueStore::_close_bdev()
   bdev = NULL;
 }
 
+#define allocator_file (path+"/ALLOCATOR_NCB_FILE")
+
 int BlueStore::_open_fm(KeyValueDB::Transaction t, bool read_only, bool fm_restore)
 {
   int r;
@@ -5340,8 +5342,16 @@ int BlueStore::_open_fm(KeyValueDB::Transaction t, bool read_only, bool fm_resto
   string type;
   r = read_meta("NCB_freelist_manager", &type);
   if (r < 0) {
-    derr << __func__ << "::NCB::unable to read NCB_freelist_manager from meta" << dendl;
-    return -EIO;
+    dout(1) << __func__ << "::NCB::unable to read NCB_freelist_manager from meta" << dendl;
+    FILE *filep = std::fopen(allocator_file.c_str(), "rb");
+    if (filep) {
+      derr <<  __func__ << "::NCB::Allocation File exists, but no matching meta file for NCB_freelist_manager type" << dendl;
+      derr <<  __func__ << "::NCB::Force recovery!!!" << dendl;
+      type = "NULL_FM";
+    } else {
+      dout(1) << __func__ << "::NCB::No FreelistManager meta -> use REAL_FM" << dendl;
+      type = "REAL_FM";
+    }
   }
 
   dout(1) << __func__ << "::NCB::freelist_manager=" << type << dendl;
@@ -16852,7 +16862,6 @@ void RocksDBBlueFSVolumeSelector::dump(ostream& sout) {
 
 //static const std::string allocator_dir    = "ALLOCATOR_NCB_DIR";
 //static const std::string allocator_file   = "/ALLOCATOR_NCB_FILE";
-#define allocator_file (path+"/ALLOCATOR_NCB_FILE")
 static uint32_t    s_format_version = 0x01; // support future changes to allocator-map file
 static uint32_t    s_serial         = 0x01;
 

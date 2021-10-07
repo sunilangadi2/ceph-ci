@@ -942,6 +942,9 @@ private:
   std::string range_req_str;
   std::promise<void> range_request_complete;
   std::future<void> range_request_complete_future;
+  std::function<int(std::string&)> fp_result_header_format;
+  std::function<int(std::string&)> fp_s3select_result_format;
+  int m_header_size;
 
 public:
   unsigned int chunk_number;
@@ -983,6 +986,8 @@ private:
   int create_message(std::string&, u_int32_t result_len, u_int32_t header_len);
 
   int run_s3select(const char* query, const char* input, size_t input_length);
+
+  int run_s3select_on_parquet(const char* query);
 
   int extract_by_tag(std::string tag_name, std::string& result);
 

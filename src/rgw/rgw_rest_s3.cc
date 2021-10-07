@@ -6130,6 +6130,9 @@ using namespace s3selectEngine;
 const char* RGWSelectObj_ObjStore_S3::header_name_str[3] = {":event-type", ":content-type", ":message-type"};
 const char* RGWSelectObj_ObjStore_S3::header_value_str[3] = {"Records", "application/octet-stream", "event"};
 
+#define PAYLOAD_LINE "\n<Payload>\n<Records>\n<Payload>\n"
+#define END_PAYLOAD_LINE "\n</Payload></Records></Payload>"
+
 RGWSelectObj_ObjStore_S3::RGWSelectObj_ObjStore_S3():
   s3select_syntax(std::make_unique<s3selectEngine::s3select>()),
   m_s3select_query(""),
@@ -6154,6 +6157,26 @@ RGWSelectObj_ObjStore_S3::RGWSelectObj_ObjStore_S3():
 
   m_rgw_api->set_get_size_api(fp_get_obj_size); 
   m_rgw_api->set_range_req_api(fp_range_req);
+
+  fp_result_header_format = [this](std::string& result)
+  {
+    result = "012345678901";
+    this->m_header_size = create_header_records(this->m_buff_header.get());
+    result.append(this->m_buff_header.get(), this->m_header_size);
+    result.append(PAYLOAD_LINE);
+
+    return 0;
+  };
+
+  fp_s3select_result_format = [this](std::string& result)
+  {
+    result.append(END_PAYLOAD_LINE);
+    int buff_len = create_message(result, result.size() - 12, this->m_header_size);
+    s->formatter->write_bin_data(result.data(), buff_len);
+    rgw_flush_formatter_and_reset(s, s->formatter);
+
+    return 0;
+  };
 
 }
 
@@ -6290,10 +6313,57 @@ int RGWSelectObj_ObjStore_S3::create_message(std::string &out_string, u_int32_t 
   return i;
 }
 
-#define PAYLOAD_LINE "\n<Payload>\n<Records>\n<Payload>\n"
-#define END_PAYLOAD_LINE "\n</Payload></Records></Payload>"
 
-int RGWSelectObj_ObjStore_S3::run_s3select(const char* query, const char* input, size_t input_length)
+int RGWSelectObj_ObjStore_S3::run_s3select_on_parquet(const char *query)
+{
+  int status = 0;
+
+  if (!m_s3_parquet_object)
+  {
+    s3select_syntax->parse_query(m_sql_query.c_str());
+
+    try{
+      m_s3_parquet_object = std::unique_ptr<s3selectEngine::parquet_object>(new s3selectEngine::parquet_object(std::string("s3object"), s3select_syntax.get(), m_rgw_api.get()));
+    }
+    catch(base_s3select_exception& e)
+    {
+      ldpp_dout(this, 10) << "S3select: failed upon parquet-reader construction: " << e.what() << dendl; 
+      
+      fp_result_header_format(m_result);
+      m_result.append(e.what());
+      fp_s3select_result_format(m_result);
+
+      return -1;
+    }
+  }
+
+  if (s3select_syntax->get_error_description().empty() == false)
+  {
+
+    fp_result_header_format(m_result);
+    m_result.append(s3select_syntax->get_error_description().data());
+    fp_s3select_result_format(m_result);
+
+    ldpp_dout(this, 10) << "s3-select query: failed to prase query; {" << s3select_syntax->get_error_description() << "}" << dendl;
+    status = -1;
+  }
+  else
+  {
+    fp_result_header_format(m_result);
+    status = m_s3_parquet_object->run_s3select_on_object(m_result, fp_s3select_result_format, fp_result_header_format);
+
+    if (status < 0)
+    {
+      m_result.append(m_s3_parquet_object->get_error_description());
+      fp_s3select_result_format(m_result);
+      ldout(s->cct, 10) << "S3select: failure while execution" << m_s3_parquet_object->get_error_description() << dendl;
+    }
+  }
+
+  return status;
+}
+
+int RGWSelectObj_ObjStore_S3::run_s3select(const char *query, const char *input, size_t input_length)
 {
   int status = 0;
   csv_object::csv_defintions csv;
@@ -6302,63 +6372,45 @@ int RGWSelectObj_ObjStore_S3::run_s3select(const char* query, const char* input,
 
   int header_size = 0;
 
-
-  if ((!m_parquet_type && m_s3_csv_object==0) || (m_parquet_type && m_s3_parquet_object==0)) {
+  if (m_s3_csv_object == 0)
+  {
     s3select_syntax->parse_query(query);
 
-    if (m_row_delimiter.size()) {
+    if (m_row_delimiter.size())
+    {
       csv.row_delimiter = *m_row_delimiter.c_str();
     }
 
-    if (m_column_delimiter.size()) {
+    if (m_column_delimiter.size())
+    {
       csv.column_delimiter = *m_column_delimiter.c_str();
     }
 
-    if (m_quot.size()) {
+    if (m_quot.size())
+    {
       csv.quot_char = *m_quot.c_str();
     }
 
-    if (m_escape_char.size()) {
+    if (m_escape_char.size())
+    {
       csv.escape_char = *m_escape_char.c_str();
     }
 
-    if(m_header_info.compare("IGNORE")==0) {
-      csv.ignore_header_info=true;
+    if (m_header_info.compare("IGNORE") == 0)
+    {
+      csv.ignore_header_info = true;
     }
-    else if(m_header_info.compare("USE")==0) {
-      csv.use_header_info=true;
+    else if (m_header_info.compare("USE") == 0)
+    {
+      csv.use_header_info = true;
     }
 
-    if (m_parquet_type){
-      m_s3_parquet_object = std::unique_ptr<s3selectEngine::parquet_object>(new s3selectEngine::parquet_object(s->object->get_name(), s3select_syntax.get(), m_rgw_api.get()));
-    } 
-    else {
-      m_s3_csv_object = std::unique_ptr<s3selectEngine::csv_object>(new s3selectEngine::csv_object(s3select_syntax.get(), csv));
-    }
+    m_s3_csv_object = std::unique_ptr<s3selectEngine::csv_object>(new s3selectEngine::csv_object(s3select_syntax.get(), csv));
   }
 
   header_size = create_header_records(m_buff_header.get());
   m_result.append(m_buff_header.get(), header_size);
   m_result.append(PAYLOAD_LINE);
-
-  std::function<int(std::string&)> fp_result_header_format = [&](std::string& result) {
-    
-    result = "012345678901";
-    header_size = create_header_records(m_buff_header.get());
-    result.append(m_buff_header.get(), header_size);
-    result.append(PAYLOAD_LINE);
-    return 0;
-  };
-
-  std::function<int(std::string&)> fp_s3select_result_format = [&](std::string &result) {
-
-    result.append(END_PAYLOAD_LINE);
-    int buff_len = create_message(result, result.size() - 12, header_size);
-    s->formatter->write_bin_data(result.data(), buff_len);
-    rgw_flush_formatter_and_reset(s, s->formatter);
-
-    return 0;
-  };
 
   if (s3select_syntax->get_error_description().empty() == false)
   {
@@ -6368,37 +6420,27 @@ int RGWSelectObj_ObjStore_S3::run_s3select(const char* query, const char* input,
   }
   else
   {
-    if (m_parquet_type){
-            status = m_s3_parquet_object->run_s3select_on_object(m_result,fp_s3select_result_format,fp_result_header_format);
 
-    }
-    else{
-            status = m_s3_csv_object->run_s3select_on_stream(m_result, input, input_length, s->obj_size);
-    }
-    if (status < 0){
-      if(m_parquet_type){
-	m_result.append(m_s3_parquet_object->get_error_description());
-        ldout(s->cct, 10) << "s3select: failure while execution " << m_s3_parquet_object->get_error_description() << dendl;
-      } 
-      else {
-        m_result.append(m_s3_csv_object->get_error_description());
-      }
+    status = m_s3_csv_object->run_s3select_on_stream(m_result, input, input_length, s->obj_size);
+
+    if (status < 0)
+    {
+      m_result.append(m_s3_csv_object->get_error_description());
     }
   }
 
-  
-  if (m_parquet_type == false && m_result.size() > strlen(PAYLOAD_LINE)){
-    
+  if (m_result.size() > strlen(PAYLOAD_LINE))
+  {
     m_result.append(END_PAYLOAD_LINE);
     int buff_len = create_message(m_result, m_result.size() - 12, header_size);
     s->formatter->write_bin_data(m_result.data(), buff_len);
 
-    if (op_ret < 0) {
+    if (op_ret < 0)
+    {
       return op_ret;
     }
     rgw_flush_formatter_and_reset(s, s->formatter);
   }
-  
 
   return status;
 }
@@ -6517,7 +6559,9 @@ void RGWSelectObj_ObjStore_S3::execute(optional_yield y)
       return;
     }
 
-    status = run_s3select(m_sql_query.c_str(), 0, 0);
+    s3select_syntax->parse_query(m_sql_query.c_str());
+
+    status = run_s3select_on_parquet(m_sql_query.c_str());
 
     if (status)
     {

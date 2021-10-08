@@ -418,6 +418,8 @@ class RookOrchestrator(MgrModule, orchestrator.Orchestrator):
 
     @handle_orch_error
     def remove_service(self, service_name: str) -> str:
+        if service_name == 'rbd-mirror':
+            return self.rook_cluster.rm_service('cephrbdmirrors', 'default-rbd-mirror')
         service_type, service_name = service_name.split('.', 1)
         if service_type == 'mds':
             return self.rook_cluster.rm_service('cephfilesystems', service_name)
@@ -425,6 +427,8 @@ class RookOrchestrator(MgrModule, orchestrator.Orchestrator):
             return self.rook_cluster.rm_service('cephobjectstores', service_name)
         elif service_type == 'nfs':
             return self.rook_cluster.rm_service('cephnfses', service_name)
+        elif service_type == 'rbd-mirror':
+            return self.rook_cluster.rm_service('cephrbdmirrors', service_name)
         else:
             raise orchestrator.OrchestratorError(f'Service type {service_type} not supported')
 
@@ -435,6 +439,13 @@ class RookOrchestrator(MgrModule, orchestrator.Orchestrator):
             raise RuntimeError("Host list or label is not supported by rook.")
 
         return self.rook_cluster.update_mon_count(spec.placement.count)
+
+    def apply_rbd_mirror(self, spec: ServiceSpec) -> OrchResult[str]:
+        try:
+            self.rook_cluster.rbd_mirror(spec)
+            return OrchResult("Success")
+        except Exception as e:
+            return OrchResult(None, e)
 
     @handle_orch_error
     def apply_mds(self, spec):

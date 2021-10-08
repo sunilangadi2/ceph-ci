@@ -4978,7 +4978,7 @@ paths:
       responses:
         '200':
           content:
-            application/vnd.ceph.api.v1.0+json:
+            application/vnd.ceph.api.v0.1+json:
               type: object
           description: OK
         '400':
@@ -5189,7 +5189,7 @@ paths:
       responses:
         '201':
           content:
-            application/vnd.ceph.api.v1.0+json:
+            application/vnd.ceph.api.v2.0+json:
               schema:
                 properties:
                   access_type:
@@ -5278,7 +5278,7 @@ paths:
           description: Resource created.
         '202':
           content:
-            application/vnd.ceph.api.v1.0+json:
+            application/vnd.ceph.api.v2.0+json:
               type: object
           description: Operation is still executing. Please check the task queue.
         '400':
@@ -5313,12 +5313,12 @@ paths:
       responses:
         '202':
           content:
-            application/vnd.ceph.api.v1.0+json:
+            application/vnd.ceph.api.v2.0+json:
               type: object
           description: Operation is still executing. Please check the task queue.
         '204':
           content:
-            application/vnd.ceph.api.v1.0+json:
+            application/vnd.ceph.api.v2.0+json:
               type: object
           description: Resource deleted.
         '400':
@@ -5547,7 +5547,7 @@ paths:
       responses:
         '200':
           content:
-            application/vnd.ceph.api.v1.0+json:
+            application/vnd.ceph.api.v2.0+json:
               schema:
                 properties:
                   access_type:
@@ -5636,7 +5636,7 @@ paths:
           description: Resource updated.
         '202':
           content:
-            application/vnd.ceph.api.v1.0+json:
+            application/vnd.ceph.api.v2.0+json:
               type: object
           description: Operation is still executing. Please check the task queue.
         '400':

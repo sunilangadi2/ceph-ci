@@ -5340,17 +5340,26 @@ int BlueStore::_open_fm(KeyValueDB::Transaction t, bool read_only, bool fm_resto
   dout(1) << __func__ << "::NCB::freelist_type=" << freelist_type << dendl;
   ceph_assert(fm == NULL);
   string type;
-  r = read_meta("NCB_freelist_manager", &type);
-  if (r < 0) {
-    dout(1) << __func__ << "::NCB::unable to read NCB_freelist_manager from meta" << dendl;
-    FILE *filep = std::fopen(allocator_file.c_str(), "rb");
-    if (filep) {
-      derr <<  __func__ << "::NCB::Allocation File exists, but no matching meta file for NCB_freelist_manager type" << dendl;
-      derr <<  __func__ << "::NCB::Force recovery!!!" << dendl;
-      type = "NULL_FM";
-    } else {
-      dout(1) << __func__ << "::NCB::No FreelistManager meta -> use REAL_FM" << dendl;
-      type = "REAL_FM";
+
+  if (freelist_type == "null") {
+    // If we load the code on an existing reposotry working in NULL-FM mode the freelist_type must be fixed
+    // TBD - should probably rewrite it in RocksDB!!!
+    freelist_type = "bitmap";
+    type = "NULL_FM";
+  }
+  else {
+    r = read_meta("NCB_freelist_manager", &type);
+    if (r < 0) {
+      dout(1) << __func__ << "::NCB::unable to read NCB_freelist_manager from meta" << dendl;
+      FILE *filep = std::fopen(allocator_file.c_str(), "rb");
+      if (filep) {
+	derr <<  __func__ << "::NCB::Allocation File exists, but no matching meta file for NCB_freelist_manager type" << dendl;
+	derr <<  __func__ << "::NCB::Force recovery!!!" << dendl;
+	type = "NULL_FM";
+      } else {
+	dout(1) << __func__ << "::NCB::No FreelistManager meta -> use REAL_FM" << dendl;
+	type = "REAL_FM";
+      }
     }
   }
 

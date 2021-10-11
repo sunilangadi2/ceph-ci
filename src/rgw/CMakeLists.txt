@@ -206,6 +206,7 @@ target_link_libraries(rgw_common
     ${CURL_LIBRARIES}
     ${EXPAT_LIBRARIES}
     ${LUA_LIBRARIES}
+    arrow parquet
   PUBLIC
     spawn)
 target_include_directories(rgw_common

@@ -4,6 +4,7 @@
 #pragma once
 
 #include <limits>
+#include <numeric>
 #include <iostream>
 
 #include "include/byteorder.h"
@@ -243,9 +244,11 @@ using objaddr_t = uint32_t;
 constexpr objaddr_t OBJ_ADDR_MAX = std::numeric_limits<objaddr_t>::max();
 constexpr objaddr_t OBJ_ADDR_NULL = OBJ_ADDR_MAX - 1;
 
-enum class ool_placement_hint_t {
-  NONE,     /// Denotes empty hint
-  NUM_HINTS /// Constant for number of hints
+enum class placement_hint_t {
+  HOT = 0,   // Most of the metadata
+  COLD,      // Object data
+  REWRITE,   // Cold metadata and data (probably need further splits)
+  NUM_HINTS  // Constant for number of hints
 };
 
 enum device_type_t {
@@ -256,7 +259,7 @@ enum device_type_t {
   NUM_TYPES
 };
 
-bool need_delayed_allocation(device_type_t type);
+bool can_delay_allocation(device_type_t type);
 
 /* Monotonically increasing identifier for the location of a
  * journal_record.
@@ -366,7 +369,7 @@ enum class extent_types_t : uint8_t {
 };
 constexpr auto EXTENT_TYPES_MAX = static_cast<uint8_t>(extent_types_t::NONE);
 
-inline bool is_logical_type(extent_types_t type) {
+constexpr bool is_logical_type(extent_types_t type) {
   switch (type) {
   case extent_types_t::ROOT:
   case extent_types_t::LADDR_INTERNAL:
@@ -434,6 +437,22 @@ std::ostream &operator<<(std::ostream &lhs, const delta_info_t &rhs);
 struct record_t {
   std::vector<extent_t> extents;
   std::vector<delta_info_t> deltas;
+
+  std::size_t get_raw_data_size() const {
+    auto extent_size = std::accumulate(
+        extents.begin(), extents.end(), 0,
+        [](uint64_t sum, auto& extent) {
+          return sum + extent.bl.length();
+        }
+    );
+    auto delta_size = std::accumulate(
+        deltas.begin(), deltas.end(), 0,
+        [](uint64_t sum, auto& delta) {
+          return sum + delta.bl.length();
+        }
+    );
+    return extent_size + delta_size;
+  }
 };
 
 class object_data_t {

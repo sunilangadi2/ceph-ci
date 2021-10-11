@@ -224,10 +224,19 @@ TransactionManager::submit_transaction(
   Transaction &t)
 {
   LOG_PREFIX(TransactionManager::submit_transaction);
-  DEBUGT("about to await throttle", t);
-  return trans_intr::make_interruptible(segment_cleaner->await_hard_limits()
-  ).then_interruptible([this, &t]() {
-    return submit_transaction_direct(t);
+  return trans_intr::make_interruptible(
+    t.get_handle().enter(write_pipeline.reserve_projected_usage)
+  ).then_interruptible([this, FNAME, &t] {
+    size_t projected_usage = t.get_allocation_size();
+    DEBUGT("waiting for projected_usage: {}", t, projected_usage);
+    return trans_intr::make_interruptible(
+      segment_cleaner->reserve_projected_usage(projected_usage)
+    ).then_interruptible([this, &t] {
+      return submit_transaction_direct(t);
+    }).finally([this, FNAME, projected_usage, &t] {
+      DEBUGT("releasing projected_usage: {}", t, projected_usage);
+      segment_cleaner->release_projected_usage(projected_usage);
+    });
   });
 }
 
@@ -236,13 +245,18 @@ TransactionManager::submit_transaction_direct(
   Transaction &tref)
 {
   LOG_PREFIX(TransactionManager::submit_transaction_direct);
-  DEBUGT("about to prepare", tref);
+  DEBUGT("about to alloc delayed extents", tref);
 
-  return epm->delayed_alloc_or_ool_write(tref)
-  .handle_error_interruptible(
-    crimson::ct_error::input_output_error::pass_further(),
-    crimson::ct_error::assert_all("invalid error")
-  ).si_then([&tref, this] {
+  return trans_intr::make_interruptible(
+    tref.get_handle().enter(write_pipeline.ool_writes)
+  ).then_interruptible([this, &tref] {
+    return epm->delayed_alloc_or_ool_write(tref
+    ).handle_error_interruptible(
+      crimson::ct_error::input_output_error::pass_further(),
+      crimson::ct_error::assert_all("invalid error")
+    );
+  }).si_then([this, FNAME, &tref] {
+    DEBUGT("about to prepare", tref);
     return tref.get_handle().enter(write_pipeline.prepare);
   }).si_then([this, FNAME, &tref]() mutable
 	      -> submit_transaction_iertr::future<> {
@@ -276,10 +290,11 @@ TransactionManager::submit_transaction_direct(
       submit_transaction_iertr::pass_further{},
       crimson::ct_error::all_same_way([](auto e) {
 	ceph_assert(0 == "Hit error submitting to journal");
-      }));
-    }).finally([&tref]() {
+      })
+    );
+  }).finally([&tref]() {
       tref.get_handle().exit();
-    });
+  });
 }
 
 TransactionManager::get_next_dirty_extents_ret
@@ -308,7 +323,8 @@ TransactionManager::rewrite_logical_extent(
   auto nlextent = epm->alloc_new_extent_by_type(
     t,
     lextent->get_type(),
-    lextent->get_length())->cast<LogicalCachedExtent>();
+    lextent->get_length(),
+    placement_hint_t::REWRITE)->cast<LogicalCachedExtent>();
   lextent->get_bptr().copy_out(
     0,
     lextent->get_length(),
@@ -322,11 +338,10 @@ TransactionManager::rewrite_logical_extent(
     *lextent,
     *nlextent);
 
-  if (need_delayed_allocation(extent->backend_type)) {
-    // hold old poffset for later mapping updating assert check
-    nlextent->set_paddr(lextent->get_paddr());
-    return rewrite_extent_iertr::now();
-  }
+  /* This update_mapping is, strictly speaking, unnecessary for delayed_alloc
+   * extents since we're going to do it again once we either do the ool write
+   * or allocate a relative inline addr.  TODO: refactor SegmentCleaner to
+   * avoid this complication. */
   return lba_manager->update_mapping(
     t,
     lextent->get_laddr(),

@@ -108,7 +108,7 @@ seastar::future<> SeaStore::umount()
   );
 }
 
-seastar::future<> SeaStore::mkfs(uuid_d new_osd_fsid)
+SeaStore::mkfs_ertr::future<> SeaStore::mkfs(uuid_d new_osd_fsid)
 {
   return segment_manager->mkfs(
     seastore_meta_t{new_osd_fsid}
@@ -619,11 +619,17 @@ seastar::future<FuturizedStore::OmapIteratorRef> SeaStore::get_omap_iterator(
   CollectionRef ch,
   const ghobject_t& oid)
 {
-  return seastar::make_ready_future<FuturizedStore::OmapIteratorRef>(
+  LOG_PREFIX(SeaStore::get_omap_iterator);
+  DEBUG("oid: {}", oid);
+  auto ret = FuturizedStore::OmapIteratorRef(
     new SeaStoreOmapIterator(
       *this,
       ch,
       oid));
+  return ret->seek_to_first(
+  ).then([ret]() mutable {
+    return std::move(ret);
+  });
 }
 
 seastar::future<std::map<uint64_t, uint64_t>> SeaStore::fiemap(

@@ -8,6 +8,7 @@
 
 #include <seastar/core/future-util.hh>
 
+#include "crimson/common/utility.h"
 #include "include/ceph_assert.h"
 
 namespace crimson::interruptible {
@@ -667,6 +668,19 @@ private:
                        errorator_type::pass_further{});
     }
 
+    template <class ValueFunc,
+              class... ErrorFuncs>
+    auto safe_then_unpack(ValueFunc&& value_func,
+                          ErrorFuncs&&... error_funcs) {
+      return safe_then(
+        [value_func=std::move(value_func)] (ValueT&& tuple) mutable {
+          assert_moveable(value_func);
+          return std::apply(std::move(value_func), std::move(tuple));
+        },
+        std::forward<ErrorFuncs>(error_funcs)...
+      );
+    }
+
     template <class Func>
     void then(Func&&) = delete;
 
@@ -1133,6 +1147,7 @@ namespace ct_error {
   using file_too_large =
     ct_error_code<std::errc::file_too_large>;
   using address_in_use = ct_error_code<std::errc::address_in_use>;
+  using address_not_available = ct_error_code<std::errc::address_not_available>;
 
   struct pass_further_all {
     template <class ErrorT>

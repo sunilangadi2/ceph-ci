@@ -414,8 +414,8 @@ class ServiceSpec(object):
 
     """
     KNOWN_SERVICE_TYPES = 'alertmanager crash grafana iscsi mds mgr mon nfs ' \
-                          'node-exporter osd prometheus rbd-mirror rgw ' \
-                          'container cephadm-exporter ingress cephfs-mirror'.split()
+                          'node-exporter osd prometheus rbd-mirror rgw agent ' \
+                          'container ingress cephfs-mirror'.split()
     REQUIRES_SERVICE_ID = 'iscsi mds nfs osd rgw container ingress '.split()
     MANAGED_CONFIG_OPTIONS = [
         'mds_join_fs',

@@ -9,7 +9,6 @@ from cephadm.services.nfs import NFSService
 from cephadm.services.osd import OSDService
 from cephadm.services.monitoring import GrafanaService, AlertmanagerService, PrometheusService, \
     NodeExporterService
-from cephadm.services.exporter import CephadmExporter
 from ceph.deployment.service_spec import IscsiServiceSpec
 
 from orchestrator import OrchestratorError
@@ -42,6 +41,9 @@ class FakeMgr:
     def get_minimal_ceph_conf(self) -> str:
         return ''
 
+    def get_mgr_ip(self) -> str:
+        return '1.2.3.4'
+
 
 class TestCephadmService:
     def test_set_service_url_on_dashboard(self):
@@ -72,7 +74,6 @@ class TestCephadmService:
         node_exporter_service = NodeExporterService(mgr)
         crash_service = CrashService(mgr)
         iscsi_service = IscsiService(mgr)
-        cephadm_exporter_service = CephadmExporter(mgr)
         cephadm_services = {
             'mon': mon_service,
             'mgr': mgr_service,
@@ -87,7 +88,6 @@ class TestCephadmService:
             'node-exporter': node_exporter_service,
             'crash': crash_service,
             'iscsi': iscsi_service,
-            'cephadm-exporter': cephadm_exporter_service,
         }
         return cephadm_services
 
@@ -127,7 +127,7 @@ class TestCephadmService:
 
         # services based on CephadmService shouldn't have get_auth_entity
         with pytest.raises(AttributeError):
-            for daemon_type in ['grafana', 'alertmanager', 'prometheus', 'node-exporter', 'cephadm-exporter']:
+            for daemon_type in ['grafana', 'alertmanager', 'prometheus', 'node-exporter']:
                 cephadm_services[daemon_type].get_auth_entity("id1", "host")
                 cephadm_services[daemon_type].get_auth_entity("id1", "")
                 cephadm_services[daemon_type].get_auth_entity("id1")

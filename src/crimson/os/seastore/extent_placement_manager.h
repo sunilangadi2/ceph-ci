@@ -6,7 +6,7 @@
 #include "seastar/core/gate.hh"
 
 #include "crimson/common/condition_variable.h"
-#include "crimson/common/log.h"
+#include "crimson/os/seastore/logging.h"
 #include "crimson/os/seastore/cache.h"
 #include "crimson/os/seastore/cached_extent.h"
 #include "crimson/os/seastore/lba_manager.h"
@@ -33,10 +33,6 @@ class ool_record_t {
     }
     paddr_t get_ool_paddr() const {
       return ool_offset;
-    }
-    void persist_paddr() {
-      lextent->set_paddr(ool_offset);
-      ool_offset = P_ADDR_NULL;
     }
     bufferptr& get_bptr() {
       return lextent->get_bptr();
@@ -99,8 +95,12 @@ public:
     extent_buf_len = 0;
     base = MAX_SEG_OFF;
   }
-  uint64_t get_num_extents() {
+  uint64_t get_num_extents() const {
     return extents.size();
+  }
+  uint64_t get_raw_data_size() const {
+    assert(extents.size() == record.extents.size());
+    return record.get_raw_data_size();
   }
 private:
   std::vector<OolExtent> extents;
@@ -252,13 +252,15 @@ public:
     Journal& journal,
     Cache& cache);
 
-  Writer &get_writer(ool_placement_hint_t hint) {
+  Writer &get_writer(placement_hint_t hint) {
     return writers[std::rand() % writers.size()];
   }
 
   alloc_paddr_iertr::future<> alloc_ool_extents_paddr(
     Transaction& t,
     std::list<LogicalCachedExtentRef>& extents) final {
+    LOG_PREFIX(SegmentedAllocator::alloc_ool_extents_paddr);
+    DEBUGT("start", t);
     return seastar::do_with(
       std::map<Writer*, std::list<LogicalCachedExtentRef>>(),
       [this, extents=std::move(extents), &t](auto& alloc_map) {
@@ -305,20 +307,16 @@ public:
     Transaction& t,
     extent_types_t type,
     segment_off_t length,
-    ool_placement_hint_t hint = ool_placement_hint_t::NONE) {
+    placement_hint_t hint) {
     // only logical extents should fall in this path
     assert(is_logical_type(type));
+    assert(hint < placement_hint_t::NUM_HINTS);
     auto dtype = get_allocator_type(hint);
-    CachedExtentRef extent;
-    // for extents that would be stored in NVDIMM/PMEM, no delayed
-    // allocation is needed
-    if (need_delayed_allocation(dtype)) {
-      // set a unique temperary paddr, this is necessary because
-      // transaction's write_set is indexed by paddr
-      extent = cache.alloc_new_extent_by_type(t, type, length, true);
-    } else {
-      extent = cache.alloc_new_extent_by_type(t, type, length);
-    }
+    // FIXME: set delay for COLD extent when the record overhead is low
+    bool delay = (hint > placement_hint_t::COLD &&
+                  can_delay_allocation(dtype));
+    CachedExtentRef extent = cache.alloc_new_extent_by_type(
+        t, type, length, delay);
     extent->backend_type = dtype;
     extent->hint = hint;
     return extent;
@@ -330,17 +328,16 @@ public:
   TCachedExtentRef<T> alloc_new_extent(
     Transaction& t,
     segment_off_t length,
-    ool_placement_hint_t hint = ool_placement_hint_t::NONE)
-  {
+    placement_hint_t hint) {
+    // only logical extents should fall in this path
+    static_assert(is_logical_type(T::TYPE));
+    assert(hint < placement_hint_t::NUM_HINTS);
     auto dtype = get_allocator_type(hint);
-    TCachedExtentRef<T> extent;
-    if (need_delayed_allocation(dtype)) {
-      // set a unique temperary paddr, this is necessary because
-      // transaction's write_set is indexed by paddr
-      extent = cache.alloc_new_extent<T>(t, length, true);
-    } else {
-      extent = cache.alloc_new_extent<T>(t, length);
-    }
+    // FIXME: set delay for COLD extent when the record overhead is low
+    bool delay = (hint > placement_hint_t::COLD &&
+                  can_delay_allocation(dtype));
+    TCachedExtentRef<T> extent = cache.alloc_new_extent<T>(
+        t, length, delay);
     extent->backend_type = dtype;
     extent->hint = hint;
     return extent;
@@ -355,39 +352,32 @@ public:
   using alloc_paddr_iertr = ExtentOolWriter::write_iertr;
   alloc_paddr_iertr::future<> delayed_alloc_or_ool_write(
     Transaction& t) {
+    LOG_PREFIX(ExtentPlacementManager::delayed_alloc_or_ool_write);
+    DEBUGT("start", t);
     return seastar::do_with(
-      std::map<ExtentAllocator*, std::list<LogicalCachedExtentRef>>(),
-      std::list<std::pair<paddr_t, LogicalCachedExtentRef>>(),
-      [this, &t](auto& alloc_map, auto& inline_list) mutable {
+        std::map<ExtentAllocator*, std::list<LogicalCachedExtentRef>>(),
+        [this, &t](auto& alloc_map) {
+      LOG_PREFIX(ExtentPlacementManager::delayed_alloc_or_ool_write);
       auto& alloc_list = t.get_delayed_alloc_list();
+      uint64_t num_ool_extents = 0;
       for (auto& extent : alloc_list) {
         // extents may be invalidated
         if (!extent->is_valid()) {
+          t.increment_delayed_invalid_extents();
           continue;
         }
-        if (should_be_inline(extent)) {
-          auto old_addr = extent->get_paddr();
-          cache.mark_delayed_extent_inline(t, extent);
-          inline_list.emplace_back(old_addr, extent);
-          continue;
-        }
-        auto& allocator_ptr = get_allocator(extent->backend_type, extent->hint);
+        // For now, just do ool allocation for any delayed extent
+        auto& allocator_ptr = get_allocator(
+          extent->backend_type, extent->hint
+        );
         alloc_map[allocator_ptr.get()].emplace_back(extent);
+        num_ool_extents++;
       }
+      DEBUGT("{} ool extents", t, num_ool_extents);
       return trans_intr::do_for_each(alloc_map, [&t](auto& p) {
         auto allocator = p.first;
         auto& extents = p.second;
         return allocator->alloc_ool_extents_paddr(t, extents);
-      }).si_then([&inline_list, this, &t] {
-        return trans_intr::do_for_each(inline_list, [this, &t](auto& p) {
-          auto old_addr = p.first;
-          auto& extent = p.second;
-          return lba_manager.update_mapping(
-            t,
-            extent->get_laddr(),
-            old_addr,
-            extent->get_paddr());
-        });
       });
     });
   }
@@ -397,17 +387,13 @@ public:
   }
 
 private:
-  device_type_t get_allocator_type(ool_placement_hint_t hint) {
+  device_type_t get_allocator_type(placement_hint_t hint) {
     return device_type_t::SEGMENTED;
-  }
-
-  bool should_be_inline(LogicalCachedExtentRef& extent) {
-    return (std::rand() % 2) == 0;
   }
 
   ExtentAllocatorRef& get_allocator(
     device_type_t type,
-    ool_placement_hint_t hint) {
+    placement_hint_t hint) {
     auto& devices = allocators[type];
     return devices[std::rand() % devices.size()];
   }

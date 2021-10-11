@@ -3,7 +3,7 @@
 #ifndef CEPH_OS_BLUESTORE_BLUEFS_H
 #define CEPH_OS_BLUESTORE_BLUEFS_H
 
-//#define NCB_TRACE_ALLOCATION
+#define NCB_TRACE_ALLOCATION
 
 #include <atomic>
 #include <mutex>

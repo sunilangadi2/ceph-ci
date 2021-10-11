@@ -25,6 +25,8 @@ from . import(
 
 from .api import PSTopicS3, \
     PSNotificationS3, \
+    PSTopicS3_V3, \
+    PSNotificationS3_V3, \
     delete_all_s3_topics, \
     delete_all_objects, \
     put_object_tagging
@@ -1747,12 +1749,16 @@ def test_http_post_object_upload():
     hostname = get_ip()
     zonegroup = 'default'
 
-    endpoint = "http://%s:%d" % (get_config_host(),get_config_port())
+    host = get_config_host()
+    port = get_config_port()
+
+    endpoint = "http://%s:%d" % (host,port)
 
     conn1 = boto3.client(service_name='s3',
                          aws_access_key_id=get_access_key(),
                          aws_secret_access_key=get_secret_key(),
-                         endpoint_url=endpoint
+                         endpoint_url=endpoint,
+                         use_ssl=False
                         )
 
     bucket_name = gen_bucket_name()
@@ -1783,7 +1789,7 @@ def test_http_post_object_upload():
     # create s3 topics
     endpoint_address = 'amqp://' + hostname
     endpoint_args = 'push-endpoint=' + endpoint_address + '&amqp-exchange=' + exchange + '&amqp-ack-level=broker'
-    topic_conf1 = PSTopicS3(conn1, topic_name+'_1', zonegroup, endpoint_args=endpoint_args)
+    topic_conf1 = PSTopicS3_V3(conn1, host, port, topic_name+'_1', zonegroup, endpoint_args=endpoint_args)
     topic_arn1 = topic_conf1.set_config()
 
     # create s3 notifications
@@ -1791,7 +1797,7 @@ def test_http_post_object_upload():
     topic_conf_list = [{'Id': notification_name+'_1', 'TopicArn': topic_arn1,
                         'Events': ['s3:ObjectCreated:Post']
                        }]
-    s3_notification_conf = PSNotificationS3(conn1, bucket_name, topic_conf_list)
+    s3_notification_conf = PSNotificationS3_V3(conn1, bucket_name, topic_conf_list, host, port)
     response, status = s3_notification_conf.set_config()
     assert_equal(status/100, 2)
 

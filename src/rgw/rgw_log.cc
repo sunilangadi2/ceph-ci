@@ -13,10 +13,13 @@
 #include "rgw_client_io.h"
 #include "rgw_rest.h"
 #include "rgw_zone.h"
+#include "rgw_rados.h"
 
 #include "services/svc_zone.h"
 
 #define dout_subsys ceph_subsys_rgw
+
+using namespace std;
 
 static void set_param_str(struct req_state *s, const char *name, string& str)
 {
@@ -364,32 +367,33 @@ int rgw_log_op(rgw::sal::Store* store, RGWREST* const rest, struct req_state *s,
     return 0;
 
   if (s->bucket_name.empty()) {
-    ldpp_dout(s, 5) << "nothing to log for operation" << dendl;
-    return -EINVAL;
-  }
-  if (s->err.ret == -ERR_NO_SUCH_BUCKET || rgw::sal::Bucket::empty(s->bucket.get())) {
-    if (!s->cct->_conf->rgw_log_nonexistent_bucket) {
-      ldpp_dout(s, 5) << "bucket " << s->bucket_name << " doesn't exist, not logging" << dendl;
+    /* this case is needed for, e.g., list_buckets */
+  } else {
+    if (s->err.ret == -ERR_NO_SUCH_BUCKET ||
+	rgw::sal::Bucket::empty(s->bucket.get())) {
+      if (!s->cct->_conf->rgw_log_nonexistent_bucket) {
+	ldout(s->cct, 5) << "bucket " << s->bucket_name << " doesn't exist, not logging" << dendl;
+	return 0;
+      }
+      bucket_id = "";
+    } else {
+      bucket_id = s->bucket->get_bucket_id();
+    }
+    entry.bucket = rgw_make_bucket_entry_name(s->bucket_tenant, s->bucket_name);
+
+    if (check_utf8(entry.bucket.c_str(), entry.bucket.size()) != 0) {
+      ldpp_dout(s, 5) << "not logging op on bucket with non-utf8 name" << dendl;
       return 0;
     }
-    bucket_id = "";
-  } else {
-    bucket_id = s->bucket->get_bucket_id();
-  }
-  entry.bucket = rgw_make_bucket_entry_name(s->bucket_tenant, s->bucket_name);
 
-  if (check_utf8(entry.bucket.c_str(), entry.bucket.size()) != 0) {
-    ldpp_dout(s, 5) << "not logging op on bucket with non-utf8 name" << dendl;
-    return 0;
-  }
+    if (!rgw::sal::Object::empty(s->object.get())) {
+      entry.obj = s->object->get_key();
+    } else {
+      entry.obj = rgw_obj_key("-");
+    }
 
-  if (!rgw::sal::Object::empty(s->object.get())) {
-    entry.obj = s->object->get_key();
-  } else {
-    entry.obj = rgw_obj_key("-");
-  }
-
-  entry.obj_size = s->obj_size;
+    entry.obj_size = s->obj_size;
+  } /* !bucket empty */
 
   if (s->cct->_conf->rgw_remote_addr_param.length())
     set_param_str(s, s->cct->_conf->rgw_remote_addr_param.c_str(),
@@ -431,7 +435,11 @@ int rgw_log_op(rgw::sal::Store* store, RGWREST* const rest, struct req_state *s,
 
   entry.op = op_name;
 
-  entry.identity_type = s->auth.identity->get_identity_type();
+  if (s->auth.identity) {
+    entry.identity_type = s->auth.identity->get_identity_type();
+  } else {
+    entry.identity_type = TYPE_NONE;
+  }
 
   if (! s->token_claims.empty()) {
     entry.token_claims = std::move(s->token_claims);

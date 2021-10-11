@@ -261,7 +261,6 @@ if [ x$(uname)x = xFreeBSDx ]; then
         devel/libtool \
         devel/google-perftools \
         lang/cython \
-        devel/py-virtualenv \
         databases/leveldb \
         net/openldap24-client \
         archivers/snappy \
@@ -420,9 +419,12 @@ function populate_wheelhouse() {
     # of pip matters when it comes to using wheel packages
     PIP_OPTS="--timeout 300 --exists-action i"
     pip $PIP_OPTS $install \
-      'setuptools >= 0.8' 'pip >= 7.0' 'wheel >= 0.24' 'tox >= 2.9.1' || return 1
+      'setuptools >= 0.8' 'pip >= 21.0' 'wheel >= 0.24' 'tox >= 2.9.1' || return 1
     if test $# != 0 ; then
-        pip $PIP_OPTS $install $@ || return 1
+        # '--use-feature=fast-deps --use-deprecated=legacy-resolver' added per
+        # https://github.com/pypa/pip/issues/9818 These should be able to be
+        # removed at some point in the future.
+        pip --use-feature=fast-deps --use-deprecated=legacy-resolver $PIP_OPTS $install $@ || return 1
     fi
 }
 
@@ -431,7 +433,7 @@ function activate_virtualenv() {
     local env_dir=$top_srcdir/install-deps-python3
 
     if ! test -d $env_dir ; then
-        virtualenv --python=python3 ${env_dir}
+        python3 -m venv ${env_dir}
         . $env_dir/bin/activate
         if ! populate_wheelhouse install ; then
             rm -rf $env_dir

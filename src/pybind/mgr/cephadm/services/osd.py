@@ -14,7 +14,7 @@ import orchestrator
 from cephadm.serve import CephadmServe
 from cephadm.utils import forall_hosts
 from ceph.utils import datetime_now
-from orchestrator import OrchestratorError
+from orchestrator import OrchestratorError, DaemonDescription
 from mgr_module import MonCommandFailed
 
 from cephadm.services.cephadmservice import CephadmDaemonDeploySpec, CephService
@@ -152,7 +152,7 @@ class OSDService(CephService):
     def prepare_drivegroup(self, drive_group: DriveGroupSpec) -> List[Tuple[str, DriveSelection]]:
         # 1) use fn_filter to determine matching_hosts
         matching_hosts = drive_group.placement.filter_matching_hostspecs(
-            self.mgr._schedulable_hosts())
+            self.mgr.cache.get_schedulable_hosts())
         # 2) Map the inventory to the InventoryHost object
         host_ds_map = []
 
@@ -261,7 +261,7 @@ class OSDService(CephService):
         if not osdspecs:
             self.mgr.log.debug("No OSDSpecs found")
             return []
-        return sum([spec.placement.filter_matching_hostspecs(self.mgr._schedulable_hosts()) for spec in osdspecs], [])
+        return sum([spec.placement.filter_matching_hostspecs(self.mgr.cache.get_schedulable_hosts()) for spec in osdspecs], [])
 
     def resolve_osdspecs_for_host(self, host: str,
                                   specs: Optional[List[DriveGroupSpec]] = None) -> List[DriveGroupSpec]:
@@ -271,7 +271,7 @@ class OSDService(CephService):
             specs = [cast(DriveGroupSpec, spec) for (sn, spec) in self.mgr.spec_store.spec_preview.items()
                      if spec.service_type == 'osd']
         for spec in specs:
-            if host in spec.placement.filter_matching_hostspecs(self.mgr._schedulable_hosts()):
+            if host in spec.placement.filter_matching_hostspecs(self.mgr.cache.get_schedulable_hosts()):
                 self.mgr.log.debug(f"Found OSDSpecs for host: <{host}> -> <{spec}>")
                 matching_specs.append(spec)
         return matching_specs
@@ -305,6 +305,13 @@ class OSDService(CephService):
 
     def get_osdspec_affinity(self, osd_id: str) -> str:
         return self.mgr.get('osd_metadata').get(osd_id, {}).get('osdspec_affinity', '')
+
+    def post_remove(self, daemon: DaemonDescription, is_failed_deploy: bool) -> None:
+        # Do not remove the osd.N keyring, if we failed to deploy the OSD, because
+        # we cannot recover from it. The OSD keys are created by ceph-volume and not by
+        # us.
+        if not is_failed_deploy:
+            super().post_remove(daemon, is_failed_deploy=is_failed_deploy)
 
 
 class OsdIdClaims(object):

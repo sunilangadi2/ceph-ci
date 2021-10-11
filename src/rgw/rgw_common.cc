@@ -127,6 +127,7 @@ rgw_http_errors rgw_http_s3_errors({
     { ERR_RATE_LIMITED, {503, "SlowDown"}},
     { ERR_ZERO_IN_URL, {400, "InvalidRequest" }},
     { ERR_NO_SUCH_TAG_SET, {404, "NoSuchTagSetError"}},
+    { ERR_NO_SUCH_BUCKET_ENCRYPTION_CONFIGURATION, {404, "ServerSideEncryptionConfigurationNotFoundError"}},
 });
 
 rgw_http_errors rgw_http_swift_errors({
@@ -161,6 +162,7 @@ rgw_http_errors rgw_http_iam_errors({
     { ERR_INTERNAL_ERROR, {500, "ServiceFailure" }},
 });
 
+using namespace std;
 using namespace ceph::crypto;
 
 rgw_err::
@@ -1051,12 +1053,12 @@ Effect eval_or_pass(const boost::optional<Policy>& policy,
 		    const rgw::IAM::Environment& env,
 		    boost::optional<const rgw::auth::Identity&> id,
 		    const uint64_t op,
-		    const ARN& arn,
+		    const ARN& resource,
 				boost::optional<rgw::IAM::PolicyPrincipal&> princ_type=boost::none) {
   if (!policy)
     return Effect::Pass;
   else
-    return policy->eval(env, id, op, arn, princ_type);
+    return policy->eval(env, id, op, resource, princ_type);
 }
 
 }
@@ -1065,10 +1067,10 @@ Effect eval_identity_or_session_policies(const vector<Policy>& policies,
                           const rgw::IAM::Environment& env,
                           boost::optional<const rgw::auth::Identity&> id,
                           const uint64_t op,
-                          const ARN& arn) {
+                          const ARN& resource) {
   auto policy_res = Effect::Pass, prev_res = Effect::Pass;
   for (auto& policy : policies) {
-    if (policy_res = eval_or_pass(policy, env, id, op, arn); policy_res == Effect::Deny)
+    if (policy_res = eval_or_pass(policy, env, id, op, resource); policy_res == Effect::Deny)
       return policy_res;
     else if (policy_res == Effect::Allow)
       prev_res = Effect::Allow;

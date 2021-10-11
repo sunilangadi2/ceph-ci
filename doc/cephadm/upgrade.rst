@@ -12,8 +12,14 @@ The automated upgrade process follows Ceph best practices.  For example:
 * Each daemon is restarted only after Ceph indicates that the cluster
   will remain available.
 
-Keep in mind that the Ceph cluster health status is likely to switch to
-``HEALTH_WARNING`` during the upgrade.
+.. note::
+
+   The Ceph cluster health status is likely to switch to
+   ``HEALTH_WARNING`` during the upgrade.
+
+.. note:: 
+
+   In case a host of the cluster is offline, the upgrade is paused.
 
 
 Starting the upgrade
@@ -31,11 +37,19 @@ To upgrade (or downgrade) to a specific release, run the following command:
 
   ceph orch upgrade start --ceph-version <version>
 
-For example, to upgrade to v15.2.1, run the following command:
+For example, to upgrade to v16.2.6, run the following command:
 
 .. prompt:: bash #
 
   ceph orch upgrade start --ceph-version 15.2.1
+
+.. note::
+
+    From version v16.2.6 the Docker Hub registry is no longer used, so if you use Docker you have to point it to the image in the quay.io registry:
+
+.. prompt:: bash #
+
+  ceph orch upgrade start --image quay.io/ceph/ceph:v16.2.6
 
 
 Monitoring the upgrade

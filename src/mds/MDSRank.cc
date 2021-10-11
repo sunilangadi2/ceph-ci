@@ -16,6 +16,7 @@
 #include <typeinfo>
 #include "common/debug.h"
 #include "common/errno.h"
+#include "common/likely.h"
 #include "common/async/blocked_completion.h"
 
 #include "messages/MClientRequestForward.h"
@@ -45,7 +46,13 @@
 #define dout_subsys ceph_subsys_mds
 #undef dout_prefix
 #define dout_prefix *_dout << "mds." << whoami << '.' << incarnation << ' '
+
+using std::ostream;
+using std::set;
+using std::string;
+using std::vector;
 using TOPNSPC::common::cmd_getval;
+
 class C_Flush_Journal : public MDSInternalContext {
 public:
   C_Flush_Journal(MDCache *mdcache, MDLog *mdlog, MDSRank *mds,
@@ -56,7 +63,7 @@ public:
   }
 
   void send() {
-    assert(ceph_mutex_is_locked(mds->mds_lock));
+    ceph_assert(ceph_mutex_is_locked(mds->mds_lock));
 
     dout(20) << __func__ << dendl;
 
@@ -257,7 +264,7 @@ public:
   void send() {
     // not really a hard requirement here, but lets ensure this in
     // case we change the logic here.
-    assert(ceph_mutex_is_locked(mds->mds_lock));
+    ceph_assert(ceph_mutex_is_locked(mds->mds_lock));
 
     dout(20) << __func__ << dendl;
     f->open_object_section("result");
@@ -476,9 +483,9 @@ private:
 
 MDSRank::MDSRank(
     mds_rank_t whoami_,
-    ceph::mutex &mds_lock_,
+    ceph::fair_mutex &mds_lock_,
     LogChannelRef &clog_,
-    SafeTimer &timer_,
+    CommonSafeTimer<ceph::fair_mutex> &timer_,
     Beacon &beacon_,
     std::unique_ptr<MDSMap>& mdsmap_,
     Messenger *msgr,
@@ -1727,8 +1734,12 @@ void MDSRank::replay_start()
 {
   dout(1) << "replay_start" << dendl;
 
-  if (is_standby_replay())
+  if (is_standby_replay()) {
     standby_replaying = true;
+    if (unlikely(g_conf().get_val<bool>("mds_standby_replay_damaged"))) {
+      damaged();
+    }
+  }
 
   // Check if we need to wait for a newer OSD map before starting
   bool const ready = objecter->with_osdmap(
@@ -2318,7 +2329,7 @@ void MDSRankDispatcher::handle_mds_map(
 
     if (oldstate == MDSMap::STATE_STANDBY_REPLAY) {
         dout(10) << "Monitor activated us! Deactivating replay loop" << dendl;
-        assert (state == MDSMap::STATE_REPLAY);
+        ceph_assert (state == MDSMap::STATE_REPLAY);
     } else {
       // did i just recover?
       if ((is_active() || is_clientreplay()) &&
@@ -3616,9 +3627,9 @@ bool MDSRank::evict_client(int64_t session_id,
 
 MDSRankDispatcher::MDSRankDispatcher(
     mds_rank_t whoami_,
-    ceph::mutex &mds_lock_,
+    ceph::fair_mutex &mds_lock_,
     LogChannelRef &clog_,
-    SafeTimer &timer_,
+    CommonSafeTimer<ceph::fair_mutex> &timer_,
     Beacon &beacon_,
     std::unique_ptr<MDSMap> &mdsmap_,
     Messenger *msgr,
@@ -3696,6 +3707,7 @@ const char** MDSRankDispatcher::get_tracked_conf_keys() const
     "mds_session_max_caps_throttle_ratio",
     "mds_cap_acquisition_throttle_retry_request_time",
     "mds_alternate_name_max",
+    "mds_dir_max_entries",
     NULL
   };
   return KEYS;

@@ -3,21 +3,12 @@ import json
 import logging
 import uuid
 from collections import defaultdict
-from contextlib import contextmanager
-from typing import TYPE_CHECKING, Optional, List, cast, Dict, Any, Union, Tuple, Iterator
-
-from cephadm import remotes
-
-try:
-    import remoto
-    import execnet.gateway_bootstrap
-except ImportError:
-    remoto = None
+from typing import TYPE_CHECKING, Optional, List, cast, Dict, Any, Union, Tuple, Set
 
 from ceph.deployment import inventory
 from ceph.deployment.drive_group import DriveGroupSpec
 from ceph.deployment.service_spec import ServiceSpec, CustomContainerSpec, PlacementSpec
-from ceph.utils import str_to_datetime, datetime_now
+from ceph.utils import datetime_now
 
 import orchestrator
 from orchestrator import OrchestratorError, set_exception_subject, OrchestratorEvent, \
@@ -34,9 +25,10 @@ from . import utils
 
 if TYPE_CHECKING:
     from cephadm.module import CephadmOrchestrator
-    from remoto.backends import BaseConnection
 
 logger = logging.getLogger(__name__)
+
+REQUIRES_POST_ACTIONS = ['grafana', 'iscsi', 'prometheus', 'alertmanager', 'rgw']
 
 
 class CephadmServe:
@@ -79,6 +71,12 @@ class CephadmServe:
 
                 self._update_paused_health()
 
+                if self.mgr.need_connect_dashboard_rgw and self.mgr.config_dashboard:
+                    self.mgr.need_connect_dashboard_rgw = False
+                    if 'dashboard' in self.mgr.get('mgr_map')['modules']:
+                        self.log.info('Checking dashboard <-> RGW credentials')
+                        self.mgr.remote('dashboard', 'set_rgw_credentials')
+
                 if not self.mgr.paused:
                     self.mgr.to_remove_osds.process_removal_queue()
 
@@ -92,6 +90,24 @@ class CephadmServe:
                     self._check_daemons()
 
                     self._purge_deleted_services()
+
+                    if self.mgr.use_agent:
+                        # on the off chance there are still agents hanging around from
+                        # when we turned the config option off, we need to redeploy them
+                        # we can tell they're in that state if we don't have a keyring for
+                        # them in the host cache
+                        for agent in self.mgr.cache.get_daemons_by_service('agent'):
+                            if agent.hostname not in self.mgr.cache.agent_keys:
+                                self.mgr._schedule_daemon_action(agent.name(), 'redeploy')
+                        if 'agent' not in self.mgr.spec_store:
+                            self.mgr.agent_helpers._apply_agent()
+                    else:
+                        if 'agent' in self.mgr.spec_store:
+                            self.mgr.spec_store.rm('agent')
+                        self.mgr.cache.agent_counter = {}
+                        self.mgr.cache.agent_timestamp = {}
+                        self.mgr.cache.agent_keys = {}
+                        self.mgr.cache.agent_ports = {}
 
                     if self.mgr.upgrade.continue_upgrade():
                         continue
@@ -193,7 +209,8 @@ class CephadmServe:
                 pspec = PlacementSpec.from_string(self.mgr.manage_etc_ceph_ceph_conf_hosts)
                 ha = HostAssignment(
                     spec=ServiceSpec('mon', placement=pspec),
-                    hosts=self.mgr._schedulable_hosts(),
+                    hosts=self.mgr.cache.get_schedulable_hosts(),
+                    unreachable_hosts=self.mgr.cache.get_unreachable_hosts(),
                     daemons=[],
                     networks=self.mgr.cache.networks,
                 )
@@ -224,7 +241,8 @@ class CephadmServe:
                     keyring.encode('utf-8')).digest())
                 ha = HostAssignment(
                     spec=ServiceSpec('mon', placement=ks.placement),
-                    hosts=self.mgr._schedulable_hosts(),
+                    hosts=self.mgr.cache.get_schedulable_hosts(),
+                    unreachable_hosts=self.mgr.cache.get_unreachable_hosts(),
                     daemons=[],
                     networks=self.mgr.cache.networks,
                 )
@@ -242,6 +260,8 @@ class CephadmServe:
                 self.log.warning(
                     f'unable to calc client keyring {ks.entity} placement {ks.placement}: {e}')
 
+        agents_down: List[str] = []
+
         @forall_hosts
         def refresh(host: str) -> None:
 
@@ -249,15 +269,57 @@ class CephadmServe:
             if self.mgr.inventory._inventory[host].get("status", "").lower() == "maintenance":
                 return
 
+            if self.mgr.use_agent and self.mgr.agent_helpers._agent_down(host):
+                agents_down.append(host)
+                self.mgr.cache.metadata_up_to_date[host] = False
+                if host in self.mgr.offline_hosts:
+                    return
+
+                # In case host is actually offline, it's best to reset the connection to avoid
+                # a long timeout trying to use an existing connection to an offline host
+                # REVISIT AFTER https://github.com/ceph/ceph/pull/42919
+                # self.mgr.ssh._reset_con(host)
+
+                try:
+                    # try to schedule redeploy of agent in case it is individually down
+                    agent = [a for a in self.mgr.cache.get_daemons_by_host(
+                        host) if a.hostname == host][0]
+                    self.mgr._schedule_daemon_action(agent.name(), 'redeploy')
+                except Exception as e:
+                    self.log.debug(
+                        f'Failed to find entry for agent deployed on host {host}. Agent possibly never deployed: {e}')
+                return
+
             if self.mgr.cache.host_needs_check(host):
                 r = self._check_host(host)
                 if r is not None:
                     bad_hosts.append(r)
-            if self.mgr.cache.host_needs_daemon_refresh(host):
-                self.log.debug('refreshing %s daemons' % host)
-                r = self._refresh_host_daemons(host)
-                if r:
-                    failures.append(r)
+
+            if not self.mgr.use_agent or host not in [h.hostname for h in self.mgr.cache.get_non_draining_hosts()]:
+                if self.mgr.cache.host_needs_daemon_refresh(host):
+                    self.log.debug('refreshing %s daemons' % host)
+                    r = self._refresh_host_daemons(host)
+                    if r:
+                        failures.append(r)
+
+                if self.mgr.cache.host_needs_facts_refresh(host):
+                    self.log.debug(('Refreshing %s facts' % host))
+                    r = self._refresh_facts(host)
+                    if r:
+                        failures.append(r)
+
+                if self.mgr.cache.host_needs_network_refresh(host):
+                    self.log.debug(('Refreshing %s networks' % host))
+                    r = self._refresh_host_networks(host)
+                    if r:
+                        failures.append(r)
+
+                if self.mgr.cache.host_needs_device_refresh(host):
+                    self.log.debug('refreshing %s devices' % host)
+                    r = self._refresh_host_devices(host)
+                    if r:
+                        failures.append(r)
+                self.mgr.cache.metadata_up_to_date[host] = True
 
             if self.mgr.cache.host_needs_registry_login(host) and self.mgr.registry_url:
                 self.log.debug(f"Logging `{host}` into custom registry")
@@ -265,18 +327,6 @@ class CephadmServe:
                                          self.mgr.registry_username, self.mgr.registry_password)
                 if r:
                     bad_hosts.append(r)
-
-            if self.mgr.cache.host_needs_device_refresh(host):
-                self.log.debug('refreshing %s devices' % host)
-                r = self._refresh_host_devices(host)
-                if r:
-                    failures.append(r)
-
-            if self.mgr.cache.host_needs_facts_refresh(host):
-                self.log.debug(('Refreshing %s facts' % host))
-                r = self._refresh_facts(host)
-                if r:
-                    failures.append(r)
 
             if self.mgr.cache.host_needs_osdspec_preview_refresh(host):
                 self.log.debug(f"refreshing OSDSpec previews for {host}")
@@ -302,22 +352,36 @@ class CephadmServe:
                     if match:
                         continue
                 self.log.info(f'Updating {host}:{path}')
-                self._write_remote_file(host, path, content, mode, uid, gid)
+                self.mgr.ssh.write_remote_file(host, path, content, mode, uid, gid)
                 self.mgr.cache.update_client_file(host, path, digest, mode, uid, gid)
                 updated_files = True
             for path in old_files.keys():
                 self.log.info(f'Removing {host}:{path}')
-                with self._remote_connection(host) as tpl:
-                    conn, connr = tpl
-                    out, err, code = remoto.process.check(
-                        conn,
-                        ['rm', '-f', path])
+                cmd = ['rm', '-f', path]
+                self.mgr.ssh.check_execute_command(host, cmd)
                 updated_files = True
                 self.mgr.cache.removed_client_file(host, path)
             if updated_files:
                 self.mgr.cache.save_host(host)
 
         refresh(self.mgr.cache.get_hosts())
+
+        if 'CEPHADM_AGENT_DOWN' in self.mgr.health_checks:
+            del self.mgr.health_checks['CEPHADM_AGENT_DOWN']
+        if agents_down:
+            detail: List[str] = []
+            for agent in agents_down:
+                detail.append((f'Cephadm agent on host {agent} has not reported in '
+                              f'{2.5 * self.mgr.agent_refresh_rate} seconds. Agent is assumed '
+                               'down and host may be offline.'))
+            self.mgr.health_checks['CEPHADM_AGENT_DOWN'] = {
+                'severity': 'warning',
+                'summary': '%d Cephadm Agent(s) are not reporting. '
+                'Hosts may be offline' % (len(agents_down)),
+                'count': len(agents_down),
+                'detail': detail,
+            }
+            self.mgr.set_health_checks(self.mgr.health_checks)
 
         self.mgr.config_checker.run_checks()
 
@@ -390,62 +454,7 @@ class CephadmServe:
             ls = self._run_cephadm_json(host, 'mon', 'ls', [], no_fsid=True)
         except OrchestratorError as e:
             return str(e)
-        dm = {}
-        for d in ls:
-            if not d['style'].startswith('cephadm'):
-                continue
-            if d['fsid'] != self.mgr._cluster_fsid:
-                continue
-            if '.' not in d['name']:
-                continue
-            sd = orchestrator.DaemonDescription()
-            sd.last_refresh = datetime_now()
-            for k in ['created', 'started', 'last_configured', 'last_deployed']:
-                v = d.get(k, None)
-                if v:
-                    setattr(sd, k, str_to_datetime(d[k]))
-            sd.daemon_type = d['name'].split('.')[0]
-            if sd.daemon_type not in orchestrator.KNOWN_DAEMON_TYPES:
-                logger.warning(f"Found unknown daemon type {sd.daemon_type} on host {host}")
-                continue
-
-            sd.daemon_id = '.'.join(d['name'].split('.')[1:])
-            sd.hostname = host
-            sd.container_id = d.get('container_id')
-            if sd.container_id:
-                # shorten the hash
-                sd.container_id = sd.container_id[0:12]
-            sd.container_image_name = d.get('container_image_name')
-            sd.container_image_id = d.get('container_image_id')
-            sd.container_image_digests = d.get('container_image_digests')
-            sd.memory_usage = d.get('memory_usage')
-            sd.memory_request = d.get('memory_request')
-            sd.memory_limit = d.get('memory_limit')
-            sd._service_name = d.get('service_name')
-            sd.deployed_by = d.get('deployed_by')
-            sd.version = d.get('version')
-            sd.ports = d.get('ports')
-            sd.ip = d.get('ip')
-            sd.rank = int(d['rank']) if d.get('rank') is not None else None
-            sd.rank_generation = int(d['rank_generation']) if d.get(
-                'rank_generation') is not None else None
-            if sd.daemon_type == 'osd':
-                sd.osdspec_affinity = self.mgr.osd_service.get_osdspec_affinity(sd.daemon_id)
-            if 'state' in d:
-                sd.status_desc = d['state']
-                sd.status = {
-                    'running': DaemonDescriptionStatus.running,
-                    'stopped': DaemonDescriptionStatus.stopped,
-                    'error': DaemonDescriptionStatus.error,
-                    'unknown': DaemonDescriptionStatus.error,
-                }[d['state']]
-            else:
-                sd.status_desc = 'unknown'
-                sd.status = None
-            dm[sd.name()] = sd
-        self.log.debug('Refreshed host %s daemons (%d)' % (host, len(dm)))
-        self.mgr.cache.update_host_daemons(host, dm)
-        self.mgr.cache.save_host(host)
+        self.mgr._process_ls_output(host, ls)
         return None
 
     def _refresh_facts(self, host: str) -> Optional[str]:
@@ -459,7 +468,6 @@ class CephadmServe:
         return None
 
     def _refresh_host_devices(self, host: str) -> Optional[str]:
-
         with_lsm = self.mgr.get_module_option('device_enhanced_scan')
         inventory_args = ['--', 'inventory',
                           '--format=json',
@@ -480,15 +488,26 @@ class CephadmServe:
                 else:
                     raise
 
+        except OrchestratorError as e:
+            return str(e)
+
+        self.log.debug('Refreshed host %s devices (%d)' % (
+            host, len(devices)))
+        ret = inventory.Devices.from_json(devices)
+        self.mgr.cache.update_host_devices(host, ret.devices)
+        self.update_osdspec_previews(host)
+        self.mgr.cache.save_host(host)
+        return None
+
+    def _refresh_host_networks(self, host: str) -> Optional[str]:
+        try:
             networks = self._run_cephadm_json(host, 'mon', 'list-networks', [], no_fsid=True)
         except OrchestratorError as e:
             return str(e)
 
-        self.log.debug('Refreshed host %s devices (%d) networks (%s)' % (
-            host, len(devices), len(networks)))
-        ret = inventory.Devices.from_json(devices)
-        self.mgr.cache.update_host_devices_networks(host, ret.devices, networks)
-        self.update_osdspec_previews(host)
+        self.log.debug('Refreshed host %s networks (%s)' % (
+            host, len(networks)))
+        self.mgr.cache.update_host_networks(host, networks)
         self.mgr.cache.save_host(host)
         return None
 
@@ -581,8 +600,21 @@ class CephadmServe:
     def _apply_all_services(self) -> bool:
         r = False
         specs = []  # type: List[ServiceSpec]
-        for sn, spec in self.mgr.spec_store.active_specs.items():
-            specs.append(spec)
+        # if metadata is not up to date, we still need to apply spec for agent
+        # since the agent is the one who gather the metadata. If we don't we
+        # end up stuck between wanting metadata to be up to date to apply specs
+        # and needing to apply the agent spec to get up to date metadata
+        if self.mgr.use_agent and not self.mgr.cache.all_host_metadata_up_to_date():
+            self.log.info('Metadata not up to date on all hosts. Skipping non agent specs')
+            try:
+                specs.append(self.mgr.spec_store['agent'].spec)
+            except Exception as e:
+                self.log.debug(f'Failed to find agent spec: {e}')
+                self.mgr.agent_helpers._apply_agent()
+                return r
+        else:
+            for sn, spec in self.mgr.spec_store.active_specs.items():
+                specs.append(spec)
         for spec in specs:
             try:
                 if self._apply_service(spec):
@@ -639,6 +671,15 @@ class CephadmServe:
             return False
         self.log.debug('Applying service %s spec' % service_name)
 
+        if service_type == 'agent':
+            try:
+                assert self.mgr.cherrypy_thread
+                assert self.mgr.cherrypy_thread.ssl_certs.get_root_cert()
+            except Exception:
+                self.log.info(
+                    'Delaying applying agent spec until cephadm endpoint root cert created')
+                return False
+
         self._apply_service_config(spec)
 
         if service_type == 'osd':
@@ -676,7 +717,9 @@ class CephadmServe:
             rank_map = self.mgr.spec_store[spec.service_name()].rank_map or {}
         ha = HostAssignment(
             spec=spec,
-            hosts=self.mgr._schedulable_hosts(),
+            hosts=self.mgr.cache.get_non_draining_hosts() if spec.service_name(
+            ) == 'agent' else self.mgr.cache.get_schedulable_hosts(),
+            unreachable_hosts=self.mgr.cache.get_unreachable_hosts(),
             daemons=daemons,
             networks=self.mgr.cache.networks,
             filter_new_host=(
@@ -692,7 +735,7 @@ class CephadmServe:
         try:
             all_slots, slots_to_add, daemons_to_remove = ha.place()
             daemons_to_remove = [d for d in daemons_to_remove if (d.hostname and self.mgr.inventory._inventory[d.hostname].get(
-                'status', '').lower() not in ['maintenance', 'offline'])]
+                'status', '').lower() not in ['maintenance', 'offline'] and d.hostname not in self.mgr.offline_hosts)]
             self.log.debug('Add %s, remove %s' % (slots_to_add, daemons_to_remove))
         except OrchestratorError as e:
             self.log.error('Failed to apply %s spec %s: %s' % (
@@ -736,124 +779,139 @@ class CephadmServe:
         self.log.debug('Hosts that will receive new daemons: %s' % slots_to_add)
         self.log.debug('Daemons that will be removed: %s' % daemons_to_remove)
 
-        # assign names
-        for i in range(len(slots_to_add)):
-            slot = slots_to_add[i]
-            slot = slot.assign_name(self.mgr.get_unique_name(
-                slot.daemon_type,
-                slot.hostname,
-                daemons,
-                prefix=spec.service_id,
-                forcename=slot.name,
-                rank=slot.rank,
-                rank_generation=slot.rank_generation,
-            ))
-            slots_to_add[i] = slot
-            if rank_map is not None:
-                assert slot.rank is not None
-                assert slot.rank_generation is not None
-                assert rank_map[slot.rank][slot.rank_generation] is None
-                rank_map[slot.rank][slot.rank_generation] = slot.name
+        hosts_altered: Set[str] = set()
 
-        if rank_map:
-            # record the rank_map before we make changes so that if we fail the
-            # next mgr will clean up.
-            self.mgr.spec_store.save_rank_map(spec.service_name(), rank_map)
+        try:
+            # assign names
+            for i in range(len(slots_to_add)):
+                slot = slots_to_add[i]
+                slot = slot.assign_name(self.mgr.get_unique_name(
+                    slot.daemon_type,
+                    slot.hostname,
+                    daemons,
+                    prefix=spec.service_id,
+                    forcename=slot.name,
+                    rank=slot.rank,
+                    rank_generation=slot.rank_generation,
+                ))
+                slots_to_add[i] = slot
+                if rank_map is not None:
+                    assert slot.rank is not None
+                    assert slot.rank_generation is not None
+                    assert rank_map[slot.rank][slot.rank_generation] is None
+                    rank_map[slot.rank][slot.rank_generation] = slot.name
 
-            # remove daemons now, since we are going to fence them anyway
+            if rank_map:
+                # record the rank_map before we make changes so that if we fail the
+                # next mgr will clean up.
+                self.mgr.spec_store.save_rank_map(spec.service_name(), rank_map)
+
+                # remove daemons now, since we are going to fence them anyway
+                for d in daemons_to_remove:
+                    assert d.hostname is not None
+                    self._remove_daemon(d.name(), d.hostname)
+                daemons_to_remove = []
+
+                # fence them
+                svc.fence_old_ranks(spec, rank_map, len(all_slots))
+
+            # create daemons
+            for slot in slots_to_add:
+                # first remove daemon on conflicting port?
+                if slot.ports:
+                    for d in daemons_to_remove:
+                        if d.hostname != slot.hostname:
+                            continue
+                        if not (set(d.ports or []) & set(slot.ports)):
+                            continue
+                        if d.ip and slot.ip and d.ip != slot.ip:
+                            continue
+                        self.log.info(
+                            f'Removing {d.name()} before deploying to {slot} to avoid a port conflict'
+                        )
+                        # NOTE: we don't check ok-to-stop here to avoid starvation if
+                        # there is only 1 gateway.
+                        self._remove_daemon(d.name(), d.hostname)
+                        daemons_to_remove.remove(d)
+                        progress_done += 1
+                        hosts_altered.add(d.hostname)
+                        break
+
+                # deploy new daemon
+                daemon_id = slot.name
+                if not did_config:
+                    svc.config(spec)
+                    did_config = True
+
+                daemon_spec = svc.make_daemon_spec(
+                    slot.hostname, daemon_id, slot.network, spec,
+                    daemon_type=slot.daemon_type,
+                    ports=slot.ports,
+                    ip=slot.ip,
+                    rank=slot.rank,
+                    rank_generation=slot.rank_generation,
+                )
+                self.log.debug('Placing %s.%s on host %s' % (
+                    slot.daemon_type, daemon_id, slot.hostname))
+
+                try:
+                    daemon_spec = svc.prepare_create(daemon_spec)
+                    self._create_daemon(daemon_spec)
+                    r = True
+                    progress_done += 1
+                    update_progress()
+                    hosts_altered.add(daemon_spec.host)
+                except (RuntimeError, OrchestratorError) as e:
+                    msg = (f"Failed while placing {slot.daemon_type}.{daemon_id} "
+                           f"on {slot.hostname}: {e}")
+                    self.mgr.events.for_service(spec, 'ERROR', msg)
+                    self.mgr.log.error(msg)
+                    # only return "no change" if no one else has already succeeded.
+                    # later successes will also change to True
+                    if r is None:
+                        r = False
+                    progress_done += 1
+                    update_progress()
+                    continue
+
+                # add to daemon list so next name(s) will also be unique
+                sd = orchestrator.DaemonDescription(
+                    hostname=slot.hostname,
+                    daemon_type=slot.daemon_type,
+                    daemon_id=daemon_id,
+                )
+                daemons.append(sd)
+
+            # remove any?
+            def _ok_to_stop(remove_daemons: List[orchestrator.DaemonDescription]) -> bool:
+                daemon_ids = [d.daemon_id for d in remove_daemons]
+                assert None not in daemon_ids
+                # setting force flag retains previous behavior
+                r = svc.ok_to_stop(cast(List[str], daemon_ids), force=True)
+                return not r.retval
+
+            while daemons_to_remove and not _ok_to_stop(daemons_to_remove):
+                # let's find a subset that is ok-to-stop
+                daemons_to_remove.pop()
             for d in daemons_to_remove:
+                r = True
                 assert d.hostname is not None
                 self._remove_daemon(d.name(), d.hostname)
-            daemons_to_remove = []
 
-            # fence them
-            svc.fence_old_ranks(spec, rank_map, len(all_slots))
-
-        # create daemons
-        for slot in slots_to_add:
-            # first remove daemon on conflicting port?
-            if slot.ports:
-                for d in daemons_to_remove:
-                    if d.hostname != slot.hostname:
-                        continue
-                    if not (set(d.ports or []) & set(slot.ports)):
-                        continue
-                    if d.ip and slot.ip and d.ip != slot.ip:
-                        continue
-                    self.log.info(
-                        f'Removing {d.name()} before deploying to {slot} to avoid a port conflict'
-                    )
-                    # NOTE: we don't check ok-to-stop here to avoid starvation if
-                    # there is only 1 gateway.
-                    self._remove_daemon(d.name(), d.hostname)
-                    daemons_to_remove.remove(d)
-                    progress_done += 1
-                    break
-
-            # deploy new daemon
-            daemon_id = slot.name
-            if not did_config:
-                svc.config(spec, daemon_id)
-                did_config = True
-
-            daemon_spec = svc.make_daemon_spec(
-                slot.hostname, daemon_id, slot.network, spec,
-                daemon_type=slot.daemon_type,
-                ports=slot.ports,
-                ip=slot.ip,
-                rank=slot.rank,
-                rank_generation=slot.rank_generation,
-            )
-            self.log.debug('Placing %s.%s on host %s' % (
-                slot.daemon_type, daemon_id, slot.hostname))
-
-            try:
-                daemon_spec = svc.prepare_create(daemon_spec)
-                self._create_daemon(daemon_spec)
-                r = True
                 progress_done += 1
                 update_progress()
-            except (RuntimeError, OrchestratorError) as e:
-                msg = (f"Failed while placing {slot.daemon_type}.{daemon_id} "
-                       f"on {slot.hostname}: {e}")
-                self.mgr.events.for_service(spec, 'ERROR', msg)
-                self.mgr.log.error(msg)
-                # only return "no change" if no one else has already succeeded.
-                # later successes will also change to True
-                if r is None:
-                    r = False
-                progress_done += 1
-                update_progress()
-                continue
+                hosts_altered.add(d.hostname)
 
-            # add to daemon list so next name(s) will also be unique
-            sd = orchestrator.DaemonDescription(
-                hostname=slot.hostname,
-                daemon_type=slot.daemon_type,
-                daemon_id=daemon_id,
-            )
-            daemons.append(sd)
-
-        # remove any?
-        def _ok_to_stop(remove_daemons: List[orchestrator.DaemonDescription]) -> bool:
-            daemon_ids = [d.daemon_id for d in remove_daemons]
-            assert None not in daemon_ids
-            # setting force flag retains previous behavior
-            r = svc.ok_to_stop(cast(List[str], daemon_ids), force=True)
-            return not r.retval
-
-        while daemons_to_remove and not _ok_to_stop(daemons_to_remove):
-            # let's find a subset that is ok-to-stop
-            daemons_to_remove.pop()
-        for d in daemons_to_remove:
-            r = True
-            assert d.hostname is not None
-            self._remove_daemon(d.name(), d.hostname)
-
-            progress_done += 1
-            update_progress()
-
-        self.mgr.remote('progress', 'complete', progress_id)
+            self.mgr.remote('progress', 'complete', progress_id)
+        except Exception as e:
+            self.mgr.remote('progress', 'fail', progress_id, str(e))
+            raise
+        finally:
+            if self.mgr.use_agent:
+                # can only send ack to agents if we know for sure port they bound to
+                hosts_altered = set([h for h in hosts_altered if (h in self.mgr.cache.agent_ports and h in [
+                                    h2.hostname for h2 in self.mgr.cache.get_non_draining_hosts()])])
+                self.mgr.agent_helpers._request_agent_acks(hosts_altered, increment=True)
 
         if r is None:
             r = False
@@ -883,8 +941,17 @@ class CephadmServe:
             if dd.service_name() in self.mgr.spec_store.spec_deleted:
                 continue
 
+            if dd.daemon_type == 'agent':
+                try:
+                    assert self.mgr.cherrypy_thread
+                    assert self.mgr.cherrypy_thread.ssl_certs.get_root_cert()
+                except Exception:
+                    self.log.info(
+                        f'Delaying checking {dd.name()} until cephadm endpoint finished creating root cert')
+                    continue
+
             # These daemon types require additional configs after creation
-            if dd.daemon_type in ['grafana', 'iscsi', 'prometheus', 'alertmanager', 'nfs']:
+            if dd.daemon_type in REQUIRES_POST_ACTIONS:
                 daemons_post[dd.daemon_type].append(dd)
 
             if self.mgr.cephadm_services[daemon_type_to_service(dd.daemon_type)].get_active_daemon(
@@ -1003,11 +1070,6 @@ class CephadmServe:
                     if spec.ports:
                         ports.extend(spec.ports)
 
-                if daemon_spec.daemon_type == 'cephadm-exporter':
-                    if not reconfig:
-                        assert daemon_spec.host
-                        self._deploy_cephadm_binary(daemon_spec.host)
-
                 # TCP port to open in the host firewall
                 if len(ports) > 0:
                     daemon_spec.extra_args.extend([
@@ -1053,6 +1115,9 @@ class CephadmServe:
                     stdin=json.dumps(daemon_spec.final_config),
                     image=image)
 
+                if daemon_spec.daemon_type == 'agent':
+                    self.mgr.cache.agent_timestamp[daemon_spec.host] = datetime_now()
+
                 # refresh daemon state?  (ceph daemon reconfig does not need it)
                 if not reconfig or daemon_spec.daemon_type not in CEPH_TYPES:
                     if not code and daemon_spec.host in self.mgr.cache.daemons:
@@ -1061,9 +1126,7 @@ class CephadmServe:
                         sd = daemon_spec.to_daemon_description(
                             DaemonDescriptionStatus.running, 'starting')
                         self.mgr.cache.add_daemon(daemon_spec.host, sd)
-                        if daemon_spec.daemon_type in [
-                            'grafana', 'iscsi', 'prometheus', 'alertmanager'
-                        ]:
+                        if daemon_spec.daemon_type in REQUIRES_POST_ACTIONS:
                             self.mgr.requires_post_actions.add(daemon_spec.daemon_type)
                     self.mgr.cache.invalidate_host_daemons(daemon_spec.host)
 
@@ -1085,7 +1148,7 @@ class CephadmServe:
                     # we have to clean up the daemon. E.g. keyrings.
                     servict_type = daemon_type_to_service(daemon_spec.daemon_type)
                     dd = daemon_spec.to_daemon_description(DaemonDescriptionStatus.error, 'failed')
-                    self.mgr.cephadm_services[servict_type].post_remove(dd)
+                    self.mgr.cephadm_services[servict_type].post_remove(dd, is_failed_deploy=True)
                 raise
 
     def _remove_daemon(self, name: str, host: str) -> str:
@@ -1113,7 +1176,8 @@ class CephadmServe:
                 self.mgr.cache.rm_daemon(host, name)
             self.mgr.cache.invalidate_host_daemons(host)
 
-            self.mgr.cephadm_services[daemon_type_to_service(daemon_type)].post_remove(daemon)
+            self.mgr.cephadm_services[daemon_type_to_service(
+                daemon_type)].post_remove(daemon, is_failed_deploy=False)
 
             return "Removed {} from host '{}'".format(name, host)
 
@@ -1158,97 +1222,93 @@ class CephadmServe:
 
         :env_vars: in format -> [KEY=VALUE, ..]
         """
+
+        self.mgr.ssh.remote_connection(host, addr)
+
         self.log.debug(f"_run_cephadm : command = {command}")
         self.log.debug(f"_run_cephadm : args = {args}")
 
-        bypass_image = ('cephadm-exporter',)
+        bypass_image = ('agent')
 
-        with self._remote_connection(host, addr) as tpl:
-            conn, connr = tpl
-            assert image or entity
-            # Skip the image check for daemons deployed that are not ceph containers
-            if not str(entity).startswith(bypass_image):
-                if not image and entity is not cephadmNoImage:
-                    image = self.mgr._get_container_image(entity)
+        assert image or entity
+        # Skip the image check for daemons deployed that are not ceph containers
+        if not str(entity).startswith(bypass_image):
+            if not image and entity is not cephadmNoImage:
+                image = self.mgr._get_container_image(entity)
 
-            final_args = []
+        final_args = []
 
-            # global args
-            if env_vars:
-                for env_var_pair in env_vars:
-                    final_args.extend(['--env', env_var_pair])
+        # global args
+        if env_vars:
+            for env_var_pair in env_vars:
+                final_args.extend(['--env', env_var_pair])
 
-            if image:
-                final_args.extend(['--image', image])
+        if image:
+            final_args.extend(['--image', image])
 
-            if not self.mgr.container_init:
-                final_args += ['--no-container-init']
+        if not self.mgr.container_init:
+            final_args += ['--no-container-init']
 
-            # subcommand
-            final_args.append(command)
+        # subcommand
+        final_args.append(command)
 
-            # subcommand args
-            if not no_fsid:
-                final_args += ['--fsid', self.mgr._cluster_fsid]
+        # subcommand args
+        if not no_fsid:
+            final_args += ['--fsid', self.mgr._cluster_fsid]
 
-            final_args += args
+        final_args += args
 
-            # exec
-            self.log.debug('args: %s' % (' '.join(final_args)))
-            if self.mgr.mode == 'root':
-                if stdin:
-                    self.log.debug('stdin: %s' % stdin)
+        # exec
+        self.log.debug('args: %s' % (' '.join(final_args)))
+        if self.mgr.mode == 'root':
+            # agent has cephadm binary as an extra file which is
+            # therefore passed over stdin. Even for debug logs it's too much
+            if stdin and 'agent' not in str(entity):
+                self.log.debug('stdin: %s' % stdin)
 
-                python = connr.choose_python()
-                if not python:
-                    raise RuntimeError(
-                        'unable to find python on %s (tried %s in %s)' % (
-                            host, remotes.PYTHONS, remotes.PATH))
-                try:
-                    out, err, code = remoto.process.check(
-                        conn,
-                        [python, self.mgr.cephadm_binary_path] + final_args,
-                        stdin=stdin.encode('utf-8') if stdin is not None else None)
-                    if code == 2:
-                        out_ls, err_ls, code_ls = remoto.process.check(
-                            conn, ['ls', self.mgr.cephadm_binary_path])
-                        if code_ls == 2:
-                            self._deploy_cephadm_binary_conn(conn, host)
-                            out, err, code = remoto.process.check(
-                                conn,
-                                [python, self.mgr.cephadm_binary_path] + final_args,
-                                stdin=stdin.encode('utf-8') if stdin is not None else None)
+            cmd = ['which', 'python3']
+            python = self.mgr.ssh.check_execute_command(host, cmd, addr=addr)
+            cmd = [python, self.mgr.cephadm_binary_path] + final_args
 
-                except RuntimeError as e:
-                    self.mgr._reset_con(host)
-                    if error_ok:
-                        return [], [str(e)], 1
-                    raise
+            try:
+                out, err, code = self.mgr.ssh.execute_command(
+                    host, cmd, stdin=stdin.encode('utf-8') if stdin else None, addr=addr)
+                if code == 2:
+                    ls_cmd = ['ls', self.mgr.cephadm_binary_path]
+                    out_ls, err_ls, code_ls = self.mgr.ssh.execute_command(host, ls_cmd, addr=addr)
+                    if code_ls == 2:
+                        self._deploy_cephadm_binary(host, addr)
+                        out, err, code = self.mgr.ssh.execute_command(
+                            host, cmd, stdin=stdin.encode('utf-8') if stdin else None, addr=addr)
 
-            elif self.mgr.mode == 'cephadm-package':
-                try:
-                    out, err, code = remoto.process.check(
-                        conn,
-                        ['sudo', '/usr/bin/cephadm'] + final_args,
-                        stdin=stdin)
-                except RuntimeError as e:
-                    self.mgr._reset_con(host)
-                    if error_ok:
-                        return [], [str(e)], 1
-                    raise
-            else:
-                assert False, 'unsupported mode'
+            except Exception as e:
+                self.mgr.ssh._reset_con(host)
+                if error_ok:
+                    return [], [str(e)], 1
+                raise
 
-            self.log.debug('code: %d' % code)
-            if out:
-                self.log.debug('out: %s' % '\n'.join(out))
-            if err:
-                self.log.debug('err: %s' % '\n'.join(err))
-            if code and not error_ok:
-                raise OrchestratorError(
-                    'cephadm exited with an error code: %d, stderr:%s' % (
-                        code, '\n'.join(err)))
-            return out, err, code
+        elif self.mgr.mode == 'cephadm-package':
+            try:
+                cmd = ['/usr/bin/cephadm'] + final_args
+                out, err, code = self.mgr.ssh.execute_command(
+                    host, cmd, stdin=stdin.encode('utf-8') if stdin else None, addr=addr)
+            except Exception as e:
+                self.mgr.ssh._reset_con(host)
+                if error_ok:
+                    return [], [str(e)], 1
+                raise
+        else:
+            assert False, 'unsupported mode'
+
+        self.log.debug(f'code: {code}')
+        if out:
+            self.log.debug(f'out: {out}')
+        if err:
+            self.log.debug(f'err: {err}')
+        if code and not error_ok:
+            raise OrchestratorError(
+                f'cephadm exited with an error code: {code}, stderr: {err}')
+        return [out], [err], code
 
     def _get_container_image_info(self, image_name: str) -> ContainerInspectInfo:
         # pick a random host...
@@ -1288,97 +1348,8 @@ class CephadmServe:
             return f"Host {host} failed to login to {url} as {username} with given password"
         return None
 
-    def _deploy_cephadm_binary(self, host: str) -> None:
+    def _deploy_cephadm_binary(self, host: str, addr: Optional[str] = None) -> None:
         # Use tee (from coreutils) to create a copy of cephadm on the target machine
         self.log.info(f"Deploying cephadm binary to {host}")
-        with self._remote_connection(host) as tpl:
-            conn, _connr = tpl
-            return self._deploy_cephadm_binary_conn(conn, host)
-
-    def _deploy_cephadm_binary_conn(self, conn: "BaseConnection", host: str) -> None:
-        _out, _err, code = remoto.process.check(
-            conn,
-            ['mkdir', '-p', f'/var/lib/ceph/{self.mgr._cluster_fsid}'])
-        if code:
-            msg = f"Unable to deploy the cephadm binary to {host}: {_err}"
-            self.log.warning(msg)
-            raise OrchestratorError(msg)
-        _out, _err, code = remoto.process.check(
-            conn,
-            ['tee', '-', self.mgr.cephadm_binary_path],
-            stdin=self.mgr._cephadm.encode('utf-8'))
-        if code:
-            msg = f"Unable to deploy the cephadm binary to {host}: {_err}"
-            self.log.warning(msg)
-            raise OrchestratorError(msg)
-
-    def _write_remote_file(self,
-                           host: str,
-                           path: str,
-                           content: bytes,
-                           mode: int,
-                           uid: int,
-                           gid: int) -> None:
-        with self._remote_connection(host) as tpl:
-            conn, connr = tpl
-            try:
-                errmsg = connr.write_file(path, content, mode, uid, gid)
-                if errmsg is not None:
-                    raise OrchestratorError(errmsg)
-            except Exception as e:
-                msg = f"Unable to write {host}:{path}: {e}"
-                self.log.warning(msg)
-                raise OrchestratorError(msg)
-
-    @contextmanager
-    def _remote_connection(self,
-                           host: str,
-                           addr: Optional[str] = None,
-                           ) -> Iterator[Tuple["BaseConnection", Any]]:
-        if not addr and host in self.mgr.inventory:
-            addr = self.mgr.inventory.get_addr(host)
-
-        self.mgr.offline_hosts_remove(host)
-
-        try:
-            try:
-                if not addr:
-                    raise OrchestratorError("host address is empty")
-                conn, connr = self.mgr._get_connection(addr)
-            except OSError as e:
-                self.mgr._reset_con(host)
-                msg = f"Can't communicate with remote host `{addr}`, possibly because python3 is not installed there: {str(e)}"
-                raise execnet.gateway_bootstrap.HostNotFound(msg)
-
-            yield (conn, connr)
-
-        except execnet.gateway_bootstrap.HostNotFound as e:
-            # this is a misleading exception as it seems to be thrown for
-            # any sort of connection failure, even those having nothing to
-            # do with "host not found" (e.g., ssh key permission denied).
-            self.mgr.offline_hosts.add(host)
-            self.mgr._reset_con(host)
-
-            user = self.mgr.ssh_user if self.mgr.mode == 'root' else 'cephadm'
-            if str(e).startswith("Can't communicate"):
-                msg = str(e)
-            else:
-                msg = f'''Failed to connect to {host} ({addr}).
-Please make sure that the host is reachable and accepts connections using the cephadm SSH key
-
-To add the cephadm SSH key to the host:
-> ceph cephadm get-pub-key > ~/ceph.pub
-> ssh-copy-id -f -i ~/ceph.pub {user}@{addr}
-
-To check that the host is reachable open a new shell with the --no-hosts flag:
-> cephadm shell --no-hosts
-
-Then run the following:
-> ceph cephadm get-ssh-config > ssh_config
-> ceph config-key get mgr/cephadm/ssh_identity_key > ~/cephadm_private_key
-> chmod 0600 ~/cephadm_private_key
-> ssh -F ssh_config -i ~/cephadm_private_key {user}@{addr}'''
-            raise OrchestratorError(msg) from e
-        except Exception as ex:
-            self.log.exception(ex)
-            raise
+        self.mgr.ssh.write_remote_file(host, self.mgr.cephadm_binary_path,
+                                       self.mgr._cephadm.encode('utf-8'), addr=addr)

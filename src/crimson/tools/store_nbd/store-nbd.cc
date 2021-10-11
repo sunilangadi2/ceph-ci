@@ -293,12 +293,12 @@ int main(int argc, char** argv)
     return seastar::async([&] {
       seastar_apps_lib::stop_signal should_stop;
       crimson::common::sharded_conf()
-        .start(EntityName{}, string_view{"ceph"}).get();
+        .start(EntityName{}, std::string_view{"ceph"}).get();
       auto stop_conf = seastar::defer([] {
         crimson::common::sharded_conf().stop().get();
       });
 
-      auto backend = get_backend(backend_config, app.alien());
+      auto backend = get_backend(backend_config);
       NBDHandler nbd(*backend, nbd_config);
       backend->mount().get();
       auto close_backend = seastar::defer([&] {
@@ -321,7 +321,7 @@ class nbd_oldstyle_negotiation_t {
   uint64_t magic2 = seastar::cpu_to_be(0x00420281861253);  // "IHAVEOPT"
   uint64_t size = 0;
   uint32_t flags = seastar::cpu_to_be(0);
-  [[maybe_unused]] char reserved[124] = {0};
+  char reserved[124] = {0};
 
 public:
   nbd_oldstyle_negotiation_t(uint64_t size, uint32_t flags)

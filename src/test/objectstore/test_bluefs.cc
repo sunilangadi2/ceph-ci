@@ -19,6 +19,8 @@
 
 #include "os/bluestore/BlueFS.h"
 
+using namespace std;
+
 std::unique_ptr<char[]> gen_buffer(uint64_t size)
 {
     std::unique_ptr<char[]> buffer = std::make_unique<char[]>(size);
@@ -827,9 +829,7 @@ TEST(BlueFS, test_tracker_50965) {
 }
 
 int main(int argc, char **argv) {
-  vector<const char*> args;
-  argv_to_vec(argc, (const char **)argv, args);
-
+  auto args = argv_to_vec(argc, argv);
   map<string,string> defaults = {
     { "debug_bluefs", "1/20" },
     { "debug_bdev", "1/20" }

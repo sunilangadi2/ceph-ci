@@ -356,6 +356,7 @@ Some flags require you to confirm your intentions with "--yes-i-really-mean-it"
 or a similar string they will prompt you with. Consider these actions carefully
 before proceeding; they are placed on especially dangerous activities.
 
+.. _advanced-cephfs-admin-settings:
 
 Advanced
 --------
@@ -364,24 +365,6 @@ These commands are not required in normal operation, and exist
 for use in exceptional circumstances.  Incorrect use of these
 commands may cause serious problems, such as an inaccessible
 file system.
-
-::
-
-    mds compat rm_compat
-
-Removes an compatibility feature flag.
-
-::
-
-    mds compat rm_incompat
-
-Removes an incompatibility feature flag.
-
-::
-
-    mds compat show
-
-Show MDS compatibility flags.
 
 ::
 

@@ -206,12 +206,17 @@ public:
     }
 
     // note: BlueRocksEnv uses this append exclusively, so it's safe
-    // to use buffer_appender exclusively here (e.g., it's notion of
+    // to use buffer_appender exclusively here (e.g., its notion of
     // offset will remain accurate).
     void append(const char *buf, size_t len) {
       uint64_t l0 = get_buffer_length();
       ceph_assert(l0 + len <= std::numeric_limits<unsigned>::max());
       buffer_appender.append(buf, len);
+    }
+
+    void append(const std::byte *buf, size_t len) {
+      // allow callers to use byte type instead of char* as we simply pass byte array
+      append((const char*)buf, len);
     }
 
     // note: used internally only, for ino 1 or 0.
@@ -447,9 +452,10 @@ private:
 
   int _open_super();
   int _write_super(int dev);
-  int _check_new_allocations(const bluefs_fnode_t& fnode,
-    size_t dev_count,
-    boost::dynamic_bitset<uint64_t>* used_blocks);
+  int _check_allocations(const bluefs_fnode_t& fnode,
+    boost::dynamic_bitset<uint64_t>* used_blocks,
+    bool is_alloc, //true when allocating, false when deallocating
+    const char* op_name);
   int _verify_alloc_granularity(
     __u8 id, uint64_t offset, uint64_t length,
     const char *op);

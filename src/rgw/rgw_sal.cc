@@ -25,10 +25,17 @@
 #include "rgw_sal_rados.h"
 #include "rgw_d3n_datacache.h"
 
+#ifdef WITH_RADOSGW_DBSTORE
+#include "rgw_sal_dbstore.h"
+#endif
+
 #define dout_subsys ceph_subsys_rgw
 
 extern "C" {
 extern rgw::sal::Store* newStore(void);
+#ifdef WITH_RADOSGW_DBSTORE
+extern rgw::sal::Store* newDBStore(CephContext *cct);
+#endif
 }
 
 rgw::sal::Store* StoreManager::init_storage_provider(const DoutPrefixProvider* dpp, CephContext* cct, const std::string svc, bool use_gc_thread, bool use_lc_thread, bool quota_threads, bool run_sync_thread, bool run_reshard_thread, bool use_cache, bool use_gc)
@@ -69,6 +76,30 @@ rgw::sal::Store* StoreManager::init_storage_provider(const DoutPrefixProvider* d
     return store;
   }
 
+  if (svc.compare("dbstore") == 0) {
+#ifdef WITH_RADOSGW_DBSTORE
+    rgw::sal::Store* store = newDBStore(cct);
+
+    /* Initialize the dbstore with cct & dpp */
+    DB *db = static_cast<rgw::sal::DBStore *>(store)->getDB();
+    db->set_context(cct);
+
+    /* XXX: temporary - create testid user */
+    rgw_user testid_user("", "testid", "");
+    std::unique_ptr<rgw::sal::User> user = store->get_user(testid_user);
+    user->get_info().display_name = "M. Tester";
+    user->get_info().user_email = "tester@ceph.com";
+    RGWAccessKey k1("0555b35654ad1656d804", "h7GhxuBLTrlhVUyxSPUKUV8r/2EI4ngqJxD7iBdBYLhwluN30JaT3Q==");
+    user->get_info().access_keys["0555b35654ad1656d804"] = k1;
+
+    int r = user->store_user(dpp, null_yield, true);
+    if (r < 0) {
+      ldpp_dout(dpp, 0) << "ERROR: failed inserting testid user in dbstore error r=" << r << dendl;
+    }
+    return store;
+#endif
+  }
+
   return nullptr;
 }
 
@@ -93,6 +124,13 @@ rgw::sal::Store* StoreManager::init_raw_storage_provider(const DoutPrefixProvide
     }
   }
 
+  if (svc.compare("dbstore") == 0) {
+#ifdef WITH_RADOSGW_DBSTORE
+    store = newDBStore(cct);
+#else
+    store = nullptr;
+#endif
+  }
   return store;
 }
 
@@ -104,4 +142,28 @@ void StoreManager::close_storage(rgw::sal::Store* store)
   store->finalize();
 
   delete store;
+}
+
+namespace rgw::sal {
+int Object::range_to_ofs(uint64_t obj_size, int64_t &ofs, int64_t &end)
+{
+  if (ofs < 0) {
+    ofs += obj_size;
+    if (ofs < 0)
+      ofs = 0;
+    end = obj_size - 1;
+  } else if (end < 0) {
+    end = obj_size - 1;
+  }
+
+  if (obj_size > 0) {
+    if (ofs >= (off_t)obj_size) {
+      return -ERANGE;
+    }
+    if (end >= (off_t)obj_size) {
+      end = obj_size - 1;
+    }
+  }
+  return 0;
+}
 }

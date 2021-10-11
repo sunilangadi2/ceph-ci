@@ -51,6 +51,8 @@
 #undef dout_prefix
 #define dout_prefix *_dout << "mds." << mdcache->mds->get_nodeid() << ".cache.ino(" << ino() << ") "
 
+using namespace std;
+
 void CInodeCommitOperation::update(ObjectOperation &op, inode_backtrace_t &bt) {
   using ceph::encode;
 
@@ -4131,6 +4133,7 @@ void CInode::encode_cap_message(const ref_t<MClientCaps> &m, Capability *cap)
   m->mtime = i->mtime;
   m->atime = i->atime;
   m->ctime = i->ctime;
+  m->btime = i->btime;
   m->change_attr = i->change_attr;
   m->time_warp_seq = i->time_warp_seq;
   m->nfiles = i->dirstat.nfiles;

@@ -294,8 +294,6 @@ COMMAND("mds count-metadata name=property,type=CephString",
 COMMAND("mds versions",
 	"check running versions of MDSs",
 	"mds", "r")
-COMMAND("mds compat show", "show mds compatibility settings",
-	"mds", "r")
 COMMAND("mds ok-to-stop name=ids,type=CephString,n=N",
 	"check whether stopping the specified MDS would reduce immediate availability",
 	"mds", "r")
@@ -320,19 +318,26 @@ COMMAND("mds rm "
 COMMAND_WITH_FLAG("mds rmfailed name=role,type=CephString "
         "name=yes_i_really_mean_it,type=CephBool,req=false",
 	"remove failed rank", "mds", "rw", FLAG(HIDDEN))
-COMMAND("mds compat rm_compat "
+COMMAND_WITH_FLAG("mds compat show", "show mds compatibility settings",
+	"mds", "r", FLAG(DEPRECATED))
+COMMAND("fs compat show "
+        "name=fs_name,type=CephString ",
+        "show fs compatibility settings",
+	"mds", "r")
+COMMAND_WITH_FLAG("mds compat rm_compat "
 	"name=feature,type=CephInt,range=0",
-	"remove compatible feature", "mds", "rw")
-COMMAND("mds compat rm_incompat "
+	"remove compatible feature", "mds", "rw", FLAG(DEPRECATED))
+COMMAND_WITH_FLAG("mds compat rm_incompat "
 	"name=feature,type=CephInt,range=0",
-	"remove incompatible feature", "mds", "rw")
+	"remove incompatible feature", "mds", "rw", FLAG(DEPRECATED))
 COMMAND("fs new "
 	"name=fs_name,type=CephString,goodchars=" FS_NAME_GOODCHARS
 	" name=metadata,type=CephString "
 	"name=data,type=CephString "
 	"name=force,type=CephBool,req=false "
 	"name=allow_dangerous_metadata_overlay,type=CephBool,req=false "
-	"name=fscid,type=CephInt,range=0,req=false",
+	"name=fscid,type=CephInt,range=0,req=false "
+	"name=recover,type=CephBool,req=false",
 	"make new filesystem using named pools <metadata> and <data>",
 	"fs", "rw")
 COMMAND("fs fail "
@@ -378,6 +383,13 @@ COMMAND("fs feature ls",
 COMMAND("fs lsflags name=fs_name,type=CephString",
 	"list the flags set on a ceph filesystem",
 	"fs", "r")
+
+COMMAND("fs compat "
+        "name=fs_name,type=CephString "
+        "name=subop,type=CephChoices,strings=rm_compat|rm_incompat|add_compat|add_incompat "
+        "name=feature,type=CephInt "
+        "name=feature_str,type=CephString,req=false ",
+        "manipulate compat settings", "fs", "rw")
 
 COMMAND("fs required_client_features "
         "name=fs_name,type=CephString "
@@ -495,6 +507,11 @@ COMMAND("mon enable_stretch_mode " \
 	"failure handling on all pools with <tiebreaker_mon> "
 	"as the tiebreaker and setting <dividing_bucket> locations "
 	"as the units for stretching across",
+	"mon", "rw")
+COMMAND("mon set_new_tiebreaker " \
+	"name=name,type=CephString "
+	"name=yes_i_really_mean_it,type=CephBool,req=false",
+	"switch the stretch tiebreaker to be the named mon", \
 	"mon", "rw")
 
 /*
@@ -1065,11 +1082,11 @@ COMMAND("osd pool rename "
 	"rename <srcpool> to <destpool>", "osd", "rw")
 COMMAND("osd pool get "
 	"name=pool,type=CephPoolname "
-	"name=var,type=CephChoices,strings=size|min_size|pg_num|pgp_num|crush_rule|hashpspool|nodelete|nopgchange|nosizechange|write_fadvise_dontneed|noscrub|nodeep-scrub|hit_set_type|hit_set_period|hit_set_count|hit_set_fpp|use_gmt_hitset|target_max_objects|target_max_bytes|cache_target_dirty_ratio|cache_target_dirty_high_ratio|cache_target_full_ratio|cache_min_flush_age|cache_min_evict_age|erasure_code_profile|min_read_recency_for_promote|all|min_write_recency_for_promote|fast_read|hit_set_grade_decay_rate|hit_set_search_last_n|scrub_min_interval|scrub_max_interval|deep_scrub_interval|recovery_priority|recovery_op_priority|scrub_priority|compression_mode|compression_algorithm|compression_required_ratio|compression_max_blob_size|compression_min_blob_size|csum_type|csum_min_block|csum_max_block|allow_ec_overwrites|fingerprint_algorithm|pg_autoscale_mode|pg_autoscale_bias|pg_num_min|target_size_bytes|target_size_ratio|dedup_tier|dedup_chunk_algorithm|dedup_cdc_chunk_size",
+	"name=var,type=CephChoices,strings=size|min_size|pg_num|pgp_num|crush_rule|hashpspool|nodelete|nopgchange|nosizechange|write_fadvise_dontneed|noscrub|nodeep-scrub|hit_set_type|hit_set_period|hit_set_count|hit_set_fpp|use_gmt_hitset|target_max_objects|target_max_bytes|cache_target_dirty_ratio|cache_target_dirty_high_ratio|cache_target_full_ratio|cache_min_flush_age|cache_min_evict_age|erasure_code_profile|min_read_recency_for_promote|all|min_write_recency_for_promote|fast_read|hit_set_grade_decay_rate|hit_set_search_last_n|scrub_min_interval|scrub_max_interval|deep_scrub_interval|recovery_priority|recovery_op_priority|scrub_priority|compression_mode|compression_algorithm|compression_required_ratio|compression_max_blob_size|compression_min_blob_size|csum_type|csum_min_block|csum_max_block|allow_ec_overwrites|fingerprint_algorithm|pg_autoscale_mode|pg_autoscale_bias|pg_num_min|target_size_bytes|target_size_ratio|dedup_tier|dedup_chunk_algorithm|dedup_cdc_chunk_size|eio",
 	"get pool parameter <var>", "osd", "r")
 COMMAND("osd pool set "
 	"name=pool,type=CephPoolname "
-	"name=var,type=CephChoices,strings=size|min_size|pg_num|pgp_num|pgp_num_actual|crush_rule|hashpspool|nodelete|nopgchange|nosizechange|write_fadvise_dontneed|noscrub|nodeep-scrub|hit_set_type|hit_set_period|hit_set_count|hit_set_fpp|use_gmt_hitset|target_max_bytes|target_max_objects|cache_target_dirty_ratio|cache_target_dirty_high_ratio|cache_target_full_ratio|cache_min_flush_age|cache_min_evict_age|min_read_recency_for_promote|min_write_recency_for_promote|fast_read|hit_set_grade_decay_rate|hit_set_search_last_n|scrub_min_interval|scrub_max_interval|deep_scrub_interval|recovery_priority|recovery_op_priority|scrub_priority|compression_mode|compression_algorithm|compression_required_ratio|compression_max_blob_size|compression_min_blob_size|csum_type|csum_min_block|csum_max_block|allow_ec_overwrites|fingerprint_algorithm|pg_autoscale_mode|pg_autoscale_bias|pg_num_min|target_size_bytes|target_size_ratio|dedup_tier|dedup_chunk_algorithm|dedup_cdc_chunk_size "
+	"name=var,type=CephChoices,strings=size|min_size|pg_num|pgp_num|pgp_num_actual|crush_rule|hashpspool|nodelete|nopgchange|nosizechange|write_fadvise_dontneed|noscrub|nodeep-scrub|hit_set_type|hit_set_period|hit_set_count|hit_set_fpp|use_gmt_hitset|target_max_bytes|target_max_objects|cache_target_dirty_ratio|cache_target_dirty_high_ratio|cache_target_full_ratio|cache_min_flush_age|cache_min_evict_age|min_read_recency_for_promote|min_write_recency_for_promote|fast_read|hit_set_grade_decay_rate|hit_set_search_last_n|scrub_min_interval|scrub_max_interval|deep_scrub_interval|recovery_priority|recovery_op_priority|scrub_priority|compression_mode|compression_algorithm|compression_required_ratio|compression_max_blob_size|compression_min_blob_size|csum_type|csum_min_block|csum_max_block|allow_ec_overwrites|fingerprint_algorithm|pg_autoscale_mode|pg_autoscale_bias|pg_num_min|target_size_bytes|target_size_ratio|dedup_tier|dedup_chunk_algorithm|dedup_cdc_chunk_size|eio "
 	"name=val,type=CephString "
 	"name=yes_i_really_mean_it,type=CephBool,req=false",
 	"set pool parameter <var> to <val>", "osd", "rw")

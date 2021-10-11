@@ -33,6 +33,8 @@
 
 #define READ_CHUNK_LEN (512 * 1024)
 
+using namespace std;
+
 static std::map<std::string, std::string>* ext_mime_map;
 
 int rgw_init_ioctx(const DoutPrefixProvider *dpp,
@@ -181,7 +183,7 @@ int rgw_put_system_obj(const DoutPrefixProvider *dpp,
 int rgw_get_system_obj(RGWSysObjectCtx& obj_ctx, const rgw_pool& pool, const string& key, bufferlist& bl,
                        RGWObjVersionTracker *objv_tracker, real_time *pmtime, optional_yield y, const DoutPrefixProvider *dpp, map<string, bufferlist> *pattrs,
                        rgw_cache_entry_info *cache_info,
-		       boost::optional<obj_version> refresh_version)
+		       boost::optional<obj_version> refresh_version, bool raw_attrs)
 {
   bufferlist::iterator iter;
   int request_len = READ_CHUNK_LEN;
@@ -199,6 +201,7 @@ int rgw_get_system_obj(RGWSysObjectCtx& obj_ctx, const rgw_pool& pool, const str
     int ret = rop.set_attrs(pattrs)
                  .set_last_mod(pmtime)
                  .set_objv_tracker(objv_tracker)
+                 .set_raw_attrs(raw_attrs)
                  .stat(y, dpp);
     if (ret < 0)
       return ret;
@@ -488,16 +491,16 @@ int RGWDataAccess::Object::put(bufferlist& data,
 
   string req_id = store->zone_unique_id(store->get_new_req_id());
 
-  using namespace rgw::putobj;
-  AtomicObjectProcessor processor(&aio, store, b.get(), nullptr,
-                                  owner.get_id(), obj_ctx, std::move(obj), olh_epoch,
-                                  req_id, dpp, y);
+  std::unique_ptr<rgw::sal::Writer> processor;
+  processor = store->get_atomic_writer(dpp, y, std::move(obj),
+				       owner.get_id(), obj_ctx,
+				       nullptr, olh_epoch, req_id);
 
-  int ret = processor.prepare(y);
+  int ret = processor->prepare(y);
   if (ret < 0)
     return ret;
 
-  DataProcessor *filter = &processor;
+  rgw::sal::DataProcessor *filter = processor.get();
 
   CompressorRef plugin;
   boost::optional<RGWPutObj_Compress> compressor;
@@ -570,7 +573,7 @@ int RGWDataAccess::Object::put(bufferlist& data,
     puser_data = &(*user_data);
   }
 
-  return processor.complete(obj_size, etag,
+  return processor->complete(obj_size, etag,
 			    &mtime, mtime,
 			    attrs, delete_at,
                             nullptr, nullptr,

@@ -94,6 +94,9 @@ struct FLTreeOnode final : Onode, Value {
     status = status_t::DELETED;
   }
 
+  laddr_t get_hint() const final {
+    return Value::get_hint();
+  }
   ~FLTreeOnode() final {}
 };
 
@@ -103,7 +106,7 @@ class FLTreeOnodeManager : public crimson::os::seastore::OnodeManager {
   OnodeTree tree;
 
 public:
-  FLTreeOnodeManager(InterruptedTransactionManager tm) :
+  FLTreeOnodeManager(TransactionManager &tm) :
     tree(NodeExtentManager::create_seastore(tm)) {}
 
   mkfs_ret mkfs(Transaction &t) {

@@ -27,6 +27,7 @@
 #include "crimson/os/seastore/segment_manager.h"
 #include "crimson/os/seastore/lba_manager.h"
 #include "crimson/os/seastore/journal.h"
+#include "crimson/os/seastore/extent_placement_manager.h"
 
 namespace crimson::os::seastore {
 class Journal;
@@ -53,29 +54,6 @@ auto repeat_eagain(F &&f) {
     });
 }
 
-// non-errorated version
-template <typename F>
-auto repeat_eagain2(F &&f) {
-  LOG_PREFIX("repeat_eagain");
-  return seastar::do_with(
-    std::forward<F>(f),
-    [FNAME](auto &f) {
-      return seastar::repeat(
-	[FNAME, &f] {
-	  return std::invoke(f
-	  ).safe_then([] {
-	    return seastar::stop_iteration::yes;
-	  }).handle_error(
-	    [FNAME](const crimson::ct_error::eagain &e) {
-	      DEBUG("hit eagain, restarting");
-	      return seastar::make_ready_future<seastar::stop_iteration>(
-	          seastar::stop_iteration::no);
-	    }
-	  );
-	});
-    });
-}
-
 /**
  * TransactionManager
  *
@@ -92,7 +70,8 @@ public:
     SegmentCleanerRef segment_cleaner,
     JournalRef journal,
     CacheRef cache,
-    LBAManagerRef lba_manager);
+    LBAManagerRef lba_manager,
+    ExtentPlacementManagerRef&& epm);
 
   /// Writes initial metadata to disk
   using mkfs_ertr = base_ertr;
@@ -128,7 +107,6 @@ public:
    *
    * Get the logical pin at offset
    */
-  using get_pin_ertr = LBAManager::get_mapping_ertr;
   using get_pin_iertr = LBAManager::get_mapping_iertr;
   using get_pin_ret = LBAManager::get_mapping_iertr::future<LBAPinRef>;
   get_pin_ret get_pin(
@@ -296,7 +274,7 @@ public:
    * alloc_extent
    *
    * Allocates a new block of type T with the minimum lba range of size len
-   * greater than hint.
+   * greater than laddr_hint.
    */
   using alloc_extent_iertr = LBAManager::alloc_extent_iertr;
   template <typename T>
@@ -304,20 +282,30 @@ public:
   template <typename T>
   alloc_extent_ret<T> alloc_extent(
     Transaction &t,
-    laddr_t hint,
+    laddr_t laddr_hint,
     extent_len_t len) {
-    auto ext = cache->alloc_new_extent<T>(
+    placement_hint_t placement_hint;
+    if constexpr (T::TYPE == extent_types_t::OBJECT_DATA_BLOCK ||
+                  T::TYPE == extent_types_t::COLL_BLOCK) {
+      placement_hint = placement_hint_t::COLD;
+    } else {
+      placement_hint = placement_hint_t::HOT;
+    }
+    auto ext = epm->alloc_new_extent<T>(
       t,
-      len);
+      len,
+      placement_hint);
     return lba_manager->alloc_extent(
       t,
-      hint,
+      laddr_hint,
       len,
       ext->get_paddr()
-    ).si_then([ext=std::move(ext), len, this](auto &&ref) mutable {
+    ).si_then([ext=std::move(ext), len, laddr_hint, &t, this](auto &&ref) mutable {
+      LOG_PREFIX(TransactionManager::alloc_extent);
       ext->set_pin(std::move(ref));
       stats.extents_allocated_total++;
       stats.extents_allocated_bytes += len;
+      DEBUGT("new extent: {}, laddr_hint: {}", t, *ext, laddr_hint);
       return alloc_extent_iertr::make_ready_future<TCachedExtentRef<T>>(
 	std::move(ext));
     });
@@ -334,20 +322,6 @@ public:
       hint,
       len,
       zero_paddr());
-  }
-
-  using find_hole_iertr = LBAManager::find_hole_iertr;
-  using find_hole_ret = LBAManager::find_hole_iertr::future<
-    std::pair<laddr_t, extent_len_t>
-    >;
-  find_hole_ret find_hole(
-    Transaction &t,
-    laddr_t hint,
-    extent_len_t len) {
-    return lba_manager->find_hole(
-      t,
-      hint,
-      len);
   }
 
   /* alloc_extents
@@ -394,6 +368,7 @@ public:
 
   using SegmentCleaner::ExtentCallbackInterface::get_next_dirty_extents_ret;
   get_next_dirty_extents_ret get_next_dirty_extents(
+    Transaction &t,
     journal_seq_t seq,
     size_t max_bytes) final;
 
@@ -409,18 +384,6 @@ public:
     paddr_t addr,
     laddr_t laddr,
     segment_off_t len) final;
-
-  using scan_extents_cursor =
-    SegmentCleaner::ExtentCallbackInterface::scan_extents_cursor;
-  using scan_extents_ertr =
-    SegmentCleaner::ExtentCallbackInterface::scan_extents_ertr;
-  using scan_extents_ret =
-    SegmentCleaner::ExtentCallbackInterface::scan_extents_ret;
-  scan_extents_ret scan_extents(
-    scan_extents_cursor &cursor,
-    extent_len_t bytes_to_read) final {
-    return journal->scan_extents(cursor, bytes_to_read);
-  }
 
   using release_segment_ret =
     SegmentCleaner::ExtentCallbackInterface::release_segment_ret;
@@ -546,6 +509,7 @@ private:
   CacheRef cache;
   LBAManagerRef lba_manager;
   JournalRef journal;
+  ExtentPlacementManagerRef epm;
 
   WritePipeline write_pipeline;
 
@@ -560,6 +524,9 @@ private:
   seastar::metrics::metric_group metrics;
   void register_metrics();
 
+  rewrite_extent_ret rewrite_logical_extent(
+    Transaction& t,
+    LogicalCachedExtentRef extent);
 public:
   // Testing interfaces
   auto get_segment_cleaner() {
@@ -571,134 +538,5 @@ public:
   }
 };
 using TransactionManagerRef = std::unique_ptr<TransactionManager>;
-
-#define FORWARD(METHOD)					\
-  template <typename... Args>				\
-  auto METHOD(Args&&... args) const {			\
-    return tm->METHOD(std::forward<Args>(args)...);	\
-  }
-
-#define PARAM_FORWARD(METHOD)					\
-  template <typename T, typename... Args>			\
-  auto METHOD(Args&&... args) const {				\
-    return tm->METHOD<T>(std::forward<Args>(args)...);	\
-  }
-
-#define INT_FORWARD(METHOD)						\
-  template <typename... Args>						\
-  auto METHOD(Transaction &t, Args&&... args) const {			\
-    return with_trans_intr(						\
-      t,								\
-      [this](auto&&... args) {						\
-	return tm->METHOD(std::forward<decltype(args)>(args)...);	\
-      },								\
-      std::forward<Args>(args)...);					\
-  }
-
-#define PARAM_INT_FORWARD(METHOD)					\
-  template <typename T, typename... Args>				\
-  auto METHOD(Transaction &t, Args&&... args) const {			\
-    return with_trans_intr(						\
-      t,								\
-      [this](auto&&... args) {						\
-	return tm->METHOD<T>(std::forward<decltype(args)>(args)...);	\
-      },								\
-      std::forward<Args>(args)...);					\
-  }
-
-/// Temporary translator to non-interruptible futures
-class InterruptedTransactionManager {
-  TransactionManager *tm = nullptr;
-public:
-  InterruptedTransactionManager() = default;
-  InterruptedTransactionManager(const InterruptedTransactionManager &) = default;
-  InterruptedTransactionManager(InterruptedTransactionManager &&) = default;
-  InterruptedTransactionManager(TransactionManager &tm) : tm(&tm) {}
-
-  InterruptedTransactionManager &operator=(
-    const InterruptedTransactionManager &) = default;
-  InterruptedTransactionManager &operator=(
-    InterruptedTransactionManager &&) = default;
-
-  TransactionManager &get_tm() const { return *tm; }
-
-  FORWARD(mkfs)
-  FORWARD(mount)
-  FORWARD(close)
-  FORWARD(create_transaction)
-  FORWARD(create_weak_transaction)
-  FORWARD(reset_transaction_preserve_handle)
-  INT_FORWARD(get_pin)
-  INT_FORWARD(get_pins)
-  PARAM_INT_FORWARD(pin_to_extent)
-  PARAM_INT_FORWARD(read_extent)
-  FORWARD(get_mutable_extent)
-  INT_FORWARD(inc_ref)
-  INT_FORWARD(dec_ref)
-  PARAM_INT_FORWARD(alloc_extent)
-  INT_FORWARD(reserve_region)
-  INT_FORWARD(find_hole)
-  PARAM_INT_FORWARD(alloc_extents)
-  INT_FORWARD(submit_transaction)
-
-  INT_FORWARD(read_root_meta)
-  INT_FORWARD(update_root_meta)
-  INT_FORWARD(read_onode_root)
-  FORWARD(write_onode_root)
-  INT_FORWARD(read_collection_root)
-  FORWARD(write_collection_root)
-  FORWARD(get_block_size)
-  FORWARD(store_stat)
-
-  FORWARD(get_segment_cleaner)
-  FORWARD(get_lba_manager)
-
-  void reset() { tm = nullptr; }
-};
-
-class InterruptedTMRef {
-  std::unique_ptr<TransactionManager> ref;
-  std::optional<InterruptedTransactionManager> itm;
-public:
-  InterruptedTMRef() {}
-
-  template <typename... T>
-  InterruptedTMRef(T&&... args)
-    : ref(std::make_unique<TransactionManager>(std::forward<T>(args)...)),
-      itm(*ref) {}
-
-  InterruptedTMRef(std::unique_ptr<TransactionManager> tm)
-    : ref(std::move(tm)), itm(*ref) {}
-
-  InterruptedTMRef(InterruptedTMRef &&itmr)
-    : ref(std::move(itmr.ref)), itm(*ref) {}
-
-  InterruptedTMRef &operator=(std::unique_ptr<TransactionManager> tm) {
-    this->~InterruptedTMRef();
-    new (this) InterruptedTMRef(std::move(tm));
-    return *this;
-  }
-
-  InterruptedTMRef &operator=(InterruptedTMRef &&rhs) {
-    this->~InterruptedTMRef();
-    new (this) InterruptedTMRef(std::move(rhs));
-    return *this;
-  }
-
-  void reset() {
-    itm = std::nullopt;
-    ref.reset();
-  }
-
-  auto &operator*() const {
-    return *itm;
-  }
-
-  auto operator->() const {
-    return &*itm;
-  }
-};
-
-
 
 }

@@ -158,12 +158,8 @@ elseif(CMAKE_CXX_COMPILER_ID STREQUAL Clang)
   endif()
 endif(CMAKE_CXX_COMPILER_ID STREQUAL GNU)
 
-if(NOT CMAKE_BUILD_TYPE)
-  if(EXISTS "${CMAKE_SOURCE_DIR}/.git")
-    set(default_build_type "Debug")
-  else()
-    set(default_build_type "RelWithDebInfo")
-  endif()
+if(NOT CMAKE_BUILD_TYPE AND EXISTS "${CMAKE_SOURCE_DIR}/.git")
+  set(default_build_type "Debug")
   set(CMAKE_BUILD_TYPE "${default_build_type}" CACHE
       STRING "Default BUILD_TYPE is Debug, other options are: RelWithDebInfo, Release, and MinSizeRel." FORCE)
 endif()
@@ -332,7 +328,11 @@ if(fmt_FOUND)
   include_directories(SYSTEM "${fmt_INCLUDE_DIR}")
 else()
   message(STATUS "Could not find fmt, will build it")
+  set(old_BUILD_SHARED_LIBS ${BUILD_SHARED_LIBS})
+  set(BUILD_SHARED_LIBS FALSE)
   add_subdirectory(fmt)
+  set(BUILD_SHARED_LIBS ${old_BUILD_SHARED_LIBS})
+  unset(old_BUILD_SHARED_LIBS)
   include_directories(SYSTEM "${CMAKE_SOURCE_DIR}/src/fmt/include")
 endif()
 
@@ -388,15 +388,6 @@ set(CMAKE_EXTRA_INCLUDE_FILES "sys/time.h")
 CHECK_TYPE_SIZE(suseconds_t SUSECONDS_T)
 unset(CMAKE_EXTRA_INCLUDE_FILES)
 
-function(compile_with_fmt target)
-  get_target_property(fmt_compile_definitions
-    fmt::fmt INTERFACE_COMPILE_DEFINITIONS)
-  if(fmt_compile_definitions)
-    target_compile_definitions(${target} PUBLIC
-      ${fmt_compile_definitions})
-  endif()
-endfunction()
-
 set(libcommon_files
   ${CMAKE_BINARY_DIR}/src/include/ceph_ver.h
   ceph_ver.c
@@ -434,7 +425,8 @@ endif()
 set_source_files_properties(ceph_ver.c
   APPEND PROPERTY OBJECT_DEPENDS ${CMAKE_BINARY_DIR}/src/include/ceph_ver.h)
 add_library(common-objs OBJECT ${libcommon_files})
-compile_with_fmt(common-objs)
+target_compile_definitions(common-objs PRIVATE
+  $<TARGET_PROPERTY:fmt::fmt,INTERFACE_COMPILE_DEFINITIONS>)
 add_dependencies(common-objs legacy-option-headers)
 
 if(WITH_JAEGER)
@@ -623,7 +615,9 @@ if(WITH_LIBRADOSSTRIPER)
   add_subdirectory(libradosstriper)
 endif()
 
-add_subdirectory(mgr)
+if(WITH_MGR)
+  add_subdirectory(mgr)
+endif()
 
 set(librados_config_srcs
   librados-config.cc)

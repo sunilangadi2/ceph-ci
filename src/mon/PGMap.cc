@@ -925,7 +925,11 @@ void PGMapDigest::dump_object_stat_sum(
     if (verbose) {
       f->dump_int("quota_objects", pool->quota_max_objects);
       f->dump_int("quota_bytes", pool->quota_max_bytes);
-      f->dump_int("dirty", sum.num_objects_dirty);
+      if (pool->is_tier()) {
+        f->dump_int("dirty", sum.num_objects_dirty);
+      } else {
+        f->dump_int("dirty", 0);
+      }
       f->dump_int("rd", sum.num_rd);
       f->dump_int("rd_bytes", sum.num_rd_kb * 1024ull);
       f->dump_int("wr", sum.num_wr);
@@ -955,16 +959,17 @@ void PGMapDigest::dump_object_stat_sum(
         tbl << "N/A";
       else
         tbl << stringify(si_u_t(pool->quota_max_objects));
-
       if (pool->quota_max_bytes == 0)
         tbl << "N/A";
       else
         tbl << stringify(byte_u_t(pool->quota_max_bytes));
-
-      tbl << stringify(si_u_t(sum.num_objects_dirty))
-	  << stringify(byte_u_t(statfs.data_compressed_allocated))
-	  << stringify(byte_u_t(statfs.data_compressed_original))
-	  ;
+      if (pool->is_tier()) {
+        tbl << stringify(si_u_t(sum.num_objects_dirty));
+      } else {
+        tbl << "N/A";
+      }
+      tbl << stringify(byte_u_t(statfs.data_compressed_allocated));
+      tbl << stringify(byte_u_t(statfs.data_compressed_original));
     }
   }
 }
@@ -1652,6 +1657,7 @@ void PGMap::dump_pg_stats_plain(
     tab.define_column("LAST_DEEP_SCRUB", TextTable::LEFT, TextTable::RIGHT);
     tab.define_column("DEEP_SCRUB_STAMP", TextTable::LEFT, TextTable::RIGHT);
     tab.define_column("SNAPTRIMQ_LEN", TextTable::LEFT, TextTable::RIGHT);
+    tab.define_column("SCRUB_DURATION", TextTable::LEFT, TextTable::RIGHT);
   }
 
   for (auto i = pg_stats.begin();
@@ -1693,6 +1699,7 @@ void PGMap::dump_pg_stats_plain(
           << st.last_deep_scrub
           << st.last_deep_scrub_stamp
           << st.snaptrimq_len
+          << st.scrub_duration
           << TextTable::endrow;
     }
   }
@@ -2223,6 +2230,7 @@ void PGMap::dump_filtered_pg_stats(ostream& ss, set<pg_t>& pgs) const
   tab.define_column("ACTING", TextTable::LEFT, TextTable::RIGHT);
   tab.define_column("SCRUB_STAMP", TextTable::LEFT, TextTable::RIGHT);
   tab.define_column("DEEP_SCRUB_STAMP", TextTable::LEFT, TextTable::RIGHT);
+  tab.define_column("SCRUB_DURATION", TextTable::LEFT, TextTable::RIGHT);
 
   for (auto i = pgs.begin(); i != pgs.end(); ++i) {
     const pg_stat_t& st = pg_stat.at(*i);
@@ -2250,6 +2258,7 @@ void PGMap::dump_filtered_pg_stats(ostream& ss, set<pg_t>& pgs) const
         << actingstr.str()
         << st.last_scrub_stamp
         << st.last_deep_scrub_stamp
+        << st.scrub_duration
         << TextTable::endrow;
   }
 

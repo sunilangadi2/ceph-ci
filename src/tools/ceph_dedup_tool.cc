@@ -49,6 +49,8 @@
 #include "global/signal_handler.h"
 #include "common/CDC.h"
 
+using namespace std;
+
 struct EstimateResult {
   std::unique_ptr<CDC> cdc;
 
@@ -874,8 +876,7 @@ out:
 
 int main(int argc, const char **argv)
 {
-  vector<const char*> args;
-  argv_to_vec(argc, argv, args);
+  auto args = argv_to_vec(argc, argv);
   if (args.empty()) {
     cerr << argv[0] << ": -h or --help for usage" << std::endl;
     exit(1);

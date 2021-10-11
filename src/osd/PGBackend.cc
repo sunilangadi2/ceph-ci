@@ -19,7 +19,7 @@
 #include "common/errno.h"
 #include "common/scrub_types.h"
 #include "ReplicatedBackend.h"
-#include "ScrubStore.h"
+#include "osd/scrubber/ScrubStore.h"
 #include "ECBackend.h"
 #include "PGBackend.h"
 #include "OSD.h"
@@ -30,6 +30,7 @@
 #include "messages/MOSDPGRecoveryDelete.h"
 #include "messages/MOSDPGRecoveryDeleteReply.h"
 
+using std::less;
 using std::list;
 using std::make_pair;
 using std::map;

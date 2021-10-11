@@ -25,8 +25,9 @@ using namespace crimson::os::seastore::lba_manager;
 using namespace crimson::os::seastore::lba_manager::btree;
 
 struct btree_lba_manager_test :
-  public seastar_test_suite_t, JournalSegmentProvider {
+  public seastar_test_suite_t, SegmentProvider {
   segment_manager::EphemeralSegmentManagerRef segment_manager;
+  ScannerRef scanner;
   Journal journal;
   Cache cache;
   BtreeLBAManagerRef lba_manager;
@@ -37,7 +38,8 @@ struct btree_lba_manager_test :
 
   btree_lba_manager_test()
     : segment_manager(segment_manager::create_test_ephemeral()),
-      journal(*segment_manager),
+      scanner(new Scanner(*segment_manager)),
+      journal(*segment_manager, *scanner),
       cache(*segment_manager),
       lba_manager(new BtreeLBAManager(*segment_manager, cache)),
       block_size(segment_manager->get_block_size())
@@ -74,13 +76,15 @@ struct btree_lba_manager_test :
     }).safe_then([this](auto addr) {
       return seastar::do_with(
 	cache.create_transaction(Transaction::src_t::MUTATE),
-	[this](auto &transaction) {
-	  cache.init();
-	  return cache.mkfs(*transaction
-	  ).safe_then([this, &transaction] {
-	    return lba_manager->mkfs(*transaction);
-	  }).safe_then([this, &transaction] {
-	    return submit_transaction(std::move(transaction));
+	[this](auto &ref_t) {
+	  return with_trans_intr(*ref_t, [&](auto &t) {
+	    cache.init();
+	    return cache.mkfs(t
+	    ).si_then([this, &t] {
+	      return lba_manager->mkfs(t);
+	    });
+	  }).safe_then([this, &ref_t] {
+	    return submit_transaction(std::move(ref_t));
 	  });
 	});
     }).handle_error(
@@ -114,12 +118,14 @@ struct btree_lba_manager_test :
     test_lba_mapping_t mappings;
   };
 
-  auto create_transaction() {
+  auto create_transaction(bool create_fake_extent=true) {
     auto t = test_transaction_t{
       cache.create_transaction(Transaction::src_t::MUTATE),
       test_lba_mappings
     };
-    cache.alloc_new_extent<TestBlockPhysical>(*t.t, TestBlockPhysical::SIZE);
+    if (create_fake_extent) {
+      cache.alloc_new_extent<TestBlockPhysical>(*t.t, TestBlockPhysical::SIZE);
+    };
     return t;
   }
 
@@ -171,34 +177,6 @@ struct btree_lba_manager_test :
     EXPECT_EQ(len, ret->get_length());
     auto [b, e] = get_overlap(t, ret->get_laddr(), len);
     EXPECT_EQ(b, e);
-    t.mappings.emplace(
-      std::make_pair(
-	ret->get_laddr(),
-	test_extent_t{
-	  ret->get_paddr(),
-	  ret->get_length(),
-	  1
-        }
-      ));
-    return ret;
-  }
-
-  auto set_mapping(
-    test_transaction_t &t,
-    laddr_t addr,
-    size_t len,
-    paddr_t paddr) {
-    auto [b, e] = get_overlap(t, addr, len);
-    EXPECT_EQ(b, e);
-
-    auto ret = with_trans_intr(
-      *t.t,
-      [=](auto &t) {
-	return lba_manager->set_extent(t, addr, len, paddr);
-      }).unsafe_get0();
-    EXPECT_EQ(addr, ret->get_laddr());
-    EXPECT_EQ(len, ret->get_length());
-    EXPECT_EQ(paddr, ret->get_paddr());
     t.mappings.emplace(
       std::make_pair(
 	ret->get_laddr(),
@@ -458,6 +436,43 @@ TEST_F(btree_lba_manager_test, single_transaction_split_merge)
       check_mappings(t);
       submit_test_transaction(std::move(t));
     }
+    check_mappings();
+  });
+}
+
+TEST_F(btree_lba_manager_test, split_merge_multi)
+{
+  run_async([this] {
+    auto iterate = [&](auto f) {
+      for (uint64_t i = 0; i < (1<<12); ++i) {
+	auto t = create_transaction(false);
+	logger().debug("opened transaction");
+	for (unsigned j = 0; j < 5; ++j) {
+	  f(t, (i * 5) + j);
+	}
+	logger().debug("submitting transaction");
+	submit_test_transaction(std::move(t));
+      }
+    };
+    iterate([&](auto &t, auto idx) {
+      alloc_mapping(t, idx * block_size, block_size, get_paddr());
+    });
+    check_mappings();
+    iterate([&](auto &t, auto idx) {
+      if ((idx % 32) > 0) {
+	decref_mapping(t, idx * block_size);
+      }
+    });
+    check_mappings();
+    iterate([&](auto &t, auto idx) {
+      if ((idx % 32) > 0) {
+	alloc_mapping(t, idx * block_size, block_size, get_paddr());
+      }
+    });
+    check_mappings();
+    iterate([&](auto &t, auto idx) {
+      decref_mapping(t, idx * block_size);
+    });
     check_mappings();
   });
 }

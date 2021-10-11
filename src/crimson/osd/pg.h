@@ -157,6 +157,14 @@ public:
     // Not needed yet -- mainly for scrub scheduling
   }
 
+  /// Notify PG that Primary/Replica status has changed (to update scrub registration)
+  void on_primary_status_change(bool was_primary, bool now_primary) final {
+  }
+
+  /// Need to reschedule next scrub. Assuming no change in role
+  void reschedule_scrub() final {
+  }
+
   void scrub_requested(scrub_level_t scrub_level, scrub_type_t scrub_type) final;
 
   uint64_t get_snap_trimq_size() const final {
@@ -265,10 +273,10 @@ public:
 	}));
   }
 
-  void update_heartbeat_peers(set<int> peers) final {
+  void update_heartbeat_peers(std::set<int> peers) final {
     // Not needed yet
   }
-  void set_probe_targets(const set<pg_shard_t> &probe_set) final {
+  void set_probe_targets(const std::set<pg_shard_t> &probe_set) final {
     // Not needed yet
   }
   void clear_probe_targets() final {
@@ -655,7 +663,7 @@ public:
   epoch_t get_last_peering_reset() const final {
     return peering_state.get_last_peering_reset();
   }
-  const set<pg_shard_t> &get_acting_recovery_backfill() const {
+  const std::set<pg_shard_t> &get_acting_recovery_backfill() const {
     return peering_state.get_acting_recovery_backfill();
   }
   bool is_backfill_target(pg_shard_t osd) const {
@@ -667,11 +675,11 @@ public:
   uint64_t min_peer_features() const {
     return peering_state.get_min_peer_features();
   }
-  const map<hobject_t, set<pg_shard_t>>&
+  const std::map<hobject_t, std::set<pg_shard_t>>&
   get_missing_loc_shards() const {
     return peering_state.get_missing_loc().get_missing_locs();
   }
-  const map<pg_shard_t, pg_missing_t> &get_shard_missing() const {
+  const std::map<pg_shard_t, pg_missing_t> &get_shard_missing() const {
     return peering_state.get_peer_missing();
   }
   epoch_t get_interval_start_epoch() const {
@@ -751,7 +759,7 @@ private:
 	oid, get_actingset(), v);
   }
   bool is_degraded_or_backfilling_object(const hobject_t& soid) const;
-  const set<pg_shard_t> &get_actingset() const {
+  const std::set<pg_shard_t> &get_actingset() const {
     return peering_state.get_actingset();
   }
 

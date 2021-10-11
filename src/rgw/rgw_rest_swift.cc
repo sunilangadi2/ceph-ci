@@ -39,6 +39,8 @@
 #define dout_context g_ceph_context
 #define dout_subsys ceph_subsys_rgw
 
+using namespace std;
+
 int RGWListBuckets_ObjStore_SWIFT::get_params(optional_yield y)
 {
   prefix = s->info.args.get("prefix");
@@ -1380,7 +1382,6 @@ int RGWCopyObj_ObjStore_SWIFT::get_params(optional_yield y)
 
   src_tenant_name = s->src_tenant_name;
   src_bucket_name = s->src_bucket_name;
-  src_object = s->src_object->clone();
   dest_tenant_name = s->bucket_tenant;
   dest_bucket_name = s->bucket_name;
   dest_obj_name = s->object->get_name();
@@ -1427,7 +1428,7 @@ void RGWCopyObj_ObjStore_SWIFT::dump_copy_info()
 {
   /* Dump X-Copied-From. */
   dump_header(s, "X-Copied-From", url_encode(src_bucket->get_name()) +
-              "/" + url_encode(src_object->get_name()));
+              "/" + url_encode(s->src_object->get_name()));
 
   /* Dump X-Copied-From-Account. */
   /* XXX tenant */
@@ -2364,6 +2365,9 @@ int RGWSwiftWebsiteHandler::serve_errordoc(const int http_ret,
     }
   } get_errpage_op(store, handler, s, http_ret);
 
+  /* This is okay.  It's an error, so nothing will run after this, and it can be
+   * called by abort_early(), which can be called before s->object or s->bucket
+   * are set up. */
   if (!rgw::sal::Bucket::empty(s->bucket.get())) {
     s->object = s->bucket->get_object(rgw_obj_key(std::to_string(http_ret) + error_doc));
   } else {
@@ -2856,10 +2860,6 @@ int RGWHandler_REST_SWIFT::validate_bucket_name(const string& bucket)
     return -ERR_INVALID_BUCKET_NAME;
   }
 
-  const auto ret = RGWHandler_REST::validate_bucket_name(bucket);
-  if (ret < 0) {
-    return ret;
-  }
 
   if (len == 0)
     return 0;

@@ -1,4 +1,5 @@
 import json
+
 from contextlib import contextmanager
 
 import pytest
@@ -13,8 +14,6 @@ try:
     from typing import List
 except ImportError:
     pass
-
-from execnet.gateway_bootstrap import HostNotFound
 
 from ceph.deployment.service_spec import ServiceSpec, PlacementSpec, RGWSpec, \
     NFSServiceSpec, IscsiServiceSpec, HostPlacementSpec, CustomContainerSpec
@@ -115,6 +114,7 @@ class TestCephadm(object):
                     out = dd.to_json()
                     del out['daemon_id']
                     del out['events']
+                    del out['daemon_name']
                     return out
 
                 assert [remove_id_events(dd) for dd in wait(cephadm_module, c)] == [
@@ -343,9 +343,8 @@ class TestCephadm(object):
                 'value': '127.0.0.0/8'
             })
 
-            cephadm_module.cache.update_host_devices_networks(
+            cephadm_module.cache.update_host_networks(
                 'test',
-                [],
                 {
                     "127.0.0.0/8": [
                         "127.0.0.1"
@@ -616,7 +615,7 @@ spec:
                 ),
             ])
 
-            cephadm_module.cache.update_host_devices_networks('test', inventory.devices, {})
+            cephadm_module.cache.update_host_devices('test', inventory.devices)
 
             _run_cephadm.return_value = (['{}'], '', 0)
 
@@ -654,7 +653,7 @@ spec:
                 Device('/dev/sdd', available=True)
             ])
 
-            cephadm_module.cache.update_host_devices_networks('test', inventory.devices, {})
+            cephadm_module.cache.update_host_devices('test', inventory.devices)
 
             _run_cephadm.return_value = (['{}'], '', 0)
 
@@ -827,7 +826,6 @@ spec:
             ServiceSpec('mds', service_id='fsname'),
             RGWSpec(rgw_realm='realm', rgw_zone='zone'),
             RGWSpec(service_id="foo"),
-            ServiceSpec('cephadm-exporter'),
         ]
     )
     @mock.patch("cephadm.serve.CephadmServe._deploy_cephadm_binary", _deploy_cephadm_binary('test'))
@@ -840,23 +838,56 @@ spec:
                 with with_daemon(cephadm_module, spec, 'test'):
                     pass
 
-    @mock.patch("cephadm.serve.CephadmServe._run_cephadm")
-    def test_daemon_add_fail(self, _run_cephadm, cephadm_module):
-        _run_cephadm.return_value = '{}', '', 0
-        with with_host(cephadm_module, 'test'):
-            spec = ServiceSpec(
+    @pytest.mark.parametrize(
+        "entity,success,spec",
+        [
+            ('mgr.x', True, ServiceSpec(
                 service_type='mgr',
                 placement=PlacementSpec(hosts=[HostPlacementSpec('test', '', 'x')], count=1),
-                unmanaged=True
-            )
+                unmanaged=True)
+            ),  # noqa: E124
+            ('client.rgw.x', True, ServiceSpec(
+                service_type='rgw',
+                service_id='id',
+                placement=PlacementSpec(hosts=[HostPlacementSpec('test', '', 'x')], count=1),
+                unmanaged=True)
+            ),  # noqa: E124
+            ('client.nfs.x', True, ServiceSpec(
+                service_type='nfs',
+                service_id='id',
+                placement=PlacementSpec(hosts=[HostPlacementSpec('test', '', 'x')], count=1),
+                unmanaged=True)
+            ),  # noqa: E124
+            ('mon.', False, ServiceSpec(
+                service_type='mon',
+                placement=PlacementSpec(
+                    hosts=[HostPlacementSpec('test', '127.0.0.0/24', 'x')], count=1),
+                unmanaged=True)
+            ),  # noqa: E124
+        ]
+    )
+    @mock.patch("cephadm.serve.CephadmServe._run_cephadm")
+    @mock.patch("cephadm.services.nfs.NFSService.run_grace_tool", mock.MagicMock())
+    @mock.patch("cephadm.services.nfs.NFSService.purge", mock.MagicMock())
+    @mock.patch("cephadm.services.nfs.NFSService.create_rados_config_obj", mock.MagicMock())
+    def test_daemon_add_fail(self, _run_cephadm, entity, success, spec, cephadm_module):
+        _run_cephadm.return_value = '{}', '', 0
+        with with_host(cephadm_module, 'test'):
             with with_service(cephadm_module, spec):
                 _run_cephadm.side_effect = OrchestratorError('fail')
                 with pytest.raises(OrchestratorError):
                     wait(cephadm_module, cephadm_module.add_daemon(spec))
-                cephadm_module.assert_issued_mon_command({
-                    'prefix': 'auth rm',
-                    'entity': 'mgr.x',
-                })
+                if success:
+                    cephadm_module.assert_issued_mon_command({
+                        'prefix': 'auth rm',
+                        'entity': entity,
+                    })
+                else:
+                    with pytest.raises(AssertionError):
+                        cephadm_module.assert_issued_mon_command({
+                            'prefix': 'auth rm',
+                            'entity': entity,
+                        })
 
     @mock.patch("cephadm.serve.CephadmServe._run_cephadm", _run_cephadm('{}'))
     @mock.patch("cephadm.services.nfs.NFSService.run_grace_tool", mock.MagicMock())
@@ -880,6 +911,7 @@ spec:
     @mock.patch("cephadm.serve.CephadmServe._run_cephadm", _run_cephadm('{}'))
     @mock.patch("subprocess.run", None)
     @mock.patch("cephadm.module.CephadmOrchestrator.rados", mock.MagicMock())
+    @mock.patch("cephadm.module.CephadmOrchestrator.get_mgr_ip", lambda _: '1.2.3.4')
     def test_iscsi(self, cephadm_module):
         with with_host(cephadm_module, 'test'):
             ps = PlacementSpec(hosts=['test'], count=1)
@@ -1012,7 +1044,6 @@ spec:
                 envs=['SECRET=password'],
                 ports=[8080, 8443]
             ), CephadmOrchestrator.apply_container),
-            (ServiceSpec('cephadm-exporter'), CephadmOrchestrator.apply_cephadm_exporter),
         ]
     )
     @mock.patch("cephadm.serve.CephadmServe._deploy_cephadm_binary", _deploy_cephadm_binary('test'))
@@ -1076,25 +1107,6 @@ spec:
             assert_rm_daemon(cephadm_module, spec.service_name(), 'host1')  # verifies ok-to-stop
             assert_rm_daemon(cephadm_module, spec.service_name(), 'host2')
 
-    @mock.patch("cephadm.module.CephadmOrchestrator._get_connection")
-    @mock.patch("remoto.process.check")
-    def test_offline(self, _check, _get_connection, cephadm_module):
-        _check.return_value = '{}', '', 0
-        _get_connection.return_value = mock.Mock(), mock.Mock()
-        with with_host(cephadm_module, 'test'):
-            _get_connection.side_effect = HostNotFound
-            code, out, err = cephadm_module.check_host('test')
-            assert out == ''
-            assert "Host 'test' not found" in err
-
-            out = wait(cephadm_module, cephadm_module.get_hosts())[0].to_json()
-            assert out == HostSpec('test', '1.2.3.4', status='Offline').to_json()
-
-            _get_connection.side_effect = None
-            assert CephadmServe(cephadm_module)._check_host('test') is None
-            out = wait(cephadm_module, cephadm_module.get_hosts())[0].to_json()
-            assert out == HostSpec('test', '1.2.3.4').to_json()
-
     @mock.patch("cephadm.serve.CephadmServe._run_cephadm", _run_cephadm('{}'))
     def test_dont_touch_offline_or_maintenance_host_daemons(self, cephadm_module):
         # test daemons on offline/maint hosts not removed when applying specs
@@ -1108,16 +1120,21 @@ spec:
                         assert len(cephadm_module.cache.get_daemons_by_type('mgr')) == 3
 
                         # put one host in offline state and one host in maintenance state
-                        cephadm_module.inventory._inventory['test2']['status'] = 'offline'
+                        cephadm_module.offline_hosts = {'test2'}
                         cephadm_module.inventory._inventory['test3']['status'] = 'maintenance'
                         cephadm_module.inventory.save()
 
                         # being in offline/maint mode should disqualify hosts from being
                         # candidates for scheduling
                         candidates = [
-                            h.hostname for h in cephadm_module._schedulable_hosts()]
-                        assert 'test2' not in candidates
-                        assert 'test3' not in candidates
+                            h.hostname for h in cephadm_module.cache.get_schedulable_hosts()]
+                        assert 'test2' in candidates
+                        assert 'test3' in candidates
+
+                        unreachable = [
+                            h.hostname for h in cephadm_module.cache.get_unreachable_hosts()]
+                        assert 'test2' in unreachable
+                        assert 'test3' in unreachable
 
                         with with_service(cephadm_module, ServiceSpec('crash', placement=PlacementSpec(host_pattern='*'))):
                             # re-apply services. No mgr should be removed from maint/offline hosts
@@ -1126,55 +1143,80 @@ spec:
                             assert len(cephadm_module.cache.get_daemons_by_type('mgr')) == 3
                             assert len(cephadm_module.cache.get_daemons_by_type('crash')) == 1
 
-    def test_stale_connections(self, cephadm_module):
-        class Connection(object):
-            """
-            A mocked connection class that only allows the use of the connection
-            once. If you attempt to use it again via a _check, it'll explode (go
-            boom!).
+    @mock.patch("cephadm.serve.CephadmServe._run_cephadm")
+    @mock.patch("cephadm.CephadmOrchestrator._host_ok_to_stop")
+    @mock.patch("cephadm.module.HostCache.get_daemon_types")
+    @mock.patch("cephadm.module.HostCache.get_hosts")
+    def test_maintenance_enter_success(self, _hosts, _get_daemon_types, _host_ok, _run_cephadm, cephadm_module: CephadmOrchestrator):
+        hostname = 'host1'
+        _run_cephadm.return_value = [''], ['something\nsuccess - systemd target xxx disabled'], 0
+        _host_ok.return_value = 0, 'it is okay'
+        _get_daemon_types.return_value = ['crash']
+        _hosts.return_value = [hostname, 'other_host']
+        cephadm_module.inventory.add_host(HostSpec(hostname))
+        # should not raise an error
+        retval = cephadm_module.enter_host_maintenance(hostname)
+        assert retval.result_str().startswith('Daemons for Ceph cluster')
+        assert not retval.exception_str
+        assert cephadm_module.inventory._inventory[hostname]['status'] == 'maintenance'
 
-            The old code triggers the boom. The new code checks the has_connection
-            and will recreate the connection.
-            """
-            fuse = False
+    @mock.patch("cephadm.serve.CephadmServe._run_cephadm")
+    @mock.patch("cephadm.CephadmOrchestrator._host_ok_to_stop")
+    @mock.patch("cephadm.module.HostCache.get_daemon_types")
+    @mock.patch("cephadm.module.HostCache.get_hosts")
+    def test_maintenance_enter_failure(self, _hosts, _get_daemon_types, _host_ok, _run_cephadm, cephadm_module: CephadmOrchestrator):
+        hostname = 'host1'
+        _run_cephadm.return_value = [''], ['something\nfailed - disable the target'], 0
+        _host_ok.return_value = 0, 'it is okay'
+        _get_daemon_types.return_value = ['crash']
+        _hosts.return_value = [hostname, 'other_host']
+        cephadm_module.inventory.add_host(HostSpec(hostname))
+        # should raise an error which will get stored in OrchResult object
+        retval = cephadm_module.enter_host_maintenance(hostname)
+        assert retval.exception_str
+        assert not retval.result_str()
+        assert not cephadm_module.inventory._inventory[hostname]['status']
 
-            @ staticmethod
-            def has_connection():
-                return False
+    @mock.patch("cephadm.serve.CephadmServe._run_cephadm")
+    @mock.patch("cephadm.module.HostCache.get_daemon_types")
+    @mock.patch("cephadm.module.HostCache.get_hosts")
+    def test_maintenance_exit_success(self, _hosts, _get_daemon_types, _run_cephadm, cephadm_module: CephadmOrchestrator):
+        hostname = 'host1'
+        _run_cephadm.return_value = [''], [
+            'something\nsuccess - systemd target xxx enabled and started'], 0
+        _get_daemon_types.return_value = ['crash']
+        _hosts.return_value = [hostname, 'other_host']
+        cephadm_module.inventory.add_host(HostSpec(hostname, status='maintenance'))
+        # should not raise an error
+        retval = cephadm_module.exit_host_maintenance(hostname)
+        assert retval.result_str().startswith('Ceph cluster')
+        assert not retval.exception_str
+        assert not cephadm_module.inventory._inventory[hostname]['status']
 
-            def import_module(self, *args, **kargs):
-                return mock.Mock()
+    @mock.patch("cephadm.serve.CephadmServe._run_cephadm")
+    @mock.patch("cephadm.module.HostCache.get_daemon_types")
+    @mock.patch("cephadm.module.HostCache.get_hosts")
+    def test_maintenance_exit_failure(self, _hosts, _get_daemon_types, _run_cephadm, cephadm_module: CephadmOrchestrator):
+        hostname = 'host1'
+        _run_cephadm.return_value = [''], ['something\nfailed - unable to enable the target'], 0
+        _get_daemon_types.return_value = ['crash']
+        _hosts.return_value = [hostname, 'other_host']
+        cephadm_module.inventory.add_host(HostSpec(hostname, status='maintenance'))
+        # should raise an error which will get stored in OrchResult object
+        retval = cephadm_module.exit_host_maintenance(hostname)
+        assert retval.exception_str
+        assert not retval.result_str()
+        assert cephadm_module.inventory._inventory[hostname]['status'] == 'maintenance'
 
-            @ staticmethod
-            def exit():
-                pass
-
-        def _check(conn, *args, **kargs):
-            if conn.fuse:
-                raise Exception("boom: connection is dead")
-            else:
-                conn.fuse = True
-            return '{}', [], 0
-        with mock.patch("remoto.Connection", side_effect=[Connection(), Connection(), Connection()]):
-            with mock.patch("remoto.process.check", _check):
-                with with_host(cephadm_module, 'test', refresh_hosts=False):
-                    code, out, err = cephadm_module.check_host('test')
-                    # First should succeed.
-                    assert err == ''
-
-                    # On second it should attempt to reuse the connection, where the
-                    # connection is "down" so will recreate the connection. The old
-                    # code will blow up here triggering the BOOM!
-                    code, out, err = cephadm_module.check_host('test')
-                    assert err == ''
-
-    @mock.patch("cephadm.module.CephadmOrchestrator._get_connection")
-    @mock.patch("remoto.process.check")
-    @mock.patch("cephadm.module.CephadmServe._write_remote_file")
-    def test_etc_ceph(self, _write_file, _check, _get_connection, cephadm_module):
-        _get_connection.return_value = mock.Mock(), mock.Mock()
-        _check.return_value = '{}', '', 0
+    @mock.patch("cephadm.ssh.SSHManager.remote_connection")
+    @mock.patch("cephadm.ssh.SSHManager.execute_command")
+    @mock.patch("cephadm.ssh.SSHManager.check_execute_command")
+    @mock.patch("cephadm.ssh.SSHManager.write_remote_file")
+    def test_etc_ceph(self, _write_file, check_execute_command, execute_command, remote_connection, cephadm_module):
         _write_file.return_value = None
+        check_execute_command.return_value = ''
+        execute_command.return_value = '{}', '', 0
+        remote_connection.return_value = mock.Mock()
 
         assert cephadm_module.manage_etc_ceph_ceph_conf is False
 
@@ -1356,6 +1398,46 @@ Traceback (most recent call last):
                               '--config-json', '-', '--osd-fsid', 'uuid'],
                           stdin=mock.ANY, image=''),
             ]
+
+    @mock.patch("cephadm.serve.CephadmServe._run_cephadm")
+    def test_osd_activate_datadevice_fail(self, _run_cephadm, cephadm_module: CephadmOrchestrator):
+        _run_cephadm.return_value = ('{}', '', 0)
+        with with_host(cephadm_module, 'test', refresh_hosts=False):
+            cephadm_module.mock_store_set('_ceph_get', 'osd_map', {
+                'osds': [
+                    {
+                        'osd': 1,
+                        'up_from': 0,
+                        'uuid': 'uuid'
+                    }
+                ]
+            })
+
+            ceph_volume_lvm_list = {
+                '1': [{
+                    'tags': {
+                        'ceph.cluster_fsid': cephadm_module._cluster_fsid,
+                        'ceph.osd_fsid': 'uuid'
+                    },
+                    'type': 'data'
+                }]
+            }
+            _run_cephadm.reset_mock(return_value=True)
+
+            def _r_c(*args, **kwargs):
+                if 'ceph-volume' in args:
+                    return (json.dumps(ceph_volume_lvm_list), '', 0)
+                else:
+                    assert 'deploy' in args
+                    raise OrchestratorError("let's fail somehow")
+            _run_cephadm.side_effect = _r_c
+            assert cephadm_module._osd_activate(
+                ['test']).stderr == "let's fail somehow"
+            with pytest.raises(AssertionError):
+                cephadm_module.assert_issued_mon_command({
+                    'prefix': 'auth rm',
+                    'entity': 'osd.1',
+                })
 
     @mock.patch("cephadm.serve.CephadmServe._run_cephadm")
     def test_osd_activate_datadevice_dbdevice(self, _run_cephadm, cephadm_module: CephadmOrchestrator):

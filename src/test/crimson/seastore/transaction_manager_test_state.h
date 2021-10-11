@@ -36,7 +36,7 @@ protected:
   }
 
   virtual seastar::future<> _teardown() = 0;
-  virtual seastar::future<> _mkfs() = 0;
+  virtual FuturizedStore::mkfs_ertr::future<> _mkfs() = 0;
   virtual seastar::future<> _mount() = 0;
 
   void restart() {
@@ -70,12 +70,26 @@ protected:
 
 auto get_transaction_manager(
   SegmentManager &segment_manager) {
+  auto scanner = std::make_unique<Scanner>(segment_manager);
+  auto& scanner_ref = *scanner.get();
   auto segment_cleaner = std::make_unique<SegmentCleaner>(
     SegmentCleaner::config_t::get_default(),
+    std::move(scanner),
     true);
-  auto journal = std::make_unique<Journal>(segment_manager);
+  auto journal = std::make_unique<Journal>(segment_manager, scanner_ref);
   auto cache = std::make_unique<Cache>(segment_manager);
   auto lba_manager = lba_manager::create_lba_manager(segment_manager, *cache);
+
+  auto epm = std::make_unique<ExtentPlacementManager>(*cache, *lba_manager);
+
+  epm->add_allocator(
+    device_type_t::SEGMENTED,
+    std::make_unique<SegmentedAllocator>(
+      *segment_cleaner,
+      segment_manager,
+      *lba_manager,
+      *journal,
+      *cache));
 
   journal->set_segment_provider(&*segment_cleaner);
 
@@ -84,7 +98,8 @@ auto get_transaction_manager(
     std::move(segment_cleaner),
     std::move(journal),
     std::move(cache),
-    std::move(lba_manager));
+    std::move(lba_manager),
+    std::move(epm));
 }
 
 auto get_seastore(SegmentManagerRef sm) {
@@ -101,7 +116,6 @@ auto get_seastore(SegmentManagerRef sm) {
 class TMTestState : public EphemeralTestState {
 protected:
   TransactionManagerRef tm;
-  InterruptedTransactionManager itm;
   LBAManager *lba_manager;
   SegmentCleaner *segment_cleaner;
 
@@ -109,7 +123,6 @@ protected:
 
   virtual void _init() {
     tm = get_transaction_manager(*segment_manager);
-    itm = InterruptedTransactionManager(*tm);
     segment_cleaner = tm->get_segment_cleaner();
     lba_manager = tm->get_lba_manager();
   }
@@ -117,7 +130,6 @@ protected:
   virtual void _destroy() {
     segment_cleaner = nullptr;
     lba_manager = nullptr;
-    itm.reset();
     tm.reset();
   }
 
@@ -141,7 +153,7 @@ protected:
     });
   }
 
-  virtual seastar::future<> _mkfs() {
+  virtual FuturizedStore::mkfs_ertr::future<> _mkfs() {
     return tm->mkfs(
     ).handle_error(
       crimson::ct_error::assert_all{"Error in teardown"}
@@ -158,6 +170,10 @@ protected:
 
   auto create_weak_transaction() {
     return tm->create_weak_transaction(Transaction::src_t::READ);
+  }
+
+  auto submit_transaction_fut2(Transaction& t) {
+    return tm->submit_transaction(t);
   }
 
   auto submit_transaction_fut(Transaction &t) {
@@ -218,26 +234,26 @@ protected:
 
   SeaStoreTestState() : EphemeralTestState() {}
 
-  virtual void _init() {
+  virtual void _init() final {
     seastore = get_seastore(
       std::make_unique<TestSegmentManagerWrapper>(*segment_manager));
   }
 
-  virtual void _destroy() {
+  virtual void _destroy() final {
     seastore.reset();
   }
 
-  virtual seastar::future<> _teardown() {
+  virtual seastar::future<> _teardown() final {
     return seastore->umount().then([this] {
       seastore.reset();
     });
   }
 
-  virtual seastar::future<> _mount() {
+  virtual seastar::future<> _mount() final {
     return seastore->mount();
   }
 
-  virtual seastar::future<> _mkfs() {
+  virtual FuturizedStore::mkfs_ertr::future<> _mkfs() final {
     return seastore->mkfs(uuid_d{});
   }
 };

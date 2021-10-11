@@ -188,7 +188,7 @@ class CephadmService(metaclass=ABCMeta):
     def generate_config(self, daemon_spec: CephadmDaemonDeploySpec) -> Tuple[Dict[str, Any], List[str]]:
         raise NotImplementedError()
 
-    def config(self, spec: ServiceSpec, daemon_id: str) -> None:
+    def config(self, spec: ServiceSpec) -> None:
         """
         Configure the cluster for this service. Only called *once* per
         service apply. Not for every daemon.
@@ -401,7 +401,7 @@ class CephadmService(metaclass=ABCMeta):
         assert self.TYPE == daemon_type_to_service(daemon.daemon_type)
         logger.debug(f'Pre remove daemon {self.TYPE}.{daemon.daemon_id}')
 
-    def post_remove(self, daemon: DaemonDescription) -> None:
+    def post_remove(self, daemon: DaemonDescription, is_failed_deploy: bool) -> None:
         """
         Called after the daemon is removed.
         """
@@ -429,8 +429,8 @@ class CephService(CephadmService):
 
         return cephadm_config, []
 
-    def post_remove(self, daemon: DaemonDescription) -> None:
-        super().post_remove(daemon)
+    def post_remove(self, daemon: DaemonDescription, is_failed_deploy: bool) -> None:
+        super().post_remove(daemon, is_failed_deploy=is_failed_deploy)
         self.remove_keyring(daemon)
 
     def get_auth_entity(self, daemon_id: str, host: str = "") -> AuthEntity:
@@ -441,9 +441,10 @@ class CephService(CephadmService):
         # the CephService class refers to service types, not daemon types
         if self.TYPE in ['rgw', 'rbd-mirror', 'cephfs-mirror', 'nfs', "iscsi", 'ingress']:
             return AuthEntity(f'client.{self.TYPE}.{daemon_id}')
-        elif self.TYPE == 'crash':
+        elif self.TYPE in ['crash', 'agent']:
             if host == "":
-                raise OrchestratorError("Host not provided to generate <crash> auth entity name")
+                raise OrchestratorError(
+                    f'Host not provided to generate <{self.TYPE}> auth entity name')
             return AuthEntity(f'client.{self.TYPE}.{host}')
         elif self.TYPE == 'mon':
             return AuthEntity('mon.')
@@ -483,9 +484,7 @@ class CephService(CephadmService):
         daemon_id: str = daemon.daemon_id
         host: str = daemon.hostname
 
-        if daemon_id == 'mon':
-            # do not remove the mon keyring
-            return
+        assert daemon.daemon_type != 'mon'
 
         entity = self.get_auth_entity(daemon_id, host=host)
 
@@ -585,6 +584,11 @@ class MonService(CephService):
             'prefix': 'mon rm',
             'name': daemon_id,
         })
+
+    def post_remove(self, daemon: DaemonDescription, is_failed_deploy: bool) -> None:
+        # Do not remove the mon keyring.
+        # super().post_remove(daemon)
+        pass
 
 
 class MgrService(CephService):
@@ -701,7 +705,7 @@ class MdsService(CephService):
     def allow_colo(self) -> bool:
         return True
 
-    def config(self, spec: ServiceSpec, daemon_id: str) -> None:
+    def config(self, spec: ServiceSpec) -> None:
         assert self.TYPE == spec.service_type
         assert spec.service_id
 
@@ -757,7 +761,7 @@ class RgwService(CephService):
     def allow_colo(self) -> bool:
         return True
 
-    def config(self, spec: RGWSpec, rgw_id: str) -> None:  # type: ignore
+    def config(self, spec: RGWSpec) -> None:  # type: ignore
         assert self.TYPE == spec.service_type
 
         # set rgw_realm and rgw_zone, if present
@@ -795,6 +799,7 @@ class RgwService(CephService):
         logger.info('Saving service %s spec with placement %s' % (
             spec.service_name(), spec.placement.pretty_str()))
         self.mgr.spec_store.save(spec)
+        self.mgr.trigger_connect_dashboard_rgw()
 
     def prepare_create(self, daemon_spec: CephadmDaemonDeploySpec) -> CephadmDaemonDeploySpec:
         assert self.TYPE == daemon_spec.daemon_type
@@ -874,9 +879,10 @@ class RgwService(CephService):
             'prefix': 'config-key rm',
             'key': f'rgw/cert/{service_name}',
         })
+        self.mgr.trigger_connect_dashboard_rgw()
 
-    def post_remove(self, daemon: DaemonDescription) -> None:
-        super().post_remove(daemon)
+    def post_remove(self, daemon: DaemonDescription, is_failed_deploy: bool) -> None:
+        super().post_remove(daemon, is_failed_deploy=is_failed_deploy)
         self.mgr.check_mon_command({
             'prefix': 'config rm',
             'who': utils.name_to_config_section(daemon.name()),
@@ -917,6 +923,9 @@ class RgwService(CephService):
         # Provide warning
         warn_message = "WARNING: Removing RGW daemons can cause clients to lose connectivity. "
         return HandleCommandResult(-errno.EBUSY, '', warn_message)
+
+    def config_dashboard(self, daemon_descrs: List[DaemonDescription]) -> None:
+        self.mgr.trigger_connect_dashboard_rgw()
 
 
 class RbdMirrorService(CephService):
@@ -989,3 +998,51 @@ class CephfsMirrorService(CephService):
         daemon_spec.keyring = keyring
         daemon_spec.final_config, daemon_spec.deps = self.generate_config(daemon_spec)
         return daemon_spec
+
+
+class CephadmAgent(CephService):
+    TYPE = 'agent'
+
+    def prepare_create(self, daemon_spec: CephadmDaemonDeploySpec) -> CephadmDaemonDeploySpec:
+        assert self.TYPE == daemon_spec.daemon_type
+        daemon_id, host = daemon_spec.daemon_id, daemon_spec.host
+
+        if not self.mgr.cherrypy_thread:
+            raise OrchestratorError('Cannot deploy agent before creating cephadm endpoint')
+
+        keyring = self.get_keyring_with_caps(self.get_auth_entity(daemon_id, host=host), [])
+        daemon_spec.keyring = keyring
+        self.mgr.cache.agent_keys[host] = keyring
+
+        daemon_spec.final_config, daemon_spec.deps = self.generate_config(daemon_spec)
+
+        return daemon_spec
+
+    def generate_config(self, daemon_spec: CephadmDaemonDeploySpec) -> Tuple[Dict[str, Any], List[str]]:
+        cfg = {'target_ip': self.mgr.get_mgr_ip(),
+               'target_port': self.mgr.endpoint_port,
+               'refresh_period': self.mgr.agent_refresh_rate,
+               'listener_port': self.mgr.agent_starting_port,
+               'host': daemon_spec.host,
+               'device_enhanced_scan': str(self.mgr.get_module_option('device_enhanced_scan'))}
+
+        try:
+            assert self.mgr.cherrypy_thread
+            assert self.mgr.cherrypy_thread.ssl_certs.get_root_cert()
+        except Exception:
+            raise OrchestratorError(
+                'Cannot deploy agent daemons until cephadm endpoint has finished generating certs')
+        listener_cert, listener_key = self.mgr.cherrypy_thread.ssl_certs.generate_cert(
+            self.mgr.inventory.get_addr(daemon_spec.host))
+        config = {
+            'agent.json': json.dumps(cfg),
+            'cephadm': self.mgr._cephadm,
+            'keyring': daemon_spec.keyring,
+            'root_cert.pem': self.mgr.cherrypy_thread.ssl_certs.get_root_cert(),
+            'listener.crt': listener_cert,
+            'listener.key': listener_key,
+        }
+
+        return config, sorted([str(self.mgr.get_mgr_ip()), self.mgr.inventory.get_addr(daemon_spec.host),
+                               str(self.mgr.endpoint_port), self.mgr.cherrypy_thread.ssl_certs.get_root_cert(),
+                               str(self.mgr.get_module_option('device_enhanced_scan'))])

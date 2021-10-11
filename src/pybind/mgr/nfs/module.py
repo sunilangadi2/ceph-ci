@@ -42,20 +42,19 @@ class Module(orchestrator.OrchestratorClientMixin, MgrModule):
                                              squash=squash, addr=client_addr)
 
     @CLICommand('nfs export create rgw', perm='rw')
-    def _cmd_rgw_export_create_rgw(
+    def _cmd_nfs_export_create_rgw(
             self,
             bucket: str,
             cluster_id: str,
             pseudo_path: str,
             readonly: Optional[bool] = False,
             client_addr: Optional[List[str]] = None,
-            realm: Optional[str] = None,
+            squash: str = 'none',
     ) -> Tuple[int, str, str]:
         """Create an RGW export"""
         return self.export_mgr.create_export(fsal_type='rgw', bucket=bucket,
-                                             realm=realm,
                                              cluster_id=cluster_id, pseudo_path=pseudo_path,
-                                             read_only=readonly, squash='none',
+                                             read_only=readonly, squash=squash,
                                              addr=client_addr)
 
     @CLICommand('nfs export rm', perm='rw')
@@ -94,10 +93,12 @@ class Module(orchestrator.OrchestratorClientMixin, MgrModule):
                                 cluster_id: str,
                                 placement: Optional[str] = None,
                                 ingress: Optional[bool] = None,
-                                virtual_ip: Optional[str] = None) -> Tuple[int, str, str]:
+                                virtual_ip: Optional[str] = None,
+                                port: Optional[int] = None) -> Tuple[int, str, str]:
         """Create an NFS Cluster"""
         return self.nfs.create_nfs_cluster(cluster_id=cluster_id, placement=placement,
-                                           virtual_ip=virtual_ip, ingress=ingress)
+                                           virtual_ip=virtual_ip, ingress=ingress,
+                                           port=port)
 
     @CLICommand('nfs cluster rm', perm='rw')
     def _cmd_nfs_cluster_rm(self, cluster_id: str) -> Tuple[int, str, str]:

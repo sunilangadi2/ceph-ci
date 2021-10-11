@@ -8,8 +8,6 @@ import os
 
 import cherrypy
 
-DEFAULT_VERSION = '1.0'
-
 if 'COVERAGE_ENABLED' in os.environ:
     import coverage  # pylint: disable=import-error
     __cov = coverage.Coverage(config_file="{}/.coveragerc".format(os.path.dirname(__file__)),
@@ -37,9 +35,6 @@ else:
     import logging
     logging.basicConfig(level=logging.DEBUG)
     logging.root.handlers[0].setLevel(logging.DEBUG)
-    build_dir = os.path.abspath('../../../../build')
-    os.environ['PATH'] = '{}:{}'.format(os.path.join(build_dir, 'bin'),
-                                        os.environ['PATH'])
     import sys
 
     # Used to allow the running of a tox-based yml doc generator from the dashboard directory
@@ -49,10 +44,9 @@ else:
     from tests import mock  # type: ignore
 
     mgr = mock.Mock()
-    mgr.get_frontend_path.side_effect = \
-        lambda: os.path.join(build_dir,
-                             'src/pybind/mgr/dashboard',
-                             'frontend/dist')
+    mgr.get_frontend_path.return_value = os.path.abspath(os.path.join(
+        os.path.dirname(__file__),
+        'frontend/dist'))
 
 # DO NOT REMOVE: required for ceph-mgr to load a module
 from .module import Module, StandbyModule  # noqa: F401

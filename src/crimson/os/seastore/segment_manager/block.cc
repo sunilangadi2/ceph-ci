@@ -139,14 +139,6 @@ block_sm_superblock_t make_superblock(
   auto config_size = get_conf<Option::size_t>(
     "seastore_device_size");
 
-  logger().debug(
-    "{}: size {}, block_size {}, allocated_size {}, configured_size {}",
-    __func__,
-    data.size,
-    data.block_size,
-    data.allocated_size,
-    config_size);
-
   size_t size = (data.size == 0) ? config_size : data.size;
 
   auto config_segment_size = get_conf<Option::size_t>(
@@ -157,6 +149,18 @@ block_sm_superblock_t make_superblock(
     data.block_size);
   size_t segments = (size - tracker_size - data.block_size)
     / config_segment_size;
+
+  logger().debug(
+    "{}: size {}, block_size {}, allocated_size {}, configured_size {}, "
+    "segment_size {}",
+    __func__,
+    data.size,
+    data.block_size,
+    data.allocated_size,
+    config_size,
+    config_segment_size
+  );
+
   return block_sm_superblock_t{
     size,
     config_segment_size,
@@ -320,8 +324,14 @@ Segment::close_ertr::future<> BlockSegment::close()
 Segment::write_ertr::future<> BlockSegment::write(
   segment_off_t offset, ceph::bufferlist bl)
 {
-  if (offset < write_pointer || offset % manager.superblock.block_size != 0)
+  if (offset < write_pointer || offset % manager.superblock.block_size != 0) {
+    logger().error(
+      "BlockSegmentManager::BlockSegment::write: "
+      "invalid segment write on segment {} to offset {}",
+      id,
+      offset);
     return crimson::ct_error::invarg::make();
+  }
 
   if (offset + bl.length() > manager.superblock.segment_size)
     return crimson::ct_error::enospc::make();
@@ -350,6 +360,7 @@ Segment::write_ertr::future<> BlockSegmentManager::segment_write(
 {
   assert((bl.length() % superblock.block_size) == 0);
   logger().debug(
+    "BlockSegmentManager::segment_write: "
     "segment_write to segment {} at offset {}, physical offset {}, len {}",
     addr.segment,
     addr.offset,

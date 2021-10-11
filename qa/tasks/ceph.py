@@ -46,8 +46,8 @@ def generate_caps(type_):
     """
     defaults = dict(
         osd=dict(
-            mon='allow *',
-            mgr='allow *',
+            mon='allow profile osd',
+            mgr='allow profile osd',
             osd='allow *',
         ),
         mgr=dict(
@@ -415,7 +415,6 @@ def cephfs_setup(ctx, config):
         log.info('Setting up CephFS filesystem(s)...')
         cephfs_config = config.get('cephfs', {})
         fs_configs =  cephfs_config.pop('fs', [{'name': 'cephfs'}])
-        set_allow_multifs = len(fs_configs) > 1
 
         # wait for standbys to become available (slow due to valgrind, perhaps)
         mdsc = MDSCluster(ctx)
@@ -432,9 +431,6 @@ def cephfs_setup(ctx, config):
             temp = deepcopy(cephfs_config)
             teuthology.deep_merge(temp, fs_config)
             fs = Filesystem(ctx, fs_config=temp, name=name, create=True)
-            if set_allow_multifs:
-                fs.set_allow_multifs()
-                set_allow_multifs = False
             fss.append(fs)
 
         yield

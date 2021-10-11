@@ -8,6 +8,11 @@
   `ceph-mgr` debian package as an indirect dependency. If your workflow depends
   on this behavior, you might want to install `ceph-mgr-rook` separately.
 
+* the "kvs" Ceph object class is not packaged anymore. "kvs" Ceph object class
+  offers a distributed flat b-tree key-value store implemented on top of librados
+  objects omap. Because we don't have existing internal users of this object
+  class, it is not packaged anymore.
+
 * A new library is available, libcephsqlite. It provides a SQLite Virtual File
   System (VFS) on top of RADOS. The database and journals are striped over
   RADOS across multiple objects for virtually unlimited scaling and throughput
@@ -30,11 +35,16 @@
   using these re-authorized IDs may be disrupted, this command requires the
   "--yes-i-really-mean-it" flag. Also, mirroring is expected to be disabled
   on the file system.
+* MDS upgrades no longer require stopping all standby MDS daemons before
+  upgrading the sole active MDS for a file system.
 
 * RGW: `radosgw-admin realm delete` is now renamed to `radosgw-admin realm rm`. This
   is consistent with the help message.
 
 * OSD: Ceph now uses mclock_scheduler as its default osd_op_queue to provide QoS.
+
+* CephFS: Failure to replay the journal by a standby-replay daemon will now
+  cause the rank to be marked damaged.
 
 * RGW: S3 bucket notification events now contain an `eTag` key instead of `etag`,
   and eventName values no longer carry the `s3:` prefix, fixing deviations from
@@ -44,6 +54,18 @@
   The default ssl options setting is "no_sslv2:no_sslv3:no_tlsv1:no_tlsv1_1".
   If you want to return back the old behavior add 'ssl_options=' (empty) to
   ``rgw frontends`` configuration.
+
+* RGW: The behavior for Multipart Upload was modified so that only 
+  CompleteMultipartUpload notification is sent at the end of the multipart upload. 
+  The POST notification at the beginning of the upload, and PUT notifications that 
+  were sent on each part are not sent anymore.
+
+* MGR: The pg_autoscaler has a new default 'scale-down' profile which provides more
+  performance from the start for new pools (for newly created clusters).
+  Existing clusters will retain the old behavior, now called the 'scale-up' profile.
+  For more details, see:
+
+  https://docs.ceph.com/en/latest/rados/operations/placement-groups/
 
 >=16.0.0
 --------
@@ -374,3 +396,8 @@
   from Octopus) will be automatically migrated when the cluster is
   upgraded.  Note that the NFS ganesha daemons will be redeployed and
   it is possible that their IPs will change.
+
+* RGW now requires a secure connection to the monitor by default
+  (``auth_client_required=cephx`` and ``ms_mon_client_mode=secure``).
+  If you have cephx authentication disabled on your cluster, you may
+  need to adjust these settings for RGW.

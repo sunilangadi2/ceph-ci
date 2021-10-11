@@ -163,8 +163,8 @@ endif(LINUX)
 
 option(WITH_OPENLDAP "OPENLDAP is here" ON)
 if(WITH_OPENLDAP)
-  find_package(OpenLdap REQUIRED)
-  set(HAVE_OPENLDAP ${OPENLDAP_FOUND})
+  find_package(OpenLDAP REQUIRED)
+  set(HAVE_OPENLDAP ${OpenLDAP_FOUND})
 endif()
 
 option(WITH_GSSAPI "GSSAPI/KRB5 is here" OFF)
@@ -206,11 +206,8 @@ endif()
 
 # libcryptsetup is only available on linux
 if(WITH_RBD AND LINUX)
-  find_package(libcryptsetup REQUIRED)
+  find_package(libcryptsetup 2.0.5 REQUIRED)
   set(HAVE_LIBCRYPTSETUP ${LIBCRYPTSETUP_FOUND})
-  if(${LIBCRYPTSETUP_VERSION} VERSION_LESS 2.0.5)
-    set(LIBCRYPTSETUP_LEGACY_DATA_ALIGNMENT TRUE)
-  endif()
 endif()
 
 include(CMakeDependentOption)
@@ -285,7 +282,7 @@ if(WITH_LIBCEPHSQLITE)
 endif()
 
 # key-value store
-option(WITH_KVS "Key value store is here" ON)
+option(WITH_KVS "Key value store is here" OFF)
 
 option(WITH_KRBD "Enable Linux krbd support of 'rbd' utility" ON)
 
@@ -403,6 +400,7 @@ option(WITH_RADOSGW_BEAST_OPENSSL "Rados Gateway's Beast frontend uses OpenSSL" 
 option(WITH_RADOSGW_AMQP_ENDPOINT "Rados Gateway's pubsub support for AMQP push endpoint" ON)
 option(WITH_RADOSGW_KAFKA_ENDPOINT "Rados Gateway's pubsub support for Kafka push endpoint" ON)
 option(WITH_RADOSGW_LUA_PACKAGES "Rados Gateway's support for dynamically adding lua packagess" ON)
+option(WITH_RADOSGW_DBSTORE "DBStore backend for Rados Gateway" ON)
 
 if(WITH_RADOSGW)
   find_package(EXPAT REQUIRED)

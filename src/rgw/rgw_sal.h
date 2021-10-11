@@ -17,7 +17,6 @@
 
 #include "rgw_user.h"
 #include "rgw_notify_event_type.h"
-#include "rgw_putobj.h"
 
 class RGWGetDataCB;
 struct RGWObjState;
@@ -37,10 +36,19 @@ using RGWBucketSyncPolicyHandlerRef = std::shared_ptr<RGWBucketSyncPolicyHandler
 class RGWDataSyncStatusManager;
 class RGWSyncModuleInstance;
 typedef std::shared_ptr<RGWSyncModuleInstance> RGWSyncModuleInstanceRef;
+class RGWCompressionInfo;
+
 namespace rgw {
   class Aio;
   namespace IAM { struct Policy; }
 }
+
+class RGWGetDataCB {
+public:
+  virtual int handle_data(bufferlist& bl, off_t bl_ofs, off_t bl_len) = 0;
+  RGWGetDataCB() {}
+  virtual ~RGWGetDataCB() {}
+};
 
 struct RGWUsageIter {
   std::string read_iter;
@@ -67,12 +75,12 @@ struct RGWClusterStat {
 class RGWGetBucketStats_CB : public RefCountedObject {
 protected:
   rgw_bucket bucket;
-  map<RGWObjCategory, RGWStorageStats>* stats;
+  std::map<RGWObjCategory, RGWStorageStats>* stats;
 public:
   explicit RGWGetBucketStats_CB(const rgw_bucket& _bucket) : bucket(_bucket), stats(NULL) {}
   ~RGWGetBucketStats_CB() override {}
   virtual void handle_response(int r) = 0;
-  virtual void set_response(map<RGWObjCategory, RGWStorageStats>* _stats) {
+  virtual void set_response(std::map<RGWObjCategory, RGWStorageStats>* _stats) {
     stats = _stats;
   }
 };
@@ -99,6 +107,7 @@ class User;
 class Bucket;
 class Object;
 class BucketList;
+class MultipartUpload;
 struct MPSerializer;
 class Lifecycle;
 class Notification;
@@ -113,6 +122,34 @@ enum AttrsMod {
   ATTRSMOD_NONE    = 0,
   ATTRSMOD_REPLACE = 1,
   ATTRSMOD_MERGE   = 2
+};
+
+// a simple streaming data processing abstraction
+class DataProcessor {
+ public:
+  virtual ~DataProcessor() {}
+
+  // consume a bufferlist in its entirety at the given object offset. an
+  // empty bufferlist is given to request that any buffered data be flushed,
+  // though this doesn't wait for completions
+  virtual int process(bufferlist&& data, uint64_t offset) = 0;
+};
+
+// a data consumer that writes an object in a bucket
+class ObjectProcessor : public DataProcessor {
+ public:
+  // prepare to start processing object data
+  virtual int prepare(optional_yield y) = 0;
+
+  // complete the operation and make its result visible to clients
+  virtual int complete(size_t accounted_size, const std::string& etag,
+                       ceph::real_time *mtime, ceph::real_time set_mtime,
+                       std::map<std::string, bufferlist>& attrs,
+                       ceph::real_time delete_at,
+                       const char *if_match, const char *if_nomatch,
+                       const std::string *user_data,
+                       rgw_zone_set *zones_trace, bool *canceled,
+                       optional_yield y) = 0;
 };
 
 /**
@@ -172,23 +209,15 @@ class Store {
     virtual std::unique_ptr<Completions> get_completions(void) = 0;
     virtual std::unique_ptr<Notification> get_notification(rgw::sal::Object* obj, struct req_state* s, 
         rgw::notify::EventType event_type, const std::string* object_name=nullptr) = 0;
-    virtual std::unique_ptr<GCChain> get_gc_chain(rgw::sal::Object* obj) = 0;
-    virtual std::unique_ptr<Writer> get_writer(Aio* aio, rgw::sal::Bucket* bucket,
-              RGWObjectCtx& obj_ctx, std::unique_ptr<rgw::sal::Object> _head_obj,
-              const DoutPrefixProvider* dpp, optional_yield y) = 0;
     virtual RGWLC* get_rgwlc(void) = 0;
     virtual RGWCoroutinesManagerRegistry* get_cr_registry() = 0;
-    virtual int delete_raw_obj(const DoutPrefixProvider *dpp, const rgw_raw_obj& obj) = 0;
-    virtual int delete_raw_obj_aio(const DoutPrefixProvider *dpp, const rgw_raw_obj& obj, Completions* aio) = 0;
-    virtual void get_raw_obj(const rgw_placement_rule& placement_rule, const rgw_obj& obj, rgw_raw_obj* raw_obj) = 0;
-    virtual int get_raw_chunk_size(const DoutPrefixProvider* dpp, const rgw_raw_obj& obj, uint64_t* chunk_size) = 0;
 
-    virtual int log_usage(const DoutPrefixProvider *dpp, map<rgw_user_bucket, RGWUsageBatch>& usage_info) = 0;
+    virtual int log_usage(const DoutPrefixProvider *dpp, std::map<rgw_user_bucket, RGWUsageBatch>& usage_info) = 0;
     virtual int log_op(const DoutPrefixProvider *dpp, std::string& oid, bufferlist& bl) = 0;
     virtual int register_to_service_map(const DoutPrefixProvider *dpp, const std::string& daemon_type,
-					const map<std::string, std::string>& meta) = 0;
+					const std::map<std::string, std::string>& meta) = 0;
     virtual void get_quota(RGWQuotaInfo& bucket_quota, RGWQuotaInfo& user_quota) = 0;
-    virtual int set_buckets_enabled(const DoutPrefixProvider* dpp, vector<rgw_bucket>& buckets, bool enabled) = 0;
+    virtual int set_buckets_enabled(const DoutPrefixProvider* dpp, std::vector<rgw_bucket>& buckets, bool enabled) = 0;
     virtual uint64_t get_new_req_id() = 0;
     virtual int get_sync_policy_handler(const DoutPrefixProvider* dpp,
 					std::optional<rgw_zone_id> zone,
@@ -196,17 +225,17 @@ class Store {
 					RGWBucketSyncPolicyHandlerRef* phandler,
 					optional_yield y) = 0;
     virtual RGWDataSyncStatusManager* get_data_sync_manager(const rgw_zone_id& source_zone) = 0;
-    virtual void wakeup_meta_sync_shards(set<int>& shard_ids) = 0;
-    virtual void wakeup_data_sync_shards(const DoutPrefixProvider *dpp, const rgw_zone_id& source_zone, map<int, set<std::string> >& shard_ids) = 0;
+    virtual void wakeup_meta_sync_shards(std::set<int>& shard_ids) = 0;
+    virtual void wakeup_data_sync_shards(const DoutPrefixProvider *dpp, const rgw_zone_id& source_zone, std::map<int, std::set<std::string> >& shard_ids) = 0;
     virtual int clear_usage(const DoutPrefixProvider *dpp) = 0;
     virtual int read_all_usage(const DoutPrefixProvider *dpp, uint64_t start_epoch, uint64_t end_epoch,
 			       uint32_t max_entries, bool* is_truncated,
 			       RGWUsageIter& usage_iter,
-			       map<rgw_user_bucket, rgw_usage_log_entry>& usage) = 0;
+			       std::map<rgw_user_bucket, rgw_usage_log_entry>& usage) = 0;
     virtual int trim_all_usage(const DoutPrefixProvider *dpp, uint64_t start_epoch, uint64_t end_epoch) = 0;
     virtual int get_config_key_val(std::string name, bufferlist* bl) = 0;
     virtual int meta_list_keys_init(const DoutPrefixProvider *dpp, const std::string& section, const std::string& marker, void** phandle) = 0;
-    virtual int meta_list_keys_next(const DoutPrefixProvider *dpp, void* handle, int max, list<std::string>& keys, bool* truncated) = 0;
+    virtual int meta_list_keys_next(const DoutPrefixProvider *dpp, void* handle, int max, std::list<std::string>& keys, bool* truncated) = 0;
     virtual void meta_list_keys_complete(void* handle) = 0;
     virtual std::string meta_get_marker(void* handle) = 0;
     virtual int meta_remove(const DoutPrefixProvider* dpp, std::string& metadata_key, optional_yield y) = 0;
@@ -217,17 +246,34 @@ class Store {
 					      std::string tenant,
 					      std::string path="",
 					      std::string trust_policy="",
-					      std::string max_session_duration_str="") = 0;
+					      std::string max_session_duration_str="",
+                std::multimap<std::string,std::string> tags={}) = 0;
     virtual std::unique_ptr<RGWRole> get_role(std::string id) = 0;
     virtual int get_roles(const DoutPrefixProvider *dpp,
 			  optional_yield y,
 			  const std::string& path_prefix,
 			  const std::string& tenant,
-			  vector<std::unique_ptr<RGWRole>>& roles) = 0;
+			  std::vector<std::unique_ptr<RGWRole>>& roles) = 0;
     virtual std::unique_ptr<RGWOIDCProvider> get_oidc_provider() = 0;
     virtual int get_oidc_providers(const DoutPrefixProvider *dpp,
 				   const std::string& tenant,
-				   vector<std::unique_ptr<RGWOIDCProvider>>& providers) = 0;
+				   std::vector<std::unique_ptr<RGWOIDCProvider>>& providers) = 0;
+    virtual std::unique_ptr<MultipartUpload> get_multipart_upload(Bucket* bucket, const std::string& oid, std::optional<std::string> upload_id=std::nullopt, ceph::real_time mtime=real_clock::now()) = 0;
+    virtual std::unique_ptr<Writer> get_append_writer(const DoutPrefixProvider *dpp,
+				  optional_yield y,
+				  std::unique_ptr<rgw::sal::Object> _head_obj,
+				  const rgw_user& owner, RGWObjectCtx& obj_ctx,
+				  const rgw_placement_rule *ptail_placement_rule,
+				  const std::string& unique_tag,
+				  uint64_t position,
+				  uint64_t *cur_accounted_size) = 0;
+    virtual std::unique_ptr<Writer> get_atomic_writer(const DoutPrefixProvider *dpp,
+				  optional_yield y,
+				  std::unique_ptr<rgw::sal::Object> _head_obj,
+				  const rgw_user& owner, RGWObjectCtx& obj_ctx,
+				  const rgw_placement_rule *ptail_placement_rule,
+				  uint64_t olh_epoch,
+				  const std::string& unique_tag) = 0;
 
     virtual void finalize(void) = 0;
 
@@ -281,7 +327,7 @@ class User {
     virtual int complete_flush_stats(const DoutPrefixProvider *dpp, optional_yield y) = 0;
     virtual int read_usage(const DoutPrefixProvider *dpp, uint64_t start_epoch, uint64_t end_epoch, uint32_t max_entries,
 			   bool* is_truncated, RGWUsageIter& usage_iter,
-			   map<rgw_user_bucket, rgw_usage_log_entry>& usage) = 0;
+			   std::map<rgw_user_bucket, rgw_usage_log_entry>& usage) = 0;
     virtual int trim_usage(const DoutPrefixProvider *dpp, uint64_t start_epoch, uint64_t end_epoch) = 0;
     virtual RGWObjVersionTracker& get_version_tracker() { return objv_tracker; }
     virtual Attrs& get_attrs() { return attrs; }
@@ -294,12 +340,12 @@ class User {
     /* dang temporary; will be removed when User is complete */
     RGWUserInfo& get_info() { return info; }
 
-    friend inline ostream& operator<<(ostream& out, const User& u) {
+    friend inline std::ostream& operator<<(std::ostream& out, const User& u) {
       out << u.info.user_id;
       return out;
     }
 
-    friend inline ostream& operator<<(ostream& out, const User* u) {
+    friend inline std::ostream& operator<<(std::ostream& out, const User* u) {
       if (!u)
 	out << "<NULL>";
       else
@@ -307,7 +353,7 @@ class User {
       return out;
     }
 
-    friend inline ostream& operator<<(ostream& out, const std::unique_ptr<User>& p) {
+    friend inline std::ostream& operator<<(std::ostream& out, const std::unique_ptr<User>& p) {
       out << p.get();
       return out;
     }
@@ -338,8 +384,8 @@ class Bucket {
       int shard_id{RGW_NO_SHARD};
     };
     struct ListResults {
-      vector<rgw_bucket_dir_entry> objs;
-      map<std::string, bool> common_prefixes;
+      std::vector<rgw_bucket_dir_entry> objs;
+      std::map<std::string, bool> common_prefixes;
       bool is_truncated{false};
       rgw_obj_key next_marker;
     };
@@ -374,10 +420,13 @@ class Bucket {
 
     virtual std::unique_ptr<Object> get_object(const rgw_obj_key& key) = 0;
     virtual int list(const DoutPrefixProvider* dpp, ListParams&, int, ListResults&, optional_yield y) = 0;
-    virtual Object* create_object(const rgw_obj_key& key /* Attributes */) = 0;
     virtual Attrs& get_attrs(void) { return attrs; }
     virtual int set_attrs(Attrs a) { attrs = a; return 0; }
     virtual int remove_bucket(const DoutPrefixProvider* dpp, bool delete_children, std::string prefix, std::string delimiter, bool forward_to_master, req_info* req_info, optional_yield y) = 0;
+    virtual int remove_bucket_bypass_gc(int concurrent_max, bool
+					keep_index_consistent,
+					optional_yield y, const
+					DoutPrefixProvider *dpp) = 0;
     virtual RGWAccessControlPolicy& get_acl(void) = 0;
     virtual int set_acl(const DoutPrefixProvider* dpp, RGWAccessControlPolicy& acl, optional_yield y) = 0;
     virtual int get_bucket_info(const DoutPrefixProvider* dpp, optional_yield y) = 0;
@@ -392,18 +441,25 @@ class Bucket {
     virtual int update_container_stats(const DoutPrefixProvider* dpp) = 0;
     virtual int check_bucket_shards(const DoutPrefixProvider* dpp) = 0;
     virtual int chown(const DoutPrefixProvider* dpp, User* new_user, User* old_user, optional_yield y, const std::string* marker = nullptr) = 0;
-    virtual int put_instance_info(const DoutPrefixProvider* dpp, bool exclusive, ceph::real_time mtime) = 0;
+    virtual int put_info(const DoutPrefixProvider* dpp, bool exclusive, ceph::real_time mtime) = 0;
     virtual int remove_metadata(const DoutPrefixProvider* dpp, RGWObjVersionTracker* objv, optional_yield y) = 0;
     virtual bool is_owner(User* user) = 0;
     virtual User* get_owner(void) { return owner; };
     virtual ACLOwner get_acl_owner(void) { return ACLOwner(info.owner); };
     virtual int check_empty(const DoutPrefixProvider* dpp, optional_yield y) = 0;
     virtual int check_quota(const DoutPrefixProvider *dpp, RGWQuotaInfo& user_quota, RGWQuotaInfo& bucket_quota, uint64_t obj_size, optional_yield y, bool check_size_only = false) = 0;
-    virtual int set_instance_attrs(const DoutPrefixProvider* dpp, Attrs& attrs, optional_yield y) = 0;
+    /** Set the attributes in attrs, leaving any other existing attrs set, and
+     * write them to the backing store; a merge operation */
+    virtual int merge_and_store_attrs(const DoutPrefixProvider* dpp, Attrs& new_attrs, optional_yield y) {
+      for(auto& it : new_attrs) {
+	attrs[it.first] = it.second;
+      }
+      return 0;
+    }
     virtual int try_refresh_info(const DoutPrefixProvider* dpp, ceph::real_time* pmtime) = 0;
     virtual int read_usage(const DoutPrefixProvider *dpp, uint64_t start_epoch, uint64_t end_epoch, uint32_t max_entries,
 			   bool* is_truncated, RGWUsageIter& usage_iter,
-			   map<rgw_user_bucket, rgw_usage_log_entry>& usage) = 0;
+			   std::map<rgw_user_bucket, rgw_usage_log_entry>& usage) = 0;
     virtual int trim_usage(const DoutPrefixProvider *dpp, uint64_t start_epoch, uint64_t end_epoch) = 0;
     virtual int remove_objs_from_index(const DoutPrefixProvider *dpp, std::list<rgw_obj_index_key>& objs_to_unlink) = 0;
     virtual int check_index(const DoutPrefixProvider *dpp, std::map<RGWObjCategory, RGWStorageStats>& existing_stats, std::map<RGWObjCategory, RGWStorageStats>& calculated_stats) = 0;
@@ -434,16 +490,28 @@ class Bucket {
     static bool empty(Bucket* b) { return (!b || b->empty()); }
     virtual std::unique_ptr<Bucket> clone() = 0;
 
+    virtual int list_multiparts(const DoutPrefixProvider *dpp,
+				const std::string& prefix,
+				std::string& marker,
+				const std::string& delim,
+				const int& max_uploads,
+				std::vector<std::unique_ptr<MultipartUpload>>& uploads,
+				std::map<std::string, bool> *common_prefixes,
+				bool *is_truncated) = 0;
+    virtual int abort_multiparts(const DoutPrefixProvider *dpp,
+				 CephContext *cct,
+				 std::string& prefix, std::string& delim) = 0;
+
     /* dang - This is temporary, until the API is completed */
     rgw_bucket& get_key() { return info.bucket; }
     RGWBucketInfo& get_info() { return info; }
 
-    friend inline ostream& operator<<(ostream& out, const Bucket& b) {
+    friend inline std::ostream& operator<<(std::ostream& out, const Bucket& b) {
       out << b.info.bucket;
       return out;
     }
 
-    friend inline ostream& operator<<(ostream& out, const Bucket* b) {
+    friend inline std::ostream& operator<<(std::ostream& out, const Bucket* b) {
       if (!b)
 	out << "<NULL>";
       else
@@ -451,7 +519,7 @@ class Bucket {
       return out;
     }
 
-    friend inline ostream& operator<<(ostream& out, const std::unique_ptr<Bucket>& p) {
+    friend inline std::ostream& operator<<(std::ostream& out, const std::unique_ptr<Bucket>& p) {
       out << p.get();
       return out;
     }
@@ -492,7 +560,7 @@ public:
     return *this;
   };
 
-  map<std::string, std::unique_ptr<Bucket>>& get_buckets() { return buckets; }
+  std::map<std::string, std::unique_ptr<Bucket>>& get_buckets() { return buckets; }
   bool is_truncated(void) const { return truncated; }
   void set_truncated(bool trunc) { truncated = trunc; }
   void add(std::unique_ptr<Bucket> bucket) {
@@ -531,56 +599,12 @@ class Object {
         rgw_obj* target_obj{nullptr}; // XXX dang remove?
       } params;
 
-      struct Result {
-        rgw_raw_obj head_obj;
-
-        Result() : head_obj() {}
-      } result;
-
       virtual ~ReadOp() = default;
 
       virtual int prepare(optional_yield y, const DoutPrefixProvider* dpp) = 0;
       virtual int read(int64_t ofs, int64_t end, bufferlist& bl, optional_yield y, const DoutPrefixProvider* dpp) = 0;
       virtual int iterate(const DoutPrefixProvider* dpp, int64_t ofs, int64_t end, RGWGetDataCB* cb, optional_yield y) = 0;
-      virtual int get_manifest(const DoutPrefixProvider* dpp, RGWObjManifest **pmanifest, optional_yield y) = 0;
       virtual int get_attr(const DoutPrefixProvider* dpp, const char* name, bufferlist& dest, optional_yield y) = 0;
-    };
-
-    struct WriteOp {
-      struct Params {
-	bool versioning_disabled{false};
-	ceph::real_time* mtime{nullptr};
-	Attrs* rmattrs{nullptr};
-	const bufferlist* data{nullptr};
-	RGWObjManifest* manifest{nullptr};
-	const std::string* ptag{nullptr};
-	std::list<rgw_obj_index_key>* remove_objs{nullptr};
-	ceph::real_time set_mtime;
-	ACLOwner owner;
-	RGWObjCategory category{RGWObjCategory::Main};
-	int flags{0};
-	const char* if_match{nullptr};
-	const char* if_nomatch{nullptr};
-	std::optional<uint64_t> olh_epoch;
-	ceph::real_time delete_at;
-	bool canceled{false};
-	const std::string* user_data{nullptr};
-	rgw_zone_set* zones_trace{nullptr};
-	bool modify_tail{false};
-	bool completeMultipart{false};
-	bool appendable{false};
-	Attrs* attrs{nullptr};
-	// In MultipartObjectProcessor::complete, we need this parameter
-	// to tell the exact placement rule since it may be different from
-	// bucket.placement_rule when Storage Class is specified explicitly
-	const rgw_placement_rule *pmeta_placement_rule{nullptr};
-      } params;
-
-      virtual ~WriteOp() = default;
-
-      virtual int prepare(optional_yield y) = 0;
-      virtual int write_meta(const DoutPrefixProvider* dpp, uint64_t size, uint64_t accounted_size, optional_yield y) = 0;
-      //virtual int write_data(const char* data, uint64_t ofs, uint64_t len, bool exclusive) = 0;
     };
 
     struct DeleteOp {
@@ -591,7 +615,7 @@ class Object {
         uint64_t olh_epoch{0};
 	std::string marker_version_id;
         uint32_t bilog_flags{0};
-        list<rgw_obj_index_key>* remove_objs{nullptr};
+        std::list<rgw_obj_index_key>* remove_objs{nullptr};
         ceph::real_time expiration_time;
         ceph::real_time unmod_since;
         ceph::real_time mtime;
@@ -609,18 +633,6 @@ class Object {
       virtual ~DeleteOp() = default;
 
       virtual int delete_obj(const DoutPrefixProvider* dpp, optional_yield y) = 0;
-    };
-
-    struct StatOp {
-      struct Result {
-	Object* obj;
-        RGWObjManifest* manifest;
-      } result;
-
-      virtual ~StatOp() = default;
-
-      virtual int stat_async(const DoutPrefixProvider *dpp) = 0;
-      virtual int wait(const DoutPrefixProvider *dpp) = 0;
     };
 
     Object()
@@ -685,8 +697,6 @@ class Object {
     virtual int copy_obj_data(RGWObjectCtx& rctx, Bucket* dest_bucket, Object* dest_obj, uint16_t olh_epoch, std::string* petag, const DoutPrefixProvider* dpp, optional_yield y) = 0;
     virtual bool is_expired() = 0;
     virtual void gen_rand_obj_instance_name() = 0;
-    virtual void raw_obj_to_obj(const rgw_raw_obj& raw_obj) = 0;
-    virtual void get_raw_obj(rgw_raw_obj* raw_obj) = 0;
     virtual MPSerializer* get_serializer(const DoutPrefixProvider *dpp, const std::string& lock_name) = 0;
     virtual int transition(RGWObjectCtx& rctx,
 			   Bucket* bucket,
@@ -695,15 +705,12 @@ class Object {
 			   uint64_t olh_epoch,
 			   const DoutPrefixProvider* dpp,
 			   optional_yield y) = 0;
-    virtual int get_max_chunk_size(const DoutPrefixProvider* dpp,
-                                   rgw_placement_rule placement_rule,
-				   uint64_t* max_chunk_size,
-				   uint64_t* alignment = nullptr) = 0;
-    virtual void get_max_aligned_size(uint64_t size, uint64_t alignment, uint64_t* max_size) = 0;
     virtual bool placement_rules_match(rgw_placement_rule& r1, rgw_placement_rule& r2) = 0;
+    virtual int get_obj_layout(const DoutPrefixProvider *dpp, optional_yield y, Formatter* f, RGWObjectCtx* obj_ctx) = 0;
 
     Attrs& get_attrs(void) { return attrs; }
     const Attrs& get_attrs(void) const { return attrs; }
+    virtual int set_attrs(Attrs a) { attrs = a; return 0; }
     ceph::real_time get_mtime(void) const { return mtime; }
     uint64_t get_obj_size(void) const { return obj_size; }
     Bucket* get_bucket(void) const { return bucket; }
@@ -735,9 +742,7 @@ class Object {
 
     /* OPs */
     virtual std::unique_ptr<ReadOp> get_read_op(RGWObjectCtx*) = 0;
-    virtual std::unique_ptr<WriteOp> get_write_op(RGWObjectCtx*) = 0;
     virtual std::unique_ptr<DeleteOp> get_delete_op(RGWObjectCtx*) = 0;
-    virtual std::unique_ptr<StatOp> get_stat_op(RGWObjectCtx*) = 0;
 
     /* OMAP */
     virtual int omap_get_vals(const DoutPrefixProvider *dpp, const std::string& marker, uint64_t count,
@@ -762,23 +767,103 @@ class Object {
     const std::string &get_instance() const { return key.instance; }
     bool have_instance(void) { return key.have_instance(); }
 
-    friend inline ostream& operator<<(ostream& out, const Object& o) {
+    friend inline std::ostream& operator<<(std::ostream& out, const Object& o) {
       if (o.bucket)
 	out << o.bucket << ":";
       out << o.key;
       return out;
     }
-    friend inline ostream& operator<<(ostream& out, const Object* o) {
+    friend inline std::ostream& operator<<(std::ostream& out, const Object* o) {
       if (!o)
 	out << "<NULL>";
       else
 	out << *o;
       return out;
     }
-    friend inline ostream& operator<<(ostream& out, const std::unique_ptr<Object>& p) {
+    friend inline std::ostream& operator<<(std::ostream& out, const std::unique_ptr<Object>& p) {
       out << p.get();
       return out;
     }
+};
+
+class MultipartPart {
+protected:
+  std::string oid;
+
+public:
+  MultipartPart() = default;
+  virtual ~MultipartPart() = default;
+
+  virtual uint32_t get_num() = 0;
+  virtual uint64_t get_size() = 0;
+  virtual const std::string& get_etag() = 0;
+  virtual ceph::real_time& get_mtime() = 0;
+};
+
+class MultipartUpload {
+protected:
+  Bucket* bucket;
+  std::map<uint32_t, std::unique_ptr<MultipartPart>> parts;
+
+public:
+  MultipartUpload(Bucket* _bucket) : bucket(_bucket) {}
+  virtual ~MultipartUpload() = default;
+
+  virtual const std::string& get_meta() const = 0;
+  virtual const std::string& get_key() const = 0;
+  virtual const std::string& get_upload_id() const = 0;
+  virtual ceph::real_time& get_mtime() = 0;
+
+  std::map<uint32_t, std::unique_ptr<MultipartPart>>& get_parts() { return parts; }
+
+  virtual std::unique_ptr<rgw::sal::Object> get_meta_obj() = 0;
+
+  virtual int init(const DoutPrefixProvider* dpp, optional_yield y, RGWObjectCtx* obj_ctx, ACLOwner& owner, rgw_placement_rule& dest_placement, rgw::sal::Attrs& attrs) = 0;
+  virtual int list_parts(const DoutPrefixProvider* dpp, CephContext* cct,
+			 int num_parts, int marker,
+			 int* next_marker, bool* truncated,
+			 bool assume_unsorted = false) = 0;
+  virtual int abort(const DoutPrefixProvider* dpp, CephContext* cct,
+		    RGWObjectCtx* obj_ctx) = 0;
+  virtual int complete(const DoutPrefixProvider* dpp,
+		       optional_yield y, CephContext* cct,
+		       std::map<int, std::string>& part_etags,
+		       std::list<rgw_obj_index_key>& remove_objs,
+		       uint64_t& accounted_size, bool& compressed,
+		       RGWCompressionInfo& cs_info, off_t& ofs,
+		       std::string& tag, ACLOwner& owner,
+		       uint64_t olh_epoch,
+		       rgw::sal::Object* target_obj,
+		       RGWObjectCtx* obj_ctx) = 0;
+
+  virtual int get_info(const DoutPrefixProvider *dpp, optional_yield y, RGWObjectCtx* obj_ctx, rgw_placement_rule** rule, rgw::sal::Attrs* attrs = nullptr) = 0;
+
+  virtual std::unique_ptr<Writer> get_writer(const DoutPrefixProvider *dpp,
+			  optional_yield y,
+			  std::unique_ptr<rgw::sal::Object> _head_obj,
+			  const rgw_user& owner, RGWObjectCtx& obj_ctx,
+			  const rgw_placement_rule *ptail_placement_rule,
+			  uint64_t part_num,
+			  const std::string& part_num_str) = 0;
+
+  friend inline std::ostream& operator<<(std::ostream& out, const MultipartUpload& u) {
+    out << u.get_meta();
+    if (!u.get_upload_id().empty())
+      out << ":" << u.get_upload_id();
+    return out;
+  }
+  friend inline std::ostream& operator<<(std::ostream& out, const MultipartUpload* u) {
+    if (!u)
+      out << "<NULL>";
+    else
+      out << *u;
+    return out;
+  }
+  friend inline std::ostream& operator<<(std::ostream& out, const
+				    std::unique_ptr<MultipartUpload>& p) {
+    out << p.get();
+    return out;
+  }
 };
 
 struct Serializer {
@@ -831,7 +916,7 @@ public:
   virtual int get_next_entry(const std::string& oid, std::string& marker, LCEntry& entry) = 0;
   virtual int set_entry(const std::string& oid, const LCEntry& entry) = 0;
   virtual int list_entries(const std::string& oid, const std::string& marker,
-			   uint32_t max_entries, vector<LCEntry>& entries) = 0;
+			   uint32_t max_entries, std::vector<LCEntry>& entries) = 0;
   virtual int rm_entry(const std::string& oid, const LCEntry& entry) = 0;
   virtual int get_head(const std::string& oid, LCHead& head) = 0;
   virtual int put_head(const std::string& oid, const LCHead& head) = 0;
@@ -853,58 +938,29 @@ protected:
 			       const ceph::real_time& mtime, const std::string& etag, const std::string& version) = 0;
 };
 
-class GCChain {
+class Writer : public ObjectProcessor {
 protected:
-  Object* obj;
-
-  public:
-    GCChain(Object* _obj) : obj(_obj) {}
-    virtual ~GCChain() = default;
-
-    virtual void update(const DoutPrefixProvider *dpp, RGWObjManifest* manifest) = 0;
-    virtual int send(const std::string& tag) = 0;
-    virtual void delete_inline(const DoutPrefixProvider *dpp, const std::string& tag) = 0;
-};
-
-using RawObjSet = std::set<rgw_raw_obj>;
-
-class Writer : public rgw::putobj::DataProcessor {
-protected:
-  Aio* const aio;
-  rgw::sal::Bucket* bucket;
-  RGWObjectCtx& obj_ctx;
-  std::unique_ptr<rgw::sal::Object> head_obj;
-  RawObjSet written; // set of written objects for deletion
   const DoutPrefixProvider* dpp;
-  optional_yield y;
 
- public:
-  Writer(Aio* aio,
-	      rgw::sal::Bucket* bucket,
-              RGWObjectCtx& obj_ctx, std::unique_ptr<rgw::sal::Object> _head_obj,
-              const DoutPrefixProvider* dpp, optional_yield y)
-    : aio(aio), bucket(bucket),
-      obj_ctx(obj_ctx), head_obj(std::move(_head_obj)), dpp(dpp), y(y)
-  {}
-  Writer(Writer&& r)
-    : aio(r.aio), bucket(r.bucket),
-      obj_ctx(r.obj_ctx), head_obj(std::move(r.head_obj)), dpp(r.dpp), y(r.y)
-  {}
+public:
+  Writer(const DoutPrefixProvider *_dpp, optional_yield y) : dpp(_dpp) {}
+  virtual ~Writer() = default;
 
-  ~Writer() = default;
+  // prepare to start processing object data
+  virtual int prepare(optional_yield y) = 0;
 
-  // change the current stripe object
-  virtual int set_stripe_obj(const rgw_raw_obj& obj) = 0;
+  // Process a bufferlist
+  virtual int process(bufferlist&& data, uint64_t offset) = 0;
 
-  // write the data as an exclusive create and wait for it to complete
-  virtual int write_exclusive(const bufferlist& data) = 0;
-
-  virtual int drain() = 0;
-
-  // when the operation completes successfully, clear the set of written objects
-  // so they aren't deleted on destruction
-  virtual void clear_written() { written.clear(); }
-
+  // complete the operation and make its result visible to clients
+  virtual int complete(size_t accounted_size, const std::string& etag,
+                       ceph::real_time *mtime, ceph::real_time set_mtime,
+                       std::map<std::string, bufferlist>& attrs,
+                       ceph::real_time delete_at,
+                       const char *if_match, const char *if_nomatch,
+                       const std::string *user_data,
+                       rgw_zone_set *zones_trace, bool *canceled,
+                       optional_yield y) = 0;
 };
 
 class Zone {

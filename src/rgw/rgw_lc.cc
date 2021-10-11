@@ -27,7 +27,7 @@
 #include "rgw_string.h"
 #include "rgw_multi.h"
 #include "rgw_sal.h"
-#include "rgw_sal.h"
+#include "rgw_rados.h"
 
 // this seems safe to use, at least for now--arguably, we should
 // prefer header-only fmt, in general
@@ -41,6 +41,8 @@
 
 #define dout_context g_ceph_context
 #define dout_subsys ceph_subsys_rgw
+
+using namespace std;
 
 const char* LC_STATUS[] = {
       "UNINITIAL",
@@ -840,14 +842,11 @@ int RGWLC::handle_multipart_expiration(rgw::sal::Bucket* target,
   auto pf = [&](RGWLC::LCWorker* wk, WorkQ* wq, WorkItem& wi) {
     auto wt = boost::get<std::tuple<lc_op, rgw_bucket_dir_entry>>(wi);
     auto& [rule, obj] = wt;
-    RGWMPObj mp_obj;
     if (obj_has_expired(this, cct, obj.meta.mtime, rule.mp_expiration)) {
       rgw_obj_key key(obj.key);
-      if (!mp_obj.from_meta(key.name)) {
-	return;
-      }
+      std::unique_ptr<rgw::sal::MultipartUpload> mpu = store->get_multipart_upload(target, key.name);
       RGWObjectCtx rctx(store);
-      int ret = abort_multipart_upload(this, store, cct, &rctx, target, mp_obj);
+      int ret = mpu->abort(this, cct, &rctx);
       if (ret == 0) {
         if (perfcounter) {
           perfcounter->inc(l_rgw_lc_abort_mpu, 1);
@@ -2010,7 +2009,7 @@ int RGWLC::set_bucket_config(rgw::sal::Bucket* bucket,
   attrs[RGW_ATTR_LC] = std::move(lc_bl);
 
   int ret =
-    bucket->set_instance_attrs(this, attrs, null_yield);
+    bucket->merge_and_store_attrs(this, attrs, null_yield);
   if (ret < 0)
     return ret;
 
@@ -2031,7 +2030,7 @@ int RGWLC::remove_bucket_config(rgw::sal::Bucket* bucket,
 {
   rgw::sal::Attrs attrs = bucket_attrs;
   attrs.erase(RGW_ATTR_LC);
-  int ret = bucket->set_instance_attrs(this, attrs, null_yield);
+  int ret = bucket->merge_and_store_attrs(this, attrs, null_yield);
 
   rgw_bucket& b = bucket->get_key();
 

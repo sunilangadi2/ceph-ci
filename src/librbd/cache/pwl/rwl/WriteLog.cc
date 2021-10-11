@@ -29,6 +29,7 @@
 namespace librbd {
 namespace cache {
 namespace pwl {
+using namespace std;
 using namespace librbd::cache::pwl;
 namespace rwl {
 
@@ -60,7 +61,7 @@ WriteLog<I>::~WriteLog() {
 template <typename I>
 void WriteLog<I>::collect_read_extents(
       uint64_t read_buffer_offset, LogMapEntry<GenericWriteLogEntry> map_entry,
-      std::vector<WriteLogCacheEntry*> &log_entries_to_read,
+      std::vector<std::shared_ptr<GenericWriteLogEntry>> &log_entries_to_read,
       std::vector<bufferlist*> &bls_to_read, uint64_t entry_hit_length,
       Extent hit_extent, pwl::C_ReadRequest *read_ctx) {
   /* Make a bl for this hit extent. This will add references to the
@@ -82,7 +83,7 @@ void WriteLog<I>::collect_read_extents(
 
 template <typename I>
 void WriteLog<I>::complete_read(
-    std::vector<WriteLogCacheEntry*> &log_entries_to_read,
+    std::vector<std::shared_ptr<GenericWriteLogEntry>> &log_entries_to_read,
     std::vector<bufferlist*> &bls_to_read, Context *ctx) {
   ctx->complete(0);
 }
@@ -162,7 +163,7 @@ int WriteLog<I>::append_op_log_entries(GenericLogOperations &ops)
     ldout(m_image_ctx.cct, 05) << "APPENDING: index="
                                << operation->get_log_entry()->log_entry_index << " "
                                << "operation=[" << *operation << "]" << dendl;
-    operation->log_append_time = now;
+    operation->log_append_start_time = now;
     *operation->get_log_entry()->cache_entry = operation->get_log_entry()->ram_entry;
     ldout(m_image_ctx.cct, 20) << "APPENDING: index="
                                << operation->get_log_entry()->log_entry_index << " "
@@ -435,7 +436,16 @@ void WriteLog<I>::load_existing_entries(DeferredContexts &later) {
     entry_index = (entry_index + 1) % this->m_total_log_entries;
   }
 
-  this->update_sync_points(missing_sync_points, sync_point_entries, later, MIN_WRITE_ALLOC_SIZE);
+  this->update_sync_points(missing_sync_points, sync_point_entries, later);
+}
+
+template <typename I>
+void WriteLog<I>::inc_allocated_cached_bytes(
+    std::shared_ptr<pwl::GenericLogEntry> log_entry) {
+  if (log_entry->is_write_entry()) {
+    this->m_bytes_allocated += std::max(log_entry->write_bytes(), MIN_WRITE_ALLOC_SIZE);
+    this->m_bytes_cached += log_entry->write_bytes();
+  }
 }
 
 template <typename I>
@@ -825,6 +835,16 @@ template <typename I>
 template <typename V>
 void WriteLog<I>::flush_pmem_buffer(V& ops)
 {
+  utime_t now = ceph_clock_now();
+  for (auto &operation : ops) {
+    if (operation->reserved_allocated()) {
+      operation->buf_persist_start_time = now;
+    } else {
+      ldout(m_image_ctx.cct, 20) << "skipping non-write op: "
+                                 << *operation << dendl;
+    }
+  }
+
   for (auto &operation : ops) {
     if(operation->is_writing_op()) {
       auto log_entry = static_pointer_cast<WriteLogEntry>(operation->get_log_entry());
@@ -835,12 +855,13 @@ void WriteLog<I>::flush_pmem_buffer(V& ops)
   /* Drain once for all */
   pmemobj_drain(m_log_pool);
 
-  utime_t now = ceph_clock_now();
+  now = ceph_clock_now();
   for (auto &operation : ops) {
     if (operation->reserved_allocated()) {
       operation->buf_persist_comp_time = now;
     } else {
-      ldout(m_image_ctx.cct, 20) << "skipping non-write op: " << *operation << dendl;
+      ldout(m_image_ctx.cct, 20) << "skipping non-write op: "
+                                 << *operation << dendl;
     }
   }
 }

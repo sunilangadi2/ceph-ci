@@ -25,8 +25,11 @@ struct segment_info_t {
   segment_seq_t journal_segment_seq = NULL_SEG_SEQ;
 
 
+  bool out_of_line = false;
+
   bool is_in_journal(journal_seq_t tail_committed) const {
-    return journal_segment_seq != NULL_SEG_SEQ &&
+    return !out_of_line &&
+      journal_segment_seq != NULL_SEG_SEQ &&
       tail_committed.segment_seq <= journal_segment_seq;
   }
 
@@ -41,6 +44,35 @@ struct segment_info_t {
   bool is_open() const {
     return state == Segment::segment_state_t::OPEN;
   }
+};
+
+/**
+ * Callback interface for managing available segments
+ */
+class SegmentProvider {
+public:
+  using get_segment_ertr = crimson::errorator<
+    crimson::ct_error::input_output_error>;
+  using get_segment_ret = get_segment_ertr::future<segment_id_t>;
+  virtual get_segment_ret get_segment() = 0;
+
+  virtual void close_segment(segment_id_t) {}
+
+  virtual void set_journal_segment(
+    segment_id_t segment,
+    segment_seq_t seq) {}
+
+  virtual journal_seq_t get_journal_tail_target() const = 0;
+  virtual void update_journal_tail_committed(journal_seq_t tail_committed) = 0;
+
+  virtual void init_mark_segment_closed(
+    segment_id_t segment,
+    segment_seq_t seq,
+    bool out_of_line) {}
+
+  virtual segment_seq_t get_seq(segment_id_t id) { return 0; }
+
+  virtual ~SegmentProvider() {}
 };
 
 class SpaceTrackerI {
@@ -81,7 +113,7 @@ class SpaceTrackerSimple : public SpaceTrackerI {
     return live_bytes_by_segment[segment];
   }
 public:
-  SpaceTrackerSimple(size_t num_segments)
+  SpaceTrackerSimple(segment_id_t num_segments)
     : live_bytes_by_segment(num_segments, 0) {}
 
   int64_t allocate(
@@ -95,7 +127,7 @@ public:
     segment_id_t segment,
     segment_off_t offset,
     extent_len_t len) final {
-    return update_usage(segment, -len);
+    return update_usage(segment, -(int64_t)len);
   }
 
   int64_t get_usage(segment_id_t segment) const final {
@@ -163,7 +195,7 @@ class SpaceTrackerDetailed : public SpaceTrackerI {
   std::vector<SegmentMap> segment_usage;
 
 public:
-  SpaceTrackerDetailed(size_t num_segments, size_t segment_size, size_t block_size)
+  SpaceTrackerDetailed(segment_id_t num_segments, size_t segment_size, size_t block_size)
     : block_size(block_size),
       segment_size(segment_size),
       segment_usage(num_segments, segment_size / block_size) {}
@@ -208,7 +240,7 @@ public:
 };
 
 
-class SegmentCleaner : public JournalSegmentProvider {
+class SegmentCleaner : public SegmentProvider {
 public:
   /// Config
   struct config_t {
@@ -248,19 +280,34 @@ public:
 
     virtual TransactionRef create_transaction(Transaction::src_t) = 0;
 
-    /**
-     * get_next_dirty_extent
-     *
-     * returns all extents with dirty_from < bound
-     */
-    using get_next_dirty_extents_iertr = crimson::errorator<>;
+    /// Creates empty transaction with interruptible context
+    template <typename Func>
+    auto with_transaction_intr(Transaction::src_t src, Func &&f) {
+      return seastar::do_with(
+        create_transaction(src),
+        [f=std::forward<Func>(f)](auto &ref_t) mutable {
+          return with_trans_intr(
+            *ref_t,
+            [f=std::forward<Func>(f)](auto& t) mutable {
+              return f(t);
+            }
+          );
+        }
+      );
+    }
+
+    /// See Cache::get_next_dirty_extents
+    using get_next_dirty_extents_iertr = trans_iertr<
+      crimson::errorator<
+        crimson::ct_error::input_output_error>
+      >;
     using get_next_dirty_extents_ret = get_next_dirty_extents_iertr::future<
       std::vector<CachedExtentRef>>;
     virtual get_next_dirty_extents_ret get_next_dirty_extents(
+      Transaction &t,     ///< [in] current transaction
       journal_seq_t bound,///< [in] return extents with dirty_from < bound
       size_t max_bytes    ///< [in] return up to max_bytes of extents
     ) = 0;
-
 
     using extent_mapping_ertr = crimson::errorator<
       crimson::ct_error::input_output_error,
@@ -304,18 +351,6 @@ public:
       segment_off_t len) = 0;
 
     /**
-     * scan_extents
-     *
-     * Interface shim for Journal::scan_extents
-     */
-    using scan_extents_cursor = Journal::scan_valid_records_cursor;
-    using scan_extents_ertr = Journal::scan_extents_ertr;
-    using scan_extents_ret = Journal::scan_extents_ret;
-    virtual scan_extents_ret scan_extents(
-      scan_extents_cursor &cursor,
-      extent_len_t bytes_to_read) = 0;
-
-    /**
      * release_segment
      *
      * Release segment.
@@ -344,15 +379,25 @@ private:
   const bool detailed;
   const config_t config;
 
-  size_t num_segments = 0;
+  segment_id_t num_segments = 0;
   size_t segment_size = 0;
   size_t block_size = 0;
+
+  ScannerRef scanner;
 
   SpaceTrackerIRef space_tracker;
   std::vector<segment_info_t> segments;
   size_t empty_segments;
-  int64_t used_bytes = 0;
+  uint64_t used_bytes = 0;
   bool init_complete = false;
+
+  /**
+   * projected_used_bytes
+   *
+   * Sum of projected bytes used by each transaction between throttle
+   * acquisition and commit completion.  See await_throttle()
+   */
+  uint64_t projected_used_bytes = 0;
 
   struct {
     uint64_t segments_released = 0;
@@ -375,7 +420,10 @@ private:
   std::optional<seastar::promise<>> blocked_io_wake;
 
 public:
-  SegmentCleaner(config_t config, bool detailed = false);
+  SegmentCleaner(
+    config_t config,
+    ScannerRef&& scanner,
+    bool detailed = false);
 
   void mount(SegmentManager &sm) {
     init_complete = false;
@@ -401,6 +449,13 @@ public:
     segments.resize(num_segments);
     empty_segments = num_segments;
   }
+
+  using init_segments_ertr = crimson::errorator<
+    crimson::ct_error::input_output_error>;
+  using init_segments_ret_bare =
+    std::vector<std::pair<segment_id_t, segment_header_t>>;
+  using init_segments_ret = init_segments_ertr::future<init_segments_ret_bare>;
+  init_segments_ret init_segments();
 
   get_segment_ret get_segment() final;
 
@@ -441,13 +496,18 @@ public:
     return journal_head;
   }
 
-  void init_mark_segment_closed(segment_id_t segment, segment_seq_t seq) final {
+  void init_mark_segment_closed(
+    segment_id_t segment,
+    segment_seq_t seq,
+    bool out_of_line) final
+  {
     crimson::get_logger(ceph_subsys_seastore).debug(
       "SegmentCleaner::init_mark_segment_closed: segment {}, seq {}",
       segment,
       seq);
     mark_closed(segment);
     segments[segment].journal_segment_seq = seq;
+    segments[segment].out_of_line = out_of_line;
   }
 
   segment_seq_t get_seq(segment_id_t id) final {
@@ -483,6 +543,7 @@ public:
     if (!init_complete)
       return;
 
+    ceph_assert(used_bytes >= len);
     used_bytes -= len;
     assert(addr.segment < segments.size());
 
@@ -591,7 +652,7 @@ private:
 
   // GC status helpers
   std::unique_ptr<
-    ExtentCallbackInterface::scan_extents_cursor
+    Scanner::scan_extents_cursor
     > scan_cursor;
 
   /**
@@ -669,7 +730,7 @@ private:
   } gc_process;
 
   using gc_ertr = work_ertr::extend_ertr<
-    ExtentCallbackInterface::scan_extents_ertr
+    Scanner::scan_extents_ertr
     >;
 
   gc_cycle_ret do_gc_cycle();
@@ -709,6 +770,11 @@ private:
       get_bytes_available_current_segment() +
       get_bytes_scanned_current_segment();
   }
+  size_t get_projected_available_bytes() const {
+    return (get_available_bytes() > projected_used_bytes) ?
+      get_available_bytes() - projected_used_bytes:
+      0;
+  }
 
   /// Returns total space available
   size_t get_total_bytes() const {
@@ -719,10 +785,18 @@ private:
   size_t get_unavailable_bytes() const {
     return get_total_bytes() - get_available_bytes();
   }
+  size_t get_projected_unavailable_bytes() const {
+    return (get_total_bytes() > get_projected_available_bytes()) ?
+      (get_total_bytes() - get_projected_available_bytes()) :
+      0;
+  }
 
   /// Returns bytes currently occupied by live extents (not journal)
   size_t get_used_bytes() const {
     return used_bytes;
+  }
+  size_t get_projected_used_bytes() const {
+    return used_bytes + projected_used_bytes;
   }
 
   /// Return bytes contained in segments in journal
@@ -745,6 +819,13 @@ private:
     else
       return 0;
   }
+  size_t get_projected_reclaimable_bytes() const {
+    auto ret = get_projected_unavailable_bytes() - get_projected_used_bytes();
+    if (ret > get_journal_segment_bytes())
+      return ret - get_journal_segment_bytes();
+    else
+      return 0;
+  }
 
   /**
    * get_reclaim_ratio
@@ -756,6 +837,11 @@ private:
     if (get_unavailable_bytes() == 0) return 0;
     return (double)get_reclaimable_bytes() / (double)get_unavailable_bytes();
   }
+  double get_projected_reclaim_ratio() const {
+    if (get_projected_unavailable_bytes() == 0) return 0;
+    return (double)get_reclaimable_bytes() /
+      (double)get_projected_unavailable_bytes();
+  }
 
   /**
    * get_available_ratio
@@ -765,6 +851,10 @@ private:
   double get_available_ratio() const {
     return (double)get_available_bytes() / (double)get_total_bytes();
   }
+  double get_projected_available_ratio() const {
+    return (double)get_projected_available_bytes() /
+      (double)get_total_bytes();
+  }
 
   /**
    * should_block_on_gc
@@ -772,11 +862,13 @@ private:
    * Encapsulates whether block pending gc.
    */
   bool should_block_on_gc() const {
-    auto aratio = get_available_ratio();
+    // TODO: probably worth projecting journal usage as well
+    auto aratio = get_projected_available_ratio();
     return (
       ((aratio < config.available_ratio_gc_max) &&
-       (get_reclaim_ratio() > config.reclaim_ratio_hard_limit ||
-	aratio < config.available_ratio_hard_limit)) ||
+       ((get_projected_reclaim_ratio() >
+	 config.reclaim_ratio_hard_limit) ||
+	(aratio < config.available_ratio_hard_limit))) ||
       (get_dirty_tail_limit() > journal_tail_target)
     );
   }
@@ -797,6 +889,7 @@ private:
 	"gc_should_reclaim_space {}, "
 	"journal_head {}, "
 	"journal_tail_target {}, "
+	"journal_tail_commit {}, "
 	"dirty_tail {}, "
 	"dirty_tail_limit {}, "
 	"gc_should_trim_journal {}, ",
@@ -812,6 +905,7 @@ private:
 	gc_should_reclaim_space(),
 	journal_head,
 	journal_tail_target,
+	journal_tail_committed,
 	get_dirty_tail(),
 	get_dirty_tail_limit(),
 	gc_should_trim_journal()
@@ -820,7 +914,7 @@ private:
   }
 
 public:
-  seastar::future<> await_hard_limits() {
+  seastar::future<> reserve_projected_usage(size_t projected_usage) {
     // The pipeline configuration prevents another IO from entering
     // prepare until the prior one exits and clears this.
     ceph_assert(!blocked_io_wake);
@@ -832,7 +926,17 @@ public:
       [this] {
 	blocked_io_wake = seastar::promise<>();
 	return blocked_io_wake->get_future();
-      });
+      }
+    ).then([this, projected_usage] {
+      ceph_assert(!blocked_io_wake);
+      projected_used_bytes += projected_usage;
+    });
+  }
+
+  void release_projected_usage(size_t projected_usage) {
+    ceph_assert(projected_used_bytes >= projected_usage);
+    projected_used_bytes -= projected_usage;
+    return maybe_wake_gc_blocked_io();
   }
 private:
   void maybe_wake_gc_blocked_io() {

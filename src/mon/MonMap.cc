@@ -942,6 +942,7 @@ int MonMap::build_initial(CephContext *cct, bool for_mkfs, ostream& errout)
       errout << "unable to parse addrs in '" << mon_host_override << "'"
 	     << std::endl;
     }
+    lgeneric_dout(cct, 1) << __func__ << ":" << __LINE__ << dendl;
     return ret;
   }
 
@@ -949,12 +950,14 @@ int MonMap::build_initial(CephContext *cct, bool for_mkfs, ostream& errout)
   auto addrs = cct->get_mon_addrs();
   if (addrs != nullptr && (addrs->size() > 0)) {
     init_with_addrs(*addrs, for_mkfs, "noname-");
+    lgeneric_dout(cct, 1) << __func__ << ":" << __LINE__ << dendl;
     return 0;
   }
 
   // file?
   if (const auto monmap = conf.get_val<std::string>("monmap");
       !monmap.empty()) {
+    lgeneric_dout(cct, 1) << __func__ << ":" << __LINE__ << dendl;
     return init_with_monmap(monmap, errout);
   }
 
@@ -973,6 +976,7 @@ int MonMap::build_initial(CephContext *cct, bool for_mkfs, ostream& errout)
     if (ret < 0) {
       errout << "unable to parse addrs in '" << mon_host << "'"
 	     << std::endl;
+      lgeneric_dout(cct, 1) << __func__ << ":" << __LINE__ << dendl;
       return ret;
     }
   }
@@ -986,17 +990,20 @@ int MonMap::build_initial(CephContext *cct, bool for_mkfs, ostream& errout)
     // no info found from conf options lets try use DNS SRV records
     string srv_name = conf.get_val<std::string>("mon_dns_srv_name");
     if (auto ret = init_with_dns_srv(cct, srv_name, for_mkfs, errout); ret < 0) {
+      lgeneric_dout(cct, 1) << __func__ << ":" << __LINE__ << dendl;
       return -ENOENT;
     }
   }
   if (size() == 0) {
     errout << "no monitors specified to connect to." << std::endl;
+    lgeneric_dout(cct, 1) << __func__ << ":" << __LINE__ << dendl;
     return -ENOENT;
   }
   strategy = static_cast<election_strategy>(conf.get_val<uint64_t>("mon_election_default_strategy"));
   created = ceph_clock_now();
   last_changed = created;
   calc_legacy_ranks();
+  lgeneric_dout(cct, 1) << __func__ << ":" << __LINE__ << dendl;
   return 0;
 }
 #endif	// WITH_SEASTAR

@@ -18238,6 +18238,8 @@ int BlueStore::push_allocation_to_rocksdb()
 
   // compare the allocator info with the info stored in the fm/rocksdb
   if (verify_rocksdb_allocations(allocator.get()) == 0) {
+    // remove the allocation file
+    std::remove(allocator_file.c_str());
     // all is good -> we can commit to rocksdb allocator
     commit_to_real_manager();
   } else {

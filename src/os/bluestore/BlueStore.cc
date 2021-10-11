@@ -5583,8 +5583,13 @@ int BlueStore::_init_alloc()
       return -ENOTSUP; // Operation not supported
     }
     dout(1) << __func__ << "::NCB::loading allocation from file" << dendl;
-    
-    if (restore_allocator(shared_alloc.a, &num, &bytes) == 0) {
+
+    FILE *filep = nullptr;
+    int ret = restore_allocator(shared_alloc.a, &num, &bytes, &filep);
+    if (filep != nullptr) {
+      std::fclose(filep);
+    }
+    if (ret == 0) {
       dout(5) << __func__ << "::NCB::restore_allocator() completed successfully shared_alloc.a=" << shared_alloc.a << dendl;
     } else {
       // This must mean that we had an unplanned shutdown and didn't manage to destage the allocator
@@ -17072,6 +17077,18 @@ struct allocator_image_trailer {
 };
 WRITE_CLASS_DENC(allocator_image_trailer)
 
+//-------------------------------------------------------------------------------------
+static int overwrite_allocation_file_header(FILE *filep)
+{
+  allocator_image_header header;
+  memset((void*)&header, 0, sizeof(header));
+  int ret = std::fwrite(&header, sizeof(header), 1, filep);
+  if (ret == 0) {
+    return std::fflush(filep);
+  }
+
+  return ret;
+}
 
 //-------------------------------------------------------------------------------------
 // invalidate old allocation file if exists so will go directly to recovery after failure
@@ -17087,12 +17104,8 @@ int BlueStore::invalidate_allocation_file_on_bluefs()
   }
 
   dout(1) << "invalidate allocation file (overwriting header)" << dendl;
-  allocator_image_header header;
-  memset((void*)&header, 0, sizeof(header));
-  std::fwrite(&header, sizeof(header), 1, filep);
-  std::fflush(filep);
+  overwrite_allocation_file_header(filep);
   std::fclose(filep);
-  std::remove(allocator_file.c_str());
 
   return 0;
 }
@@ -17269,7 +17282,7 @@ int BlueStore::store_allocator(Allocator* src_allocator)
     derr << "invalidate using bluefs->truncate(p_handle, 0)" << dendl;
     
     std::fclose(filep);
-    std::remove(allocator_file.c_str());
+    //std::remove(allocator_file.c_str());
     return -1;
   }
 
@@ -17347,20 +17360,20 @@ int calc_allocator_image_trailer_size()
 }
 
 //-----------------------------------------------------------------------------------
-int BlueStore::restore_allocator(Allocator* allocator, uint64_t *num, uint64_t *bytes)
+int BlueStore::restore_allocator(Allocator* allocator, uint64_t *num, uint64_t *bytes, FILE **filep)
 {
   utime_t start_time = ceph_clock_now();
   //dout(1) << "calling std::fopen(" << allocator_file.c_str() << ", rb" << dendl;
-  FILE *filep = std::fopen(allocator_file.c_str(), "rb");
+  *filep = std::fopen(allocator_file.c_str(), "rb");
   if (!filep) {
     derr << "File opening failed" << dendl;
     return -1;
   }
 
-  std::fseek(filep, 0, SEEK_END); // seek to end
-  std::size_t file_size = std::ftell(filep);
+  std::fseek(*filep, 0, SEEK_END); // seek to end
+  std::size_t file_size = std::ftell(*filep);
   //dout(1) << "file_size=" << file_size << ",sizeof(extent_t)=" << sizeof(extent_t) << dendl;
-  std::fseek(filep, 0, SEEK_SET); // seek to start
+  std::fseek(*filep, 0, SEEK_SET); // seek to start
   //dout(1) << "offset=" << std::ftell(filep) << dendl;
   
   uint64_t read_alloc_size = 0;
@@ -17379,7 +17392,7 @@ int BlueStore::restore_allocator(Allocator* allocator, uint64_t *num, uint64_t *
     bufferlist header_bl;
     char       buffer[header_size];
     //dout(1) << "calling header std::fread(" << header_size << ")" << dendl;
-    int        read_bytes = std::fread(buffer, 1, header_size, filep);
+    int        read_bytes = std::fread(buffer, 1, header_size, *filep);
     //int        read_bytes = bluefs->read(p_handle.get(), offset, header_size, &temp_bl, nullptr);
     if (read_bytes != header_size) {
       derr << "Failed bluefs->read() for header::read_bytes=" << read_bytes << ", req_bytes=" << header_size << dendl;
@@ -17420,7 +17433,7 @@ int BlueStore::restore_allocator(Allocator* allocator, uint64_t *num, uint64_t *
   while (extents_bytes_left) {
     int req_bytes  = std::min(extents_bytes_left, sizeof(buffer));
     //dout(1) << "calling main std::fread(" << req_bytes << ")" << dendl;
-    int read_bytes = std::fread(buffer, 1, req_bytes, filep);
+    int read_bytes = std::fread(buffer, 1, req_bytes, *filep);
     //int read_bytes = bluefs->read(p_handle.get(), offset, req_bytes, nullptr, (char*)buffer);
     //dout(5) << " bluefs->read()::read_bytes=" << read_bytes << ", req_bytes=" << req_bytes << dendl;
     if (read_bytes != req_bytes) {
@@ -17453,7 +17466,7 @@ int BlueStore::restore_allocator(Allocator* allocator, uint64_t *num, uint64_t *
 
     uint32_t calc_crc = ceph_crc32c(crc, (const uint8_t*)buffer, read_bytes);
     //dout(1) << "calling crc std::fread(" << sizeof(crc) << "), foffset=" << std::ftell(filep) << dendl;
-    read_bytes        = std::fread((char*)&crc, 1, sizeof(crc), filep);
+    read_bytes        = std::fread((char*)&crc, 1, sizeof(crc), *filep);
     //read_bytes        = bluefs->read(p_handle.get(), offset, sizeof(crc), nullptr, (char*)&crc);
     //dout(1) <<  "read-crc::read_bytes=" << read_bytes << ", offset=" << offset  << dendl; 
     if (read_bytes == sizeof(crc) ) {
@@ -17480,7 +17493,7 @@ int BlueStore::restore_allocator(Allocator* allocator, uint64_t *num, uint64_t *
     bufferlist trailer_bl;
     char       buffer[trailer_size];
     //dout(1) << "calling trailer std::fread(" << trailer_size << ")" << dendl;
-    int        read_bytes = std::fread(buffer, 1, trailer_size, filep);
+    int        read_bytes = std::fread(buffer, 1, trailer_size, *filep);
     //int        read_bytes = bluefs->read(p_handle.get(), offset, trailer_size, &temp_bl, nullptr);
     if (read_bytes != trailer_size) {
       derr << "Failed bluefs->read() for trailer::read_bytes=" << read_bytes << ", req_bytes=" << trailer_size << dendl;
@@ -17996,7 +18009,11 @@ int BlueStore::read_allocation_from_drive_for_bluestore_tool(bool test_store_and
       dout(5) << "bitmap-allocator=" << alloc2 << dendl;
       dout(5) << "calling restore_allocator()" << dendl;
       uint64_t num, bytes;
-      int ret = restore_allocator(alloc2, &num, &bytes);
+      FILE *filep = nullptr;
+      int ret = restore_allocator(alloc2, &num, &bytes, &filep);
+      if (filep != nullptr) {
+	std::fclose(filep);
+      }
       if (ret == 0) {
 	// add allocation space used by the bluefs itself
 	ret = add_existing_bluefs_allocation(alloc2, stats);
@@ -18250,9 +18267,14 @@ int BlueStore::commit_to_null_manager()
 {
   dout(1) << "Set FreelistManager to NULL FM..." << dendl;
   fm->set_null_manager();
-  return write_meta("NCB_freelist_manager", "NULL_FM"); 
-}
+  int ret = write_meta("NCB_freelist_manager", "NULL_FM");
+  if (ret == 0) {
+    // remove all objects of PREFIX_ALLOC_BITMAP from RocksDB to guarantee a clean start
+    clear_allocation_objects_from_rocksdb(db, cct, path);
+  }
 
+  return ret;
+}
 
 //-------------------------------------------------------------------------------------
 int BlueStore::commit_to_real_manager()

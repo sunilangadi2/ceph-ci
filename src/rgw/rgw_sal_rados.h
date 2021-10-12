@@ -498,6 +498,7 @@ protected:
 
 public:
   RadosMultipartPart() = default;
+  RadosMultipartPart(RGWUploadPartInfo _info): info(_info) {}
   virtual ~RadosMultipartPart() = default;
 
   virtual uint32_t get_num() { return info.num; }
@@ -513,25 +514,15 @@ public:
 
 class RadosMultipartUpload : public MultipartUpload {
   RadosStore* store;
-  RGWMPObj mp_obj;
-  ceph::real_time mtime;
-  rgw_placement_rule placement;
   RGWObjManifest manifest;
 
 public:
-  RadosMultipartUpload(RadosStore* _store, Bucket* _bucket, const std::string& oid, std::optional<std::string> upload_id, ceph::real_time _mtime) : MultipartUpload(_bucket), store(_store), mp_obj(oid, upload_id), mtime(_mtime) {}
+  RadosMultipartUpload(RadosStore* _store, Bucket* _bucket, const std::string& oid, std::optional<std::string> upload_id, ceph::real_time _mtime) : MultipartUpload(_store, _bucket, oid, upload_id, _mtime), store(_store) {}
   virtual ~RadosMultipartUpload() = default;
 
-  virtual const std::string& get_meta() const { return mp_obj.get_meta(); }
-  virtual const std::string& get_key() const { return mp_obj.get_key(); }
-  virtual const std::string& get_upload_id() const { return mp_obj.get_upload_id(); }
-  virtual ceph::real_time& get_mtime() { return mtime; }
-  virtual std::unique_ptr<rgw::sal::Object> get_meta_obj() override;
   virtual int init(const DoutPrefixProvider* dpp, optional_yield y, RGWObjectCtx* obj_ctx, ACLOwner& owner, rgw_placement_rule& dest_placement, rgw::sal::Attrs& attrs) override;
-  virtual int list_parts(const DoutPrefixProvider* dpp, CephContext* cct,
-			 int num_parts, int marker,
-			 int* next_marker, bool* truncated,
-			 bool assume_unsorted = false) override;
+  virtual std::unique_ptr<MultipartPart> get_multipart_part(const DoutPrefixProvider* dpp, bufferlist& bl) override;
+  virtual std::string& get_mp_ns() override;
   virtual int abort(const DoutPrefixProvider* dpp, CephContext* cct,
 		    RGWObjectCtx* obj_ctx) override;
   virtual int complete(const DoutPrefixProvider* dpp,
@@ -544,7 +535,6 @@ public:
 		       uint64_t olh_epoch,
 		       rgw::sal::Object* target_obj,
 		       RGWObjectCtx* obj_ctx) override;
-  virtual int get_info(const DoutPrefixProvider *dpp, optional_yield y, RGWObjectCtx* obj_ctx, rgw_placement_rule** rule, rgw::sal::Attrs* attrs = nullptr) override;
   virtual std::unique_ptr<Writer> get_writer(const DoutPrefixProvider *dpp,
 			  optional_yield y,
 			  std::unique_ptr<rgw::sal::Object> _head_obj,

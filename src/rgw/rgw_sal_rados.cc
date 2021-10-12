@@ -51,24 +51,6 @@ static string mp_ns = RGW_OBJ_NS_MULTIPART;
 
 namespace rgw::sal {
 
-struct multipart_upload_info
-{
-  rgw_placement_rule dest_placement;
-
-  void encode(bufferlist& bl) const {
-    ENCODE_START(1, 1, bl);
-    encode(dest_placement, bl);
-    ENCODE_FINISH(bl);
-  }
-
-  void decode(bufferlist::const_iterator& bl) {
-    DECODE_START(1, bl);
-    decode(dest_placement, bl);
-    DECODE_FINISH(bl);
-  }
-};
-WRITE_CLASS_ENCODER(multipart_upload_info)
-
 // default number of entries to list with each bucket listing call
 // (use marker to bridge between calls)
 static constexpr size_t listing_max_entries = 1000;
@@ -1984,6 +1966,20 @@ int RadosObject::swift_versioning_copy(RGWObjectCtx* obj_ctx,
                                         y);
 }
 
+std::unique_ptr<MultipartPart> RadosMultipartUpload::get_multipart_part(const DoutPrefixProvider* dpp, bufferlist& bl)
+{
+  auto bli = bl.cbegin();
+  RGWUploadPartInfo info;
+  try {
+    decode(info, bli);
+  } catch (buffer::error& err) {
+    ldpp_dout(dpp, 0) << "ERROR: could not part info, caught buffer::error" <<
+	  dendl;
+    return nullptr;
+  }
+  return std::make_unique<RadosMultipartPart>(info);
+}
+
 int RadosMultipartUpload::abort(const DoutPrefixProvider *dpp, CephContext *cct,
 				RGWObjectCtx *obj_ctx)
 {
@@ -2064,28 +2060,17 @@ int RadosMultipartUpload::abort(const DoutPrefixProvider *dpp, CephContext *cct,
   return (ret == -ENOENT) ? -ERR_NO_SUCH_UPLOAD : ret;
 }
 
-std::unique_ptr<rgw::sal::Object> RadosMultipartUpload::get_meta_obj()
-{
-  return bucket->get_object(rgw_obj_key(get_meta(), string(), mp_ns));
-}
+static std::string mp_ns = RGW_OBJ_NS_MULTIPART;
+
+std::string& RadosMultipartUpload::get_mp_ns() { return mp_ns;}
 
 int RadosMultipartUpload::init(const DoutPrefixProvider *dpp, optional_yield y, RGWObjectCtx* obj_ctx, ACLOwner& owner, rgw_placement_rule& dest_placement, rgw::sal::Attrs& attrs)
 {
   int ret;
+
   std::string oid = mp_obj.get_key();
-
   do {
-    char buf[33];
-    string tmp_obj_name;
-    std::unique_ptr<rgw::sal::Object> obj;
-    gen_rand_alphanumeric(store->ctx(), buf, sizeof(buf) - 1);
-    std::string upload_id = MULTIPART_UPLOAD_ID_PREFIX; /* v2 upload id */
-    upload_id.append(buf);
-
-    mp_obj.init(oid, upload_id);
-    tmp_obj_name = mp_obj.get_meta();
-
-    obj = bucket->get_object(rgw_obj_key(tmp_obj_name, string(), mp_ns));
+    std::unique_ptr<rgw::sal::Object> obj = create_meta_obj(store, mp_obj);
     // the meta object will be indexed with 0 size, we c
     obj->set_in_extra_data(true);
     obj->set_hash_source(oid);
@@ -2114,105 +2099,6 @@ int RadosMultipartUpload::init(const DoutPrefixProvider *dpp, optional_yield y, 
   return ret;
 }
 
-int RadosMultipartUpload::list_parts(const DoutPrefixProvider *dpp, CephContext *cct,
-				     int num_parts, int marker,
-				     int *next_marker, bool *truncated,
-				     bool assume_unsorted)
-{
-  map<string, bufferlist> parts_map;
-  map<string, bufferlist>::iterator iter;
-
-  std::unique_ptr<rgw::sal::Object> obj = bucket->get_object(
-		      rgw_obj_key(get_meta(), std::string(), RGW_OBJ_NS_MULTIPART));
-  obj->set_in_extra_data(true);
-
-  bool sorted_omap = is_v2_upload_id(get_upload_id()) && !assume_unsorted;
-
-  parts.clear();
-
-  int ret;
-  if (sorted_omap) {
-    string p;
-    p = "part.";
-    char buf[32];
-
-    snprintf(buf, sizeof(buf), "%08d", marker);
-    p.append(buf);
-
-    ret = obj->omap_get_vals(dpp, p, num_parts + 1, &parts_map,
-                                 nullptr, null_yield);
-  } else {
-    ret = obj->omap_get_all(dpp, &parts_map, null_yield);
-  }
-  if (ret < 0) {
-    return ret;
-  }
-
-  int i;
-  int last_num = 0;
-
-  uint32_t expected_next = marker + 1;
-
-  for (i = 0, iter = parts_map.begin();
-       (i < num_parts || !sorted_omap) && iter != parts_map.end();
-       ++iter, ++i) {
-    bufferlist& bl = iter->second;
-    auto bli = bl.cbegin();
-    std::unique_ptr<RadosMultipartPart> part = std::make_unique<RadosMultipartPart>();
-    try {
-      decode(part->info, bli);
-    } catch (buffer::error& err) {
-      ldpp_dout(dpp, 0) << "ERROR: could not part info, caught buffer::error" <<
-	dendl;
-      return -EIO;
-    }
-    if (sorted_omap) {
-      if (part->info.num != expected_next) {
-        /* ouch, we expected a specific part num here, but we got a
-         * different one. Either a part is missing, or it could be a
-         * case of mixed rgw versions working on the same upload,
-         * where one gateway doesn't support correctly sorted omap
-         * keys for multipart upload just assume data is unsorted.
-         */
-        return list_parts(dpp, cct, num_parts, marker, next_marker, truncated, true);
-      }
-      expected_next++;
-    }
-    if (sorted_omap ||
-      (int)part->info.num > marker) {
-      last_num = part->info.num;
-      parts[part->info.num] = std::move(part);
-    }
-  }
-
-  if (sorted_omap) {
-    if (truncated) {
-      *truncated = (iter != parts_map.end());
-    }
-  } else {
-    /* rebuild a map with only num_parts entries */
-    std::map<uint32_t, std::unique_ptr<MultipartPart>> new_parts;
-    std::map<uint32_t, std::unique_ptr<MultipartPart>>::iterator piter;
-    for (i = 0, piter = parts.begin();
-	 i < num_parts && piter != parts.end();
-	 ++i, ++piter) {
-      last_num = piter->first;
-      new_parts[piter->first] = std::move(piter->second);
-    }
-
-    if (truncated) {
-      *truncated = (piter != parts.end());
-    }
-
-    parts.swap(new_parts);
-  }
-
-  if (next_marker) {
-    *next_marker = last_num;
-  }
-
-  return 0;
-}
 
 int RadosMultipartUpload::complete(const DoutPrefixProvider *dpp,
 				   optional_yield y, CephContext* cct,
@@ -2385,79 +2271,6 @@ int RadosMultipartUpload::complete(const DoutPrefixProvider *dpp,
   return ret;
 }
 
-int RadosMultipartUpload::get_info(const DoutPrefixProvider *dpp, optional_yield y, RGWObjectCtx* obj_ctx, rgw_placement_rule** rule, rgw::sal::Attrs* attrs)
-{
-  if (!rule && !attrs) {
-    return 0;
-  }
-
-  if (rule) {
-    if (!placement.empty()) {
-      *rule = &placement;
-      if (!attrs) {
-	/* Don't need attrs, done */
-	return 0;
-      }
-    } else {
-      *rule = nullptr;
-    }
-  }
-
-  /* We need either attributes or placement, so we need a read */
-  std::unique_ptr<rgw::sal::Object> meta_obj;
-  meta_obj = get_meta_obj();
-  meta_obj->set_in_extra_data(true);
-
-  multipart_upload_info upload_info;
-  bufferlist headbl;
-
-  /* Read the obj head which contains the multipart_upload_info */
-  std::unique_ptr<rgw::sal::Object::ReadOp> read_op = meta_obj->get_read_op(obj_ctx);
-  meta_obj->set_prefetch_data(obj_ctx);
-
-  int ret = read_op->prepare(y, dpp);
-  if (ret < 0) {
-    if (ret == -ENOENT) {
-      return -ERR_NO_SUCH_UPLOAD;
-    }
-    return ret;
-  }
-
-  if (attrs) {
-    /* Attrs are filled in by prepare */
-    *attrs = meta_obj->get_attrs();
-    if (!rule || *rule != nullptr) {
-      /* placement was cached; don't actually read */
-      return 0;
-    }
-  }
-
-  /* Now read the placement from the head */
-  ret = read_op->read(0, store->ctx()->_conf->rgw_max_chunk_size, headbl, y, dpp);
-  if (ret < 0) {
-    if (ret == -ENOENT) {
-      return -ERR_NO_SUCH_UPLOAD;
-    }
-    return ret;
-  }
-
-  if (headbl.length() <= 0) {
-    return -ERR_NO_SUCH_UPLOAD;
-  }
-
-  /* Decode multipart_upload_info */
-  auto hiter = headbl.cbegin();
-  try {
-    decode(upload_info, hiter);
-  } catch (buffer::error& err) {
-    ldpp_dout(dpp, 0) << "ERROR: failed to decode multipart upload info" << dendl;
-    return -EIO;
-  }
-  placement = upload_info.dest_placement;
-  *rule = &placement;
-
-  return 0;
-}
 
 std::unique_ptr<Writer> RadosMultipartUpload::get_writer(
 				  const DoutPrefixProvider *dpp,

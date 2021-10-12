@@ -124,6 +124,24 @@ enum AttrsMod {
   ATTRSMOD_MERGE   = 2
 };
 
+struct multipart_upload_info
+{
+  rgw_placement_rule dest_placement;
+
+  void encode(bufferlist& bl) const {
+    ENCODE_START(1, 1, bl);
+    encode(dest_placement, bl);
+    ENCODE_FINISH(bl);
+  }
+
+  void decode(bufferlist::const_iterator& bl) {
+    DECODE_START(1, bl);
+    decode(dest_placement, bl);
+    DECODE_FINISH(bl);
+  }
+};
+WRITE_CLASS_ENCODER(multipart_upload_info)
+
 // a simple streaming data processing abstraction
 class DataProcessor {
  public:
@@ -803,27 +821,41 @@ public:
 
 class MultipartUpload {
 protected:
+  Store* store;
   Bucket* bucket;
   std::map<uint32_t, std::unique_ptr<MultipartPart>> parts;
+  RGWMPObj mp_obj;
+  ceph::real_time mtime;
+  rgw_placement_rule placement;
 
 public:
   MultipartUpload(Bucket* _bucket) : bucket(_bucket) {}
+  MultipartUpload(Store* _store, Bucket* _bucket, const std::string& oid, std::optional<std::string> upload_id, ceph::real_time _mtime) : store(_store), bucket(_bucket), mp_obj(oid, upload_id), mtime(_mtime) {}
+
   virtual ~MultipartUpload() = default;
 
-  virtual const std::string& get_meta() const = 0;
-  virtual const std::string& get_key() const = 0;
-  virtual const std::string& get_upload_id() const = 0;
-  virtual ceph::real_time& get_mtime() = 0;
+  virtual const std::string& get_meta() const { return mp_obj.get_meta(); }
+  virtual const std::string& get_key() const { return mp_obj.get_key(); }
+  virtual const std::string& get_upload_id() const { return mp_obj.get_upload_id(); }
+  virtual ceph::real_time& get_mtime() { return mtime; }
 
   std::map<uint32_t, std::unique_ptr<MultipartPart>>& get_parts() { return parts; }
 
-  virtual std::unique_ptr<rgw::sal::Object> get_meta_obj() = 0;
-
-  virtual int init(const DoutPrefixProvider* dpp, optional_yield y, RGWObjectCtx* obj_ctx, ACLOwner& owner, rgw_placement_rule& dest_placement, rgw::sal::Attrs& attrs) = 0;
+  virtual std::unique_ptr<rgw::sal::Object> get_meta_obj() {
+    return bucket->get_object(rgw_obj_key(get_meta(), std::string(), get_mp_ns()));
+  }
+  virtual std::unique_ptr<rgw::sal::Object> create_meta_obj(rgw::sal::Store *store, RGWMPObj& mp_obj);
+  virtual int get_sorted_omap_part_str(int marker, std::string& p);
   virtual int list_parts(const DoutPrefixProvider* dpp, CephContext* cct,
 			 int num_parts, int marker,
 			 int* next_marker, bool* truncated,
-			 bool assume_unsorted = false) = 0;
+			 bool assume_unsorted = false);
+  virtual int get_info(const DoutPrefixProvider *dpp, optional_yield y, RGWObjectCtx* obj_ctx, rgw_placement_rule** rule, rgw::sal::Attrs* attrs = nullptr);
+
+
+  virtual int init(const DoutPrefixProvider* dpp, optional_yield y, RGWObjectCtx* obj_ctx, ACLOwner& owner, rgw_placement_rule& dest_placement, rgw::sal::Attrs& attrs) = 0;
+  virtual const std::string& get_mp_ns() = 0;
+  virtual std::unique_ptr<MultipartPart> get_multipart_part(const DoutPrefixProvider* dpp, bufferlist& bl) = 0;
   virtual int abort(const DoutPrefixProvider* dpp, CephContext* cct,
 		    RGWObjectCtx* obj_ctx) = 0;
   virtual int complete(const DoutPrefixProvider* dpp,
@@ -836,9 +868,6 @@ public:
 		       uint64_t olh_epoch,
 		       rgw::sal::Object* target_obj,
 		       RGWObjectCtx* obj_ctx) = 0;
-
-  virtual int get_info(const DoutPrefixProvider *dpp, optional_yield y, RGWObjectCtx* obj_ctx, rgw_placement_rule** rule, rgw::sal::Attrs* attrs = nullptr) = 0;
-
   virtual std::unique_ptr<Writer> get_writer(const DoutPrefixProvider *dpp,
 			  optional_yield y,
 			  std::unique_ptr<rgw::sal::Object> _head_obj,

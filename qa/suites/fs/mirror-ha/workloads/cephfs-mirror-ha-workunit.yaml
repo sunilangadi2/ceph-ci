@@ -1,0 +1,17 @@
+meta:
+- desc: run the cephfs_mirror_ha.sh workunit to test cephfs-mirror daemon in HA active/active mode
+
+overrides:
+  ceph:
+    conf:
+      mgr:
+        debug client: 10
+
+tasks:
+  - cephfs_mirror_thrash:
+      randomize: False
+      max_thrash_delay: 10
+  - workunit:
+      clients:
+        client.mirror1: [fs/cephfs_mirror_ha.sh]
+    timeout: 3h

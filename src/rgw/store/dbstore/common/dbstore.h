@@ -87,12 +87,15 @@ struct DBOpObjectInfo {
   string min_marker;
   string max_marker;
   list<rgw_bucket_dir_entry> list_entries;
+  /* Below used to update mp_parts obj name
+   * from meta object to src object on completion */
+  rgw_obj_key new_obj_key;
 };
 
 struct DBOpObjectDataInfo {
   RGWObjState state;
   uint64_t part_num;
-  uint64_t multipart_part_num;
+  string multipart_part_str;
   uint64_t offset;
   uint64_t size;
   bufferlist data{};
@@ -260,6 +263,11 @@ struct DBOpObjectPrepareInfo {
   string head_data = ":head_data";
   string min_marker = ":min_marker";
   string max_marker = ":max_marker";
+  /* Below used to update mp_parts obj name
+   * from meta object to src object on completion */
+  string new_obj_name = ":new_obj_name";
+  string new_obj_instance = ":new_obj_instance";
+  string new_obj_ns  = ":new_obj_ns";
 };
 
 struct DBOpObjectDataPrepareInfo {
@@ -267,7 +275,7 @@ struct DBOpObjectDataPrepareInfo {
   string offset = ":offset";
   string data = ":data";
   string size = ":size";
-  string multipart_part_num = ":multipart_part_num";
+  string multipart_part_str = ":multipart_part_str";
 };
 
 struct DBOpPrepareInfo {
@@ -317,6 +325,7 @@ class ObjectOp {
     class UpdateObjectOp *UpdateObject;
     class ListBucketObjectsOp *ListBucketObjects;
     class PutObjectDataOp *PutObjectData;
+    class UpdateObjectDataOp *UpdateObjectData;
     class GetObjectDataOp *GetObjectData;
     class DeleteObjectDataOp *DeleteObjectData;
 
@@ -510,8 +519,8 @@ class DBOp {
       REFERENCES '{}' (BucketName) ON DELETE CASCADE ON UPDATE CASCADE \n);";
 
     const string CreateObjectDataTableQ =
-      /* Extra field 'MultipartPartNum' added which signifies multipart upload
-       * part number.  For regular object, it is '0'
+      /* Extra field 'MultipartPartStr' added which signifies multipart
+       * <uploadid + partnum>. For regular object, it is '0.0'
        *
        *  - part: a collection of stripes that make a contiguous part of an
        object. A regular object will only have one part (although might have
@@ -524,12 +533,12 @@ class DBOp {
       ObjInstance TEXT, \
       ObjNS TEXT, \
       BucketName TEXT NOT NULL , \
+      MultipartPartStr TEXT, \
       PartNum  INTEGER NOT NULL, \
       Offset   INTEGER, \
-      Data     BLOB,             \
       Size 	 INTEGER, \
-      MultipartPartNum INTEGER, \
-      PRIMARY KEY (ObjName, BucketName, ObjInstance, MultipartPartNum, PartNum), \
+      Data     BLOB,             \
+      PRIMARY KEY (ObjName, BucketName, ObjInstance, MultipartPartStr, PartNum), \
       FOREIGN KEY (BucketName, ObjName, ObjInstance) \
       REFERENCES '{}' (BucketName, ObjName, ObjInstance) ON DELETE CASCADE ON UPDATE CASCADE \n);";
 
@@ -1057,7 +1066,7 @@ class PutObjectDataOp: public DBOp {
   private:
     const string Query =
       "INSERT OR REPLACE INTO '{}' \
-      (ObjName, ObjInstance, ObjNS, BucketName, PartNum, Offset, Data, Size, MultipartPartNum) \
+      (ObjName, ObjInstance, ObjNS, BucketName, MultipartPartStr, PartNum, Offset, Size, Data) \
       VALUES ({}, {}, {}, {}, {}, {}, {}, {}, {})";
 
   public:
@@ -1069,18 +1078,41 @@ class PutObjectDataOp: public DBOp {
           params.op.obj.obj_name, params.op.obj.obj_instance,
           params.op.obj.obj_ns,
           params.op.bucket.bucket_name.c_str(),
+          params.op.obj_data.multipart_part_str.c_str(),
           params.op.obj_data.part_num,
-          params.op.obj_data.offset.c_str(), params.op.obj_data.data.c_str(),
-          params.op.obj_data.size, params.op.obj_data.multipart_part_num);
+          params.op.obj_data.offset.c_str(),
+          params.op.obj_data.size,
+          params.op.obj_data.data.c_str());
     }
 };
 
+class UpdateObjectDataOp: public DBOp {
+  private:
+    const string Query =
+      "UPDATE '{}' \
+      SET ObjName = {}, ObjInstance = {}, ObjNS = {} \
+      WHERE ObjName = {} and ObjInstance = {} and ObjNS = {} and \
+      BucketName = {}";
+
+  public:
+    virtual ~UpdateObjectDataOp() {}
+
+    string Schema(DBOpPrepareParams &params) {
+      return fmt::format(Query.c_str(),
+          params.objectdata_table.c_str(),
+          params.op.obj.new_obj_name, params.op.obj.new_obj_instance,
+          params.op.obj.new_obj_ns,
+          params.op.obj.obj_name, params.op.obj.obj_instance,
+          params.op.obj.obj_ns,
+          params.op.bucket.bucket_name.c_str());
+    }
+};
 class GetObjectDataOp: public DBOp {
   private:
     const string Query =
       "SELECT  \
-      ObjName, ObjInstance, ObjNS, BucketName, PartNum, Offset, Data, Size, \
-      MultipartPartNum from '{}' where BucketName = {} and ObjName = {} and ObjInstance = {}";
+      ObjName, ObjInstance, ObjNS, BucketName, MultipartPartStr, PartNum, Offset, Size, Data \
+      from '{}' where BucketName = {} and ObjName = {} and ObjInstance = {} ORDER BY MultipartPartStr, PartNum";
 
   public:
     virtual ~GetObjectDataOp() {}
@@ -1274,23 +1306,23 @@ class DB {
     void gen_rand_obj_instance_name(rgw_obj_key *target_key);
 
     // db raw obj string is of format -
-    // "<bucketname>_<objname>_<objinstance>_<multipart-partnum>_<partnum>"
+    // "<bucketname>_<objname>_<objinstance>_<multipart-part-str>_<partnum>"
     const string raw_obj_oid = "{0}_{1}_{2}_{3}_{4}";
 
     inline string to_oid(const string& bucket, const string& obj_name, const string& obj_instance,
-        uint64_t mp_num, uint64_t partnum) {
-      string s = fmt::format(raw_obj_oid.c_str(), bucket, obj_name, obj_instance, mp_num, partnum);
+        string mp_str, uint64_t partnum) {
+      string s = fmt::format(raw_obj_oid.c_str(), bucket, obj_name, obj_instance, mp_str, partnum);
       return s;
     }
     inline int from_oid(const string& oid, string& bucket, string& obj_name,
         string& obj_instance,
-        uint64_t& mp_num, uint64_t& partnum) {
+        string& mp_str, uint64_t& partnum) {
       vector<std::string> result;
       boost::split(result, oid, boost::is_any_of("_"));
       bucket = result[0];
       obj_name = result[1];
       obj_instance = result[2];
-      mp_num = stoi(result[3]);
+      mp_str = result[3];
       partnum = stoi(result[4]);
 
       return 0;
@@ -1303,7 +1335,7 @@ class DB {
       string obj_name;
       string obj_instance;
       string obj_ns;
-      uint64_t multipart_partnum;
+      string multipart_part_str;
       uint64_t part_num;
 
       string obj_table;
@@ -1314,13 +1346,13 @@ class DB {
       }
 
       raw_obj(DB* _db, string& _bname, string& _obj_name, string& _obj_instance,
-          string& _obj_ns, int _mp_partnum, int _part_num) {
+          string& _obj_ns, string _mp_part_str, int _part_num) {
         db = _db;
         bucket_name = _bname;
         obj_name = _obj_name;
         obj_instance = _obj_instance;
         obj_ns = _obj_ns;
-        multipart_partnum = _mp_partnum;
+        multipart_part_str = _mp_part_str;
         part_num = _part_num;
 
         obj_table = bucket_name+".object.table";
@@ -1331,10 +1363,10 @@ class DB {
         int r;
 
         db = _db;
-        r = db->from_oid(oid, bucket_name, obj_name, obj_instance, multipart_partnum,
+        r = db->from_oid(oid, bucket_name, obj_name, obj_instance, multipart_part_str,
             part_num);
         if (r < 0) {
-          multipart_partnum = 0;
+          multipart_part_str = "0.0";
           part_num = 0;
         }
 
@@ -1467,6 +1499,7 @@ class DB {
       struct Write {
         DB::Object *target;
         RGWObjState obj_state;
+        string mp_part_str = "0.0"; // multipart num
 
         struct MetaParams {
           ceph::real_time *mtime;
@@ -1498,6 +1531,7 @@ class DB {
 
         explicit Write(DB::Object *_target) : target(_target) {}
 
+        void set_mp_part_str(string _mp_part_str) { mp_part_str = _mp_part_str;}
         int prepare(const DoutPrefixProvider* dpp);
         int write_data(const DoutPrefixProvider* dpp,
                                bufferlist& data, uint64_t ofs);
@@ -1507,6 +1541,11 @@ class DB {
             bool assume_noent, bool modify_tail);
         int write_meta(const DoutPrefixProvider *dpp, uint64_t size,
             uint64_t accounted_size, map<string, bufferlist>& attrs);
+        /* Below are used to update mp data rows object name
+         * from meta to src object name on multipart upload
+         * completion
+         */
+        int update_mp_parts(const DoutPrefixProvider *dpp, rgw_obj_key new_obj_key);
       };
 
       struct Delete {

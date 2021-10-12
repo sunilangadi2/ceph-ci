@@ -336,6 +336,24 @@ class SQLPutObjectData : public SQLiteDB, public PutObjectDataOp {
     int Bind(const DoutPrefixProvider *dpp, DBOpParams *params);
 };
 
+class SQLUpdateObjectData : public SQLiteDB, public UpdateObjectDataOp {
+  private:
+    sqlite3 **sdb = NULL;
+    sqlite3_stmt *stmt = NULL; // Prepared statement
+
+  public:
+    SQLUpdateObjectData(void **db, string db_name, CephContext *cct) : SQLiteDB((sqlite3 *)(*db), db_name, cct), sdb((sqlite3 **)db) {}
+    SQLUpdateObjectData(sqlite3 **sdbi, string db_name, CephContext *cct) : SQLiteDB(*sdbi, db_name, cct), sdb(sdbi) {}
+
+    ~SQLUpdateObjectData() {
+      if (stmt)
+        sqlite3_finalize(stmt);
+    }
+    int Prepare(const DoutPrefixProvider *dpp, DBOpParams *params);
+    int Execute(const DoutPrefixProvider *dpp, DBOpParams *params);
+    int Bind(const DoutPrefixProvider *dpp, DBOpParams *params);
+};
+
 class SQLGetObjectData : public SQLiteDB, public GetObjectDataOp {
   private:
     sqlite3 **sdb = NULL;

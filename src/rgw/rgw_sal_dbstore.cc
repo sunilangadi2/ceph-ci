@@ -578,7 +578,7 @@ namespace rgw::sal {
 
   MPSerializer* DBObject::get_serializer(const DoutPrefixProvider *dpp, const std::string& lock_name)
   {
-    return nullptr;
+    return new MPDBSerializer(dpp, store, this, lock_name);
   }
 
   int DBObject::transition(RGWObjectCtx& rctx,
@@ -761,6 +761,378 @@ namespace rgw::sal {
       const DoutPrefixProvider* dpp,
       optional_yield y)
   {
+    return 0;
+  }
+
+  std::unique_ptr<MultipartPart> DBMultipartUpload::get_multipart_part(const DoutPrefixProvider* dpp, bufferlist& bl)
+  {
+    auto bli = bl.cbegin();
+    RGWUploadPartInfo info;
+    try {
+      decode(info, bli);
+    } catch (buffer::error& err) {
+      ldpp_dout(dpp, 0) << "ERROR: could not part info, caught buffer::error" <<
+	  dendl;
+      return nullptr;
+    }
+    return std::make_unique<DBMultipartPart>(info);
+  }
+
+  int DBMultipartUpload::abort(const DoutPrefixProvider *dpp, CephContext *cct,
+				RGWObjectCtx *obj_ctx)
+  {
+    std::unique_ptr<rgw::sal::Object> meta_obj = get_meta_obj();
+ 
+    int ret;
+
+    std::unique_ptr<rgw::sal::Object::DeleteOp> del_op = meta_obj->get_delete_op(obj_ctx);
+    // Since the data objects are associated with meta obj till
+    // MultipartUpload::Complete() is done, removing the metadata obj
+    // should remove all the uploads so far.
+    ret = del_op->delete_obj(dpp, null_yield);
+    if (ret < 0) {
+      ldpp_dout(dpp, 20) << __func__ << ": del_op.delete_obj returned " <<
+        ret << dendl;
+    }
+    return (ret == -ENOENT) ? -ERR_NO_SUCH_UPLOAD : ret;
+  }
+
+  static string mp_ns = RGW_OBJ_NS_MULTIPART;
+
+  std::string& DBMultipartUpload::get_mp_ns() { return mp_ns;}
+
+  int DBMultipartUpload::init(const DoutPrefixProvider *dpp, optional_yield y, RGWObjectCtx* obj_ctx, ACLOwner& owner, rgw_placement_rule& dest_placement, rgw::sal::Attrs& attrs)
+  {
+    int ret;
+
+    do {
+      std::unique_ptr<rgw::sal::Object> obj = create_meta_obj(store, mp_obj);
+
+    DB::Object op_target(store->getDB(),
+	  		       obj->get_bucket()->get_info(),
+			       obj->get_obj());
+    DB::Object::Write obj_op(&op_target);
+
+    obj_op.meta.owner = owner.get_id();
+    obj_op.meta.category = RGWObjCategory::MultiMeta;
+    obj_op.meta.flags = PUT_OBJ_CREATE_EXCL;
+    obj_op.meta.mtime = &mtime;
+
+    multipart_upload_info upload_info;
+    upload_info.dest_placement = dest_placement;
+
+    bufferlist bl;
+    encode(upload_info, bl);
+    obj_op.meta.data = &bl; 
+    ret = obj_op.prepare(dpp);
+    if (ret < 0)
+      return ret;
+    ret = obj_op.write_meta(dpp, bl.length(), bl.length(), attrs);
+    } while (ret == -EEXIST);
+
+    return ret;
+  }
+
+  int DBMultipartUpload::complete(const DoutPrefixProvider *dpp,
+				   optional_yield y, CephContext* cct,
+				   map<int, string>& part_etags,
+				   list<rgw_obj_index_key>& remove_objs,
+				   uint64_t& accounted_size, bool& compressed,
+				   RGWCompressionInfo& cs_info, off_t& ofs,
+				   std::string& tag, ACLOwner& owner,
+				   uint64_t olh_epoch,
+				   rgw::sal::Object* target_obj,
+				   RGWObjectCtx* obj_ctx)
+  {
+    char final_etag[CEPH_CRYPTO_MD5_DIGESTSIZE];
+    char final_etag_str[CEPH_CRYPTO_MD5_DIGESTSIZE * 2 + 16];
+    std::string etag;
+    bufferlist etag_bl;
+    MD5 hash;
+    bool truncated;
+    int ret;
+
+    int total_parts = 0;
+    int handled_parts = 0;
+    int max_parts = 1000;
+    int marker = 0;
+    uint64_t min_part_size = cct->_conf->rgw_multipart_min_part_size; // XXX: make it dbstore configurable
+    auto etags_iter = part_etags.begin();
+    rgw::sal::Attrs attrs = target_obj->get_attrs();
+
+    ofs = 0;
+    accounted_size = 0;
+    do {
+      ret = list_parts(dpp, cct, max_parts, marker, &marker, &truncated);
+      if (ret == -ENOENT) {
+        ret = -ERR_NO_SUCH_UPLOAD;
+      }
+      if (ret < 0)
+        return ret;
+
+      total_parts += parts.size();
+      if (!truncated && total_parts != (int)part_etags.size()) {
+        ldpp_dout(dpp, 0) << "NOTICE: total parts mismatch: have: " << total_parts
+		       << " expected: " << part_etags.size() << dendl;
+        ret = -ERR_INVALID_PART;
+        return ret;
+      }
+
+      for (auto obj_iter = parts.begin(); etags_iter != part_etags.end() && obj_iter != parts.end(); ++etags_iter, ++obj_iter, ++handled_parts) {
+        DBMultipartPart* part = dynamic_cast<rgw::sal::DBMultipartPart*>(obj_iter->second.get());
+        uint64_t part_size = part->get_size();
+        if (handled_parts < (int)part_etags.size() - 1 &&
+            part_size < min_part_size) {
+          ret = -ERR_TOO_SMALL;
+          return ret;
+        }
+
+        char petag[CEPH_CRYPTO_MD5_DIGESTSIZE];
+        if (etags_iter->first != (int)obj_iter->first) {
+          ldpp_dout(dpp, 0) << "NOTICE: parts num mismatch: next requested: "
+		  	 << etags_iter->first << " next uploaded: "
+			 << obj_iter->first << dendl;
+          ret = -ERR_INVALID_PART;
+          return ret;
+        }
+        string part_etag = rgw_string_unquote(etags_iter->second);
+        if (part_etag.compare(part->get_etag()) != 0) {
+          ldpp_dout(dpp, 0) << "NOTICE: etag mismatch: part: " << etags_iter->first
+			 << " etag: " << etags_iter->second << dendl;
+          ret = -ERR_INVALID_PART;
+          return ret;
+        }
+
+        hex_to_buf(part->get_etag().c_str(), petag,
+		  CEPH_CRYPTO_MD5_DIGESTSIZE);
+        hash.Update((const unsigned char *)petag, sizeof(petag));
+
+        RGWUploadPartInfo& obj_part = part->info;
+
+        ofs += obj_part.size;
+        accounted_size += obj_part.accounted_size;
+      }
+    } while (truncated);
+    hash.Final((unsigned char *)final_etag);
+
+    buf_to_hex((unsigned char *)final_etag, sizeof(final_etag), final_etag_str);
+    snprintf(&final_etag_str[CEPH_CRYPTO_MD5_DIGESTSIZE * 2],
+	     sizeof(final_etag_str) - CEPH_CRYPTO_MD5_DIGESTSIZE * 2,
+           "-%lld", (long long)part_etags.size());
+    etag = final_etag_str;
+    ldpp_dout(dpp, 10) << "calculated etag: " << etag << dendl;
+
+    etag_bl.append(etag);
+
+    attrs[RGW_ATTR_ETAG] = etag_bl;
+
+    /* Create original head object & rename multipart meta
+     * object data with original object name..
+     * i.e, from 'head_obj.name + "." + upload_id' to
+     * head_obj.name */
+
+    DB::Object op_target(store->getDB(),
+			     target_obj->get_bucket()->get_info(),
+			     target_obj->get_obj());
+    DB::Object::Write obj_op(&op_target);
+
+    obj_op.prepare(NULL);
+
+    std::unique_ptr<rgw::sal::Object> meta_obj = get_meta_obj();
+    DB::Object meta_op_target(store->getDB(),
+			     meta_obj->get_bucket()->get_info(),
+			     meta_obj->get_obj());
+    DB::Object::Write mp_op(&meta_op_target);
+    mp_op.update_mp_parts(dpp, target_obj->get_obj().key);
+
+    obj_op.meta.ptag = &tag; /* use req_id as operation tag */
+    obj_op.meta.owner = owner.get_id();
+    obj_op.meta.flags = PUT_OBJ_CREATE;
+    obj_op.meta.modify_tail = true;
+    obj_op.meta.completeMultipart = true;
+    obj_op.meta.olh_epoch = olh_epoch;
+
+    ret = obj_op.write_meta(dpp, ofs, accounted_size, attrs);
+    if (ret < 0)
+      return ret;
+
+    /* Meta obj is deleted as part of
+     * RGWCompleteMultipart::execute->meta_obj->delete() */
+    return ret;
+  }
+
+  std::unique_ptr<Writer> DBMultipartUpload::get_writer(
+				  const DoutPrefixProvider *dpp,
+				  optional_yield y,
+				  std::unique_ptr<rgw::sal::Object> _head_obj,
+				  const rgw_user& owner, RGWObjectCtx& obj_ctx,
+				  const rgw_placement_rule *ptail_placement_rule,
+				  uint64_t part_num,
+				  const std::string& part_num_str)
+  {
+    return std::make_unique<DBMultipartWriter>(dpp, y, this,
+				 std::move(_head_obj), store, owner,
+				 obj_ctx, ptail_placement_rule, part_num, part_num_str);
+  }
+
+  DBMultipartWriter::DBMultipartWriter(const DoutPrefixProvider *dpp,
+	    	    optional_yield y,
+                MultipartUpload* upload,
+		        std::unique_ptr<rgw::sal::Object> _head_obj,
+		        DBStore* _store,
+    		    const rgw_user& _owner, RGWObjectCtx& obj_ctx,
+	    	    const rgw_placement_rule *_ptail_placement_rule,
+                uint64_t _part_num, const std::string& _part_num_str):
+    			Writer(dpp, y),
+	    		store(_store),
+                owner(_owner),
+                ptail_placement_rule(_ptail_placement_rule),
+                head_obj(std::move(_head_obj)),
+                upload_id(upload->get_upload_id()),
+                oid(head_obj->get_name() + "." + upload_id +
+                    "." + std::to_string(part_num)),
+                meta_obj(((DBMultipartUpload*)upload)->get_meta_obj()),
+                op_target(_store->getDB(), meta_obj->get_bucket()->get_info(), meta_obj->get_obj()),
+                parent_op(&op_target), part_num(_part_num),
+                part_num_str(_part_num_str) { parent_op.prepare(NULL);}
+
+  int DBMultipartWriter::prepare(optional_yield y)
+  {
+    parent_op.set_mp_part_str(upload_id + "." + std::to_string(part_num));
+    // XXX: do we need to handle part_num_str??
+    return 0;
+  }
+
+  int DBMultipartWriter::process(bufferlist&& data, uint64_t offset)
+  {
+    /* XXX: same as AtomicWriter..consolidate code */
+    total_data_size += data.length();
+
+    /* XXX: Optimize all bufferlist copies in this function */
+
+    /* copy head_data into meta. But for multipart we do not
+     * need to write head_data */
+    uint64_t max_chunk_size = store->getDB()->get_max_chunk_size();
+    int excess_size = 0;
+
+    /* Accumulate tail_data till max_chunk_size or flush op */
+    bufferlist tail_data;
+
+    if (data.length() != 0) {
+        parent_op.meta.data = &head_data; /* Null data ?? */
+
+      /* handle tail )parts.
+       * First accumulate and write data into dbstore in its chunk_size
+       * parts
+       */
+      if (!tail_part_size) { /* new tail part */
+        tail_part_offset = offset;
+      }
+      data.begin(0).copy(data.length(), tail_data);
+      tail_part_size += tail_data.length();
+      tail_part_data.append(tail_data);
+
+      if (tail_part_size < max_chunk_size)  {
+        return 0;
+      } else {
+        int write_ofs = 0;
+        while (tail_part_size >= max_chunk_size) {
+          excess_size = tail_part_size - max_chunk_size;
+          bufferlist tmp;
+          tail_part_data.begin(write_ofs).copy(max_chunk_size, tmp);
+          /* write tail objects data */
+          int ret = parent_op.write_data(dpp, tmp, tail_part_offset);
+
+          if (ret < 0) {
+            return ret;
+          }
+
+          tail_part_size -= max_chunk_size;
+          write_ofs += max_chunk_size;
+          tail_part_offset += max_chunk_size;
+        }
+        /* reset tail parts or update if excess data */
+        if (excess_size > 0) { /* wrote max_chunk_size data */
+          tail_part_size = excess_size;
+          bufferlist tmp;
+          tail_part_data.begin(write_ofs).copy(excess_size, tmp);
+          tail_part_data = tmp;
+        } else {
+          tail_part_size = 0;
+          tail_part_data.clear();
+          tail_part_offset = 0;
+        }
+      }
+    } else {
+      if (tail_part_size == 0) {
+        return 0; /* nothing more to write */
+      }
+
+      /* flush watever tail data is present */
+      int ret = parent_op.write_data(dpp, tail_part_data, tail_part_offset);
+      if (ret < 0) {
+        return ret;
+      }
+      tail_part_size = 0;
+      tail_part_data.clear();
+      tail_part_offset = 0;
+    }
+
+    return 0;
+  }
+
+  int DBMultipartWriter::complete(size_t accounted_size, const std::string& etag,
+                       ceph::real_time *mtime, ceph::real_time set_mtime,
+                       std::map<std::string, bufferlist>& attrs,
+                       ceph::real_time delete_at,
+                       const char *if_match, const char *if_nomatch,
+                       const std::string *user_data,
+                       rgw_zone_set *zones_trace, bool *canceled,
+                       optional_yield y)
+  {
+    int ret = 0;
+    /* XXX: same as AtomicWriter..consolidate code */
+    parent_op.meta.mtime = mtime;
+    parent_op.meta.delete_at = delete_at;
+    parent_op.meta.if_match = if_match;
+    parent_op.meta.if_nomatch = if_nomatch;
+    parent_op.meta.user_data = user_data;
+    parent_op.meta.zones_trace = zones_trace;
+    
+    /* XXX: handle accounted size */
+    accounted_size = total_data_size;
+
+    if (ret < 0)
+      return ret;
+
+    // should this "constructing p" part of common code?
+    bufferlist bl;
+    RGWUploadPartInfo info;
+    string p = "part.";
+    bool sorted_omap = is_v2_upload_id(upload_id);
+
+    if (sorted_omap) {
+      char buf[32];
+      snprintf(buf, sizeof(buf), "%08d", part_num);
+      p.append(buf);
+    } else {
+      p.append(part_num_str);
+    }
+    info.num = part_num;
+    info.etag = etag;
+    info.size = total_data_size;
+    info.accounted_size = accounted_size;
+    info.modified = real_clock::now();
+
+    encode(info, bl);
+
+    meta_obj->set_in_extra_data(true);
+
+    ret = meta_obj->omap_set_val_by_key(dpp, p, bl, true, null_yield);
+    if (ret < 0) {
+      return ret == -ENOENT ? -ERR_NO_SUCH_UPLOAD : ret;
+    }
+
     return 0;
   }
 
@@ -947,7 +1319,7 @@ namespace rgw::sal {
   }
 
   std::unique_ptr<MultipartUpload> DBStore::get_multipart_upload(Bucket* bucket, const std::string& oid, std::optional<std::string> upload_id, ceph::real_time mtime) {
-    return nullptr;
+    return std::make_unique<DBMultipartUpload>(this, bucket, oid, upload_id, mtime);
   }
 
   std::unique_ptr<Writer> DBStore::get_append_writer(const DoutPrefixProvider *dpp,

@@ -1493,13 +1493,6 @@ void ProtocolV2::execute_accepting()
                         conn, ceph_entity_type_name(_peer_type),
                         conn.policy.lossy, conn.policy.server,
                         conn.policy.standby, conn.policy.resetcheck);
-          if (messenger.get_myaddr().get_port() != _my_addr_from_peer.get_port() ||
-              messenger.get_myaddr().get_nonce() != _my_addr_from_peer.get_nonce()) {
-            logger().warn("{} my_addr_from_peer {} port/nonce doesn't match myaddr {}",
-                          conn, _my_addr_from_peer, messenger.get_myaddr());
-            throw std::system_error(
-                make_error_code(crimson::net::error::bad_peer_address));
-          }
           return messenger.learned_addr(_my_addr_from_peer, conn);
         }).then([this] {
           return server_auth();

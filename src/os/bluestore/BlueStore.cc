@@ -5332,7 +5332,7 @@ void BlueStore::_close_bdev()
 }
 
 #define allocator_file (path+"/ALLOCATOR_NCB_FILE")
-
+#define NCB_NULL_FM
 int BlueStore::_open_fm(KeyValueDB::Transaction t, bool read_only, bool fm_restore)
 {
   int r;
@@ -18295,7 +18295,8 @@ int BlueStore::commit_to_null_manager()
   int ret = write_meta("NCB_freelist_manager", "NULL_FM");
   if (ret == 0) {
     // remove all objects of PREFIX_ALLOC_BITMAP from RocksDB to guarantee a clean start
-    clear_allocation_objects_from_rocksdb(db, cct, path);
+    // should check how long this step take on a big configuration as deletes are expensive
+    //clear_allocation_objects_from_rocksdb(db, cct, path);
   }
 
   return ret;

@@ -20,6 +20,8 @@
 #include "msg/async/Stack.h"
 #include "UserspaceEvent.h"
 
+using namespace std;
+
 class DPDKDriver : public EventDriver {
   CephContext *cct;
 

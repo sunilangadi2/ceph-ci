@@ -26,6 +26,7 @@
 #include "IP.h"
 #include "Packet.h"
 
+using namespace std;
 class interface;
 
 template <typename Protocol>

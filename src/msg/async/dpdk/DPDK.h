@@ -44,6 +44,7 @@
 #include "net.h"
 #include "toeplitz.h"
 
+using namespace std;
 
 struct free_deleter {
   void operator()(void* p) { ::free(p); }

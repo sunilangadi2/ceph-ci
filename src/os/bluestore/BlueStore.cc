@@ -17300,7 +17300,7 @@ int BlueStore::store_allocator(Allocator* src_allocator)
   if (ret != 0) {
     derr << "Illegal extent, fail store operation" << dendl;
     derr << "invalidate using bluefs->truncate(p_handle, 0)" << dendl;
-    
+    overwrite_allocation_file_header(filep);
     std::fclose(filep);
     //std::remove(allocator_file.c_str());
     return -1;

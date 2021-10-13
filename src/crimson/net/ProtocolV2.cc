@@ -1499,6 +1499,9 @@ void ProtocolV2::execute_accepting()
                           conn, _my_addr_from_peer, messenger.get_myaddr());
             throw std::system_error(
                 make_error_code(crimson::net::error::bad_peer_address));
+          } else {
+            logger().warn("{} my_addr_from_peer {} port/nonce DOES match myaddr {}",
+                          conn, _my_addr_from_peer, messenger.get_myaddr());
           }
           return messenger.learned_addr(_my_addr_from_peer, conn);
         }).then([this] {

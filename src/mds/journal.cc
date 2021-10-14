@@ -451,7 +451,7 @@ void EMetaBlob::update_segment(LogSegment *ls)
 // EMetaBlob::fullbit
 
 void EMetaBlob::fullbit::encode(bufferlist& bl, uint64_t features) const {
-  ENCODE_START(9, 5, bl);
+  ENCODE_START(10, 5, bl);
   encode(dn, bl);
   encode(dnfirst, bl);
   encode(dnlast, bl);
@@ -479,11 +479,12 @@ void EMetaBlob::fullbit::encode(bufferlist& bl, uint64_t features) const {
     encode(snapbl, bl);
   encode(oldest_snap, bl);
   encode(alternate_name, bl);
+  encode(fscrypt_last_block, bl);
   ENCODE_FINISH(bl);
 }
 
 void EMetaBlob::fullbit::decode(bufferlist::const_iterator &bl) {
-  DECODE_START(9, bl);
+  DECODE_START(10, bl);
   decode(dn, bl);
   decode(dnfirst, bl);
   decode(dnlast, bl);
@@ -519,6 +520,9 @@ void EMetaBlob::fullbit::decode(bufferlist::const_iterator &bl) {
   decode(oldest_snap, bl);
   if (struct_v >= 9) {
     decode(alternate_name, bl);
+  }
+  if (struct_v >= 10) {
+    decode(fscrypt_last_block, bl);
   }
   DECODE_FINISH(bl);
 }
@@ -572,10 +576,10 @@ void EMetaBlob::fullbit::generate_test_instances(std::list<EMetaBlob::fullbit*>&
   auto _inode = CInode::allocate_inode();
   fragtree_t fragtree;
   auto _xattrs = CInode::allocate_xattr_map();
-  bufferlist empty_snapbl;
+  bufferlist empty_snapbl, empty_fscrypt_last_block;
   fullbit *sample = new fullbit("/testdn", "", 0, 0, 0,
                                 _inode, fragtree, _xattrs, "", 0, empty_snapbl,
-                                false, NULL);
+                                false, NULL, empty_fscrypt_last_block);
   ls.push_back(sample);
 }
 

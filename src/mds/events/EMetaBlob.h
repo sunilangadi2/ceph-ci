@@ -67,6 +67,7 @@ public:
     static const int STATE_EPHEMERAL_RANDOM = (1<<4);
     std::string  dn;         // dentry
     std::string alternate_name;
+    bufferlist fscrypt_last_block;
     snapid_t dnfirst, dnlast;
     version_t dnv{0};
     CInode::inode_const_ptr inode;      // if it's not XXX should not be part of mempool; wait for std::pmr to simplify
@@ -82,7 +83,7 @@ public:
 	    version_t v, const CInode::inode_const_ptr& i, const fragtree_t &dft,
 	    const CInode::xattr_map_const_ptr& xa, std::string_view sym,
 	    snapid_t os, const bufferlist &sbl, __u8 st,
-	    const CInode::old_inode_map_const_ptr& oi) :
+	    const CInode::old_inode_map_const_ptr& oi, const bufferlist &flb) :
       dn(d), alternate_name(an), dnfirst(df), dnlast(dl), dnv(v), inode(i), xattrs(xa),
       oldest_snap(os), state(st), old_inodes(oi)
     {
@@ -91,6 +92,7 @@ public:
       if (i->is_dir())
 	dirfragtree = dft;
       snapbl = sbl;
+      fscrypt_last_block = flb;
     }
     explicit fullbit(bufferlist::const_iterator &p) {
       decode(p);
@@ -470,9 +472,10 @@ private:
       sr->encode(snapbl);
 
     lump.nfull++;
-    lump.add_dfull(dn->get_name(), dn->get_alternate_name(), dn->first, dn->last, dn->get_projected_version(),
-		   pi, in->dirfragtree, in->get_projected_xattrs(), in->symlink,
-		   in->oldest_snap, snapbl, state, in->get_old_inodes());
+    lump.add_dfull(dn->get_name(), dn->get_alternate_name(), dn->first, dn->last,
+                   dn->get_projected_version(), pi, in->dirfragtree,
+                   in->get_projected_xattrs(), in->symlink, in->oldest_snap, snapbl,
+                   state, in->get_old_inodes(), pi->fscrypt_last_block);
 
     // make note of where this inode was last journaled
     in->last_journaled = event_seq;
@@ -528,9 +531,10 @@ private:
     }
 
     std::string empty;
+    bufferlist empty_plb;
     roots.emplace_back(empty, "", in->first, in->last, 0, pi, pdft, px, in->symlink,
 		       in->oldest_snap, snapbl, (dirty ? fullbit::STATE_DIRTY : 0),
-		       in->get_old_inodes());
+		       in->get_old_inodes(), empty_plb);
   }
   
   dirlump& add_dir(CDir *dir, bool dirty, bool complete=false) {

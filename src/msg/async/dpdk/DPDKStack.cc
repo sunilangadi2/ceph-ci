@@ -263,7 +263,7 @@ void DPDKStack::spawn_worker(std::function<void ()> &&func)
       break;
     }
   }
-  void *adapted_func = static_cast<void*>(funcs.back());
+  void *adapted_func = static_cast<void*>(&funcs.back());
   dpdk::eal::execute_on_master([adapted_func, core_id, this]() {
     int r = rte_eal_remote_launch(dpdk_thread_adaptor, adapted_func, core_id);
     if (r < 0) {

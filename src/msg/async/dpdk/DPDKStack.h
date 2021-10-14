@@ -26,6 +26,7 @@
 #include "IP.h"
 #include "Packet.h"
 
+using namespace std;
 class interface;
 
 template <typename Protocol>
@@ -254,8 +255,9 @@ class DPDKStack : public NetworkStack {
   }
 
  public:
-  explicit DPDKStack(CephContext *cct): NetworkStack(cct)
-  {}
+  explicit DPDKStack(CephContext *cct): NetworkStack(cct) {
+    funcs.reserve(cct->_conf->ms_async_op_threads);
+  }
   virtual bool support_local_listen_table() const override { return true; }
 
   virtual void spawn_worker(std::function<void ()> &&func) override;

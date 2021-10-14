@@ -118,8 +118,8 @@ int RadosWriter::write_exclusive(const bufferlist& data)
   const uint64_t cost = data.length();
 
   librados::ObjectWriteOperation op;
-  add_write_hint(op);
   op.create(true); // exclusive create
+  add_write_hint(op);
   op.write_full(data);
 
   constexpr uint64_t id = 0; // unused

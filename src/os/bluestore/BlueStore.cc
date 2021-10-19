@@ -13125,6 +13125,10 @@ void BlueStore::_clean_some(ghobject_t oid, uint32_t zone)
 	   << dendl;
 
   CollectionRef cref = _get_collection_by_oid(oid);
+  if (!cref) {
+    dout(10) << __func__ << " can't find collection for " << oid << dendl;
+    return;
+  }
   Collection *c = cref.get();
 
   // serialize io dispatch vs other transactions
@@ -13133,7 +13137,7 @@ void BlueStore::_clean_some(ghobject_t oid, uint32_t zone)
 
   auto o = c->get_onode(oid, false);
   if (!o) {
-    derr << __func__ << " can't find " << oid << dendl;
+    dout(10) << __func__ << " can't find " << oid << dendl;
     return;
   }
 

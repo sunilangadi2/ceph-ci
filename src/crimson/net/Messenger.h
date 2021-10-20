@@ -56,10 +56,7 @@ public:
   entity_type_t get_mytype() const { return my_name.type(); }
   const entity_name_t& get_myname() const { return my_name; }
   const entity_addrvec_t& get_myaddrs() const { return my_addrs; }
-  entity_addr_t get_myaddr() const {
-    assert(!my_addrs.empty());
-    return my_addrs.front();
-  }
+  entity_addr_t get_myaddr() const { return my_addrs.front(); }
   virtual seastar::future<> set_myaddrs(const entity_addrvec_t& addrs) {
     my_addrs = addrs;
     return seastar::now();

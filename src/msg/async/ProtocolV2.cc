@@ -1015,6 +1015,21 @@ CtPtr ProtocolV2::handle_hello(ceph::bufferlist &payload)
       return nullptr;
     }
   }
+  if (state == HELLO_ACCEPTING) {
+    if (messenger->get_myaddrs().front().get_port() != hello.peer_addr().get_port() ||
+        messenger->get_myaddrs().front().get_nonce() != hello.peer_addr().get_nonce()) {
+      ldout(cct, 1) << __func__ << " my_addr_from_peer " << hello.peer_addr()
+                    << " port/nonce doesn't match myaddr {}" << messenger->get_myaddrs().front()
+                    << dendl;
+      ceph_abort();
+    } else {
+      ldout(cct, 1) << __func__ << " my_addr_from_peer " << hello.peer_addr()
+                    << " port/nonce DOES match myaddr {}" << messenger->get_myaddrs().front()
+                    << dendl;
+    }
+    ceph_assert(!messenger->get_myaddrs().empty());
+    ceph_assert(!messenger->get_myaddrs().front().is_blank_ip());
+  }
 
   if (messenger->get_myaddrs().empty() ||
       messenger->get_myaddrs().front().is_blank_ip()) {

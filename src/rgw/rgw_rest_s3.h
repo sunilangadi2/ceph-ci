@@ -995,7 +995,7 @@ private:
 
   int handle_aws_cli_parameters(std::string& sql_query);
 
-  int range_request(int64_t start,int64_t len,void *,optional_yield*);
+  int range_request(int64_t start,int64_t len,void *,optional_yield);
 
   size_t get_obj_size();
   std::function<int(int64_t,int64_t,void*,optional_yield*)> fp_range_req;

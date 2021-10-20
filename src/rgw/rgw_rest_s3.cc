@@ -6135,7 +6135,6 @@ const char* RGWSelectObj_ObjStore_S3::header_value_str[3] = {"Records", "applica
 
 RGWSelectObj_ObjStore_S3::RGWSelectObj_ObjStore_S3():
   s3select_syntax(std::make_unique<s3selectEngine::s3select>()),
-  m_s3select_query(""),
   m_s3_csv_object(std::unique_ptr<s3selectEngine::csv_object>()),
   m_s3_parquet_object(std::unique_ptr<s3selectEngine::parquet_object>()),
   m_buff_header(std::make_unique<char[]>(1000)),
@@ -6147,10 +6146,10 @@ RGWSelectObj_ObjStore_S3::RGWSelectObj_ObjStore_S3():
   m_rgw_api = std::unique_ptr<s3selectEngine::rgw_s3select_api>(new s3selectEngine::rgw_s3select_api );
   fp_get_obj_size = [&]() { return get_obj_size(); };
 
-  fp_range_req = [&](int64_t start, int64_t len, void *buff,optional_yield* y)
+  fp_range_req = [&](int64_t start, int64_t len, void *buff, optional_yield* y)
   { 
     ldout(s->cct, 10) << "S3select: range-request start: " << start << " length: " << len << dendl;
-    auto status = range_request(start, len, buff, y); 
+    auto status = range_request(start, len, buff, *y); 
 
     return status;
   }; 
@@ -6504,7 +6503,7 @@ size_t RGWSelectObj_ObjStore_S3::get_obj_size()
   return s->obj_size;
 }
 
-int RGWSelectObj_ObjStore_S3::range_request(int64_t ofs, int64_t len,void *buff,optional_yield* y)
+int RGWSelectObj_ObjStore_S3::range_request(int64_t ofs, int64_t len, void *buff, optional_yield y)
 {
   //purpose: implementation for arrow::ReadAt, this may take several async calls.
   //send_response_date(call_back) accumulate buffer, upon completion it signal future.
@@ -6528,7 +6527,7 @@ int RGWSelectObj_ObjStore_S3::range_request(int64_t ofs, int64_t len,void *buff,
     return -1;
   }
 
-  RGWGetObj::execute(*y);
+  RGWGetObj::execute(y);
 
   range_request_complete_future.wait(); //wait until whole range is retrieved //TODO timeout
 
@@ -6552,10 +6551,11 @@ void RGWSelectObj_ObjStore_S3::execute(optional_yield y)
 
   if (m_parquet_type)
   {
-    range_request(0, 4, parquet_magic,&y);
+    range_request(0, 4, parquet_magic, y);
     
     if(memcmp(parquet_magic, parquet_magic1, 4) && memcmp(parquet_magic, parquet_magicE, 4)){
-      ldout(s->cct, 10) << s->object->get_name() << " not contains parquet magic " << dendl;
+      ldout(s->cct, 10) << s->object->get_name() << " does not contain parquet magic" << dendl;
+      op_ret = -ERR_INVALID_REQUEST;
       return;
     }
 
@@ -6566,6 +6566,7 @@ void RGWSelectObj_ObjStore_S3::execute(optional_yield y)
     if (status)
     {
       ldout(s->cct, 10) << "S3select: failed to process query <" << m_sql_query << "> on object " << s->object->get_name() << dendl;
+      op_ret = -ERR_INVALID_REQUEST;
     }
     else
     {

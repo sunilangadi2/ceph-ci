@@ -434,7 +434,7 @@ if(WITH_JAEGER)
   find_package(yaml-cpp 0.6.0 REQUIRED)
   include(BuildJaeger)
   list(APPEND jaeger_base
-  opentracing::libopentracing
+  opentelemetry::libopentelemetry
   jaegertracing::libjaegertracing)
 
   build_jaeger()
@@ -446,7 +446,7 @@ if(WITH_JAEGER)
   add_dependencies(common-objs ${jaeger_base})
   target_link_libraries(jaeger-base INTERFACE
     yaml-cpp::yaml-cpp
-    opentracing::libopentracing
+    opentelemetry::libopentelemetry
     thrift::libthrift
     jaegertracing::libjaegertracing)
 

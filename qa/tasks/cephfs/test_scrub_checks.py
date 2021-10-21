@@ -176,7 +176,7 @@ done
 
         log.info("Waiting for promotion of one of the original standbys {0}".format(
             original_standbys))
-        self.wait_until_true(promoted, timeout=grace*2)
+        self.wait_until_true(promoted, timeout=grace*2+15)
 
         self._check_task_status_na()
 

@@ -2,6 +2,8 @@
 # -*- mode:sh; tab-width:4; sh-basic-offset:4; indent-tabs-mode:nil -*-
 # vim: softtabstop=4 shiftwidth=4 expandtab
 
+# dummy line
+
 # abort on failure
 set -e
 

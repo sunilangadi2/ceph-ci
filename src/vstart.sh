@@ -3,6 +3,7 @@
 # vim: softtabstop=4 shiftwidth=4 expandtab
 
 # dummy line
+# dummy line
 
 # abort on failure
 set -e

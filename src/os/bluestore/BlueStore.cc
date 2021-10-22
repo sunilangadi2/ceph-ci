@@ -6292,7 +6292,8 @@ int BlueStore::_open_db(bool create, bool to_repair_db, bool read_only)
 
 void BlueStore::_close_db(bool cold_close)
 {
-  ceph_assert(db);
+  dout(1) << __func__ <<  " db=" << (void*)db << dendl;
+  //ceph_assert(db);
   delete db;
   db = NULL;
   if (bluefs) {
@@ -7248,6 +7249,11 @@ int BlueStore::umount()
   }
 
   // GBH - Vault the allocation state
+
+  dout(1) << "deleting db=" << (void*)db << dendl;
+  delete db;
+  db = nullptr;
+
   dout(5) << "NCB::BlueStore::umount->store_allocation_state_on_bluestore() " << dendl;
   if (was_mounted && fm->is_null_manager()) {
     int ret = store_allocator(shared_alloc.a);

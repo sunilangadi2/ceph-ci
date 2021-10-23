@@ -7,7 +7,7 @@ namespace tracing {
 namespace rgw {
 
 const auto OP = "op";
-const auto BUCKET_NAME = "buckets_name";
+const auto BUCKET_NAME = "bucket_name";
 const auto USER_ID = "user_id";
 const auto OBJECT_NAME = "object_name";
 const auto RETURN = "return";

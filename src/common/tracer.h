@@ -31,9 +31,9 @@ class Tracer {
   bool is_enabled() const;
   // creates and returns a new span with `trace_name`
   // this span represents a trace, since it has no parent.
-  opentelemetry::nostd::shared_ptr<opentelemetry::trace::Span> start_trace(opentelemetry::nostd::string_view trace_name);
+  jspan start_trace(opentelemetry::nostd::string_view trace_name);
   // creates and returns a new span with `span_name` which parent span is `parent_span'
-  opentelemetry::nostd::shared_ptr<opentelemetry::trace::Span> add_span(opentelemetry::nostd::string_view span_name, opentelemetry::nostd::shared_ptr<opentelemetry::trace::Span> parent_span);
+  jspan add_span(opentelemetry::nostd::string_view span_name, jspan parent_span);
 
 };
 

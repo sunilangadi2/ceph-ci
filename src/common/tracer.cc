@@ -39,7 +39,7 @@ jspan Tracer::start_trace(opentelemetry::nostd::string_view trace_name) {
   return noop_tracer->StartSpan(trace_name);
 }
 
-jspan Tracer::add_span(opentelemetry::nostd::string_view span_name, jspan parent_span) {
+jspan Tracer::add_span(opentelemetry::nostd::string_view span_name, jspan& parent_span) {
   if (is_enabled() && parent_span) {
     const auto parent_ctx = parent_span->GetContext();
     if (parent_ctx.IsValid()) {

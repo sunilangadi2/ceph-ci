@@ -2775,6 +2775,8 @@ will start to track new ops received afterwards.";
     store->generate_db_histogram(f);
   } else if (prefix == "flush_store_cache") {
     store->flush_cache(&ss);
+  } else if (prefix == "rotate-stored-key") {
+    store->write_meta("osd_key", inbl.to_str());
   } else if (prefix == "dump_pgstate_history") {
     f->open_object_section("pgstate_history");
     f->open_array_section("pgs");

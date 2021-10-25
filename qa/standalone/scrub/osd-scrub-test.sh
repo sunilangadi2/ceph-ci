@@ -491,9 +491,225 @@ function TEST_pg_dump_scrub_duration() {
     teardown $dir || return 1
 }
 
+# Use the output from both 'ceph pg dump pgs' and 'ceph pg x.x query' commands to determine
+# the published scrub scheduling status of a given PG.
+#
+# arg 1: pg id
+# arg 2: in/out dictionary
+# arg 3: 'current' time to compare to
+# arg 4: an additional time point to compare to
+#
+function extract_published_sch() {
+  local pgn="$1"
+  local -n dict=$4 # a ref to the in/out dictionary
+  local current_time=$2
+  local extra_time=$3
+
+  bin/ceph pg dump pgs -f json-pretty >> /tmp/a_dmp$$
+
+  from_dmp=`bin/ceph pg dump pgs -f json-pretty | jq -r --arg pgn "$pgn" --arg extra_dt "$extra_time" --arg current_dt "$current_time" '[
+    [[.pg_stats[]] | group_by(.pg_stats)][0][0] | 
+    [.[] |
+    select(has("pgid") and .pgid == $pgn) |
+
+        (.dmp_stat_part=(.scrub_schedule | if test(".*@.*") then (split(" @ ")|first) else . end)) |
+        (.dmp_when_part=(.scrub_schedule | if test(".*@.*") then (split(" @ ")|last) else "0" end)) |
+
+     [ {
+       dmp_pg_state: .state,
+       dmp_state_has_scrubbing: (.state | test(".*scrub.*";"i")),
+       dmp_last_duration:.last_scrub_duration,
+       dmp_schedule: .dmp_stat_part,
+       dmp_schedule_at: .dmp_when_part,
+       dmp_future: ( .dmp_when_part > $current_dt ),
+       dmp_vs_date: ( .dmp_when_part > $extra_dt  ),
+       dmp_reported_epoch: .reported_epoch
+      }] ]][][][]'`
+
+#  from_dmp=`bin/ceph pg dump pgs -f json-pretty | jq -r --arg pgn "$pgn" --arg extra_dt "$extra_time" --arg current_dt "$current_time" '[
+#    [.pg_stats[]]
+#    | group_by(.pg_stats)][0][0] | [.[] |
+#    select(has("pgid") and .pgid == $pgn) | [ {
+#      dmp_pg_state: .state,
+#      dmp_state_has_scrubbing: (.state | test(".*scrub.*";"i")),
+#      dmp_last_duration:.last_scrub_duration,
+#      dmp_schedule: (.scrub_schedule | split(" @ ") | first),
+#      dmp_schedule_at: (.scrub_schedule | split(" @ ") | last),
+#      dmp_future: ( (.scrub_schedule | split(" @ ") | last) > $current_dt ),
+#      dmp_vs_date: ( (.scrub_schedule | split(" @ ") | last) > $extra_dt  )    
+#    }] ][][]'`
+  echo "from pg dump pg:"
+  echo $from_dmp
+
+  echo "query out==="
+  bin/ceph pg $1 query -f json-pretty | awk -e '/scrubber/,/agent_state/ {print;}'
+
+  bin/ceph pg $1 query -f json-pretty >> /tmp/a_qry$$
+
+  from_qry=`bin/ceph pg $1 query -f json-pretty |  jq -r --arg extra_dt "$extra_time" --arg current_dt "$current_time" '
+    . |
+        (.q_stat_part=((.scrubber.schedule// "-") | if test(".*@.*") then (split(" @ ")|first) else . end)) |
+        (.q_when_part=((.scrubber.schedule// "0") | if test(".*@.*") then (split(" @ ")|last) else "0" end)) |
+	(.q_when_is_future=(.q_when_part > $current_dt)) |
+	(.q_vs_date=(.q_when_part > $extra_dt)) |	
+      {
+        quey_epoch: .epoch,
+        query_active: (.scrubber | if has("active") then .active else "boo" end),
+        query_schedule: .q_stat_part,
+        query_schedule_at: .q_when_part,
+        query_last_duration: .info.stats.last_scrub_duration,
+        query_last_stamp: .info.history.last_scrub_stamp,
+	query_is_future: .q_when_is_future,
+	query_vs_date: .q_vs_date,
+
+      }
+   '`
+
+
+
+#  from_qry=`bin/ceph pg $1 query -f json-pretty |  jq -r --arg extra_dt "$extra_time" --arg current_dt "$current_time" '[{
+#    query_schedule: (.scrubber.schedule | split(" @ ") | first),
+#    query_schedule_at: (.scrubber.schedule | split(" @ ") | last),
+#    query_active: .scrubber.active,
+#    query_last_duration: .info.stats.last_scrub_duration,
+#    query_last_stamp: .info.history.last_scrub_stamp,
+#    query_future: ( (.scrubber.schedule | split(" @ ") | last) > $current_dt ),
+#    query_vs_date: ( (.scrubber.schedule | split(" @ ") | last) > $extra_dt  )    
+#    }][]'`
+
+  echo "from pg x query:"
+  echo $from_qry
+
+  echo "combined:"
+  echo $from_qry " " $from_dmp | jq -s -r 'add | "(",(to_entries | .[] | "["+(.key|@sh)+"]="+(.value|@sh)),")"'
+  dict=`echo $from_qry " " $from_dmp | jq -s -r 'add | "(",(to_entries | .[] | "["+(.key|@sh)+"]="+(.value|@sh)),")"'`
+}
+
+function schedule_against_expected() {
+  local -n dict=$1 # a ref to the published state
+  local -n ep=$2  # the expected results
+
+  echo "printing the expected values: "
+  for w in "${!ep[@]}"
+  do
+    echo $w
+  done
+
+  echo "printing actuals: "
+  for k_ref in "${!ep[@]}"
+  do
+    echo "key is " $k_ref
+    local act_val=${dict[$k_ref]}
+    local exp_val=${ep[$k_ref]}
+    echo " in actual: " $act_val
+    echo "  expected: " $exp_val    
+    if [[ $exp_val != $act_val ]]
+    then
+      echo "$3 - '$k_ref' actual value ($act_val) differs from expected ($exp_val)"
+      #return 1
+    fi
+  done
+  return 0
+}
+
+function extract_published_sch__() {
+  # $1 is the pg
+  # $2 is the 'current time' to use as ref
+  declare -A dict=(['last']="17"
+                   ['state']="periodic deep scrub scheduled"
+                   ['active']="False"
+                   ['at']="2021-10-12T20:40:03.393135+0000"
+                   ['at_in_future']="True"
+                   ['is_deep']="True"
+                   ['query_state']="deep scrub scheduled"
+                   ['query_deep']='true'
+                  )
+  sched_dict = dict
+  echo '('
+  for key in  "${!dict[@]}" ; do
+    echo "['$key']='${dict[$key]}'"
+  done
+  echo ')'
+}
+
+
+function TEST_dump_scrub_schedule() {
+    local dir=$1
+    local poolname=test
+    local OSDS=3
+    local objects=15
+
+    TESTDATA="testdata.$$"
+
+    setup $dir || return 1
+    run_mon $dir a --osd_pool_default_size=$OSDS || return 1
+    run_mgr $dir x || return 1
+
+    # Set scheduler to "wpq" until there's a reliable way to query scrub states
+    # with "--osd-scrub-sleep" set to 0. The "mclock_scheduler" overrides the
+    # scrub sleep to 0 and as a result the checks in the test fail.
+    local ceph_osd_args="--osd_deep_scrub_randomize_ratio=0 \
+            --osd_scrub_interval_randomize_ratio=0 \
+            --osd_op_queue=wpq \
+            --osd_scrub_sleep=2.0"
+
+    for osd in $(seq 0 $(expr $OSDS - 1))
+    do
+      run_osd $dir $osd $ceph_osd_args|| return 1
+    done
+
+    # Create a pool with a single pg
+    create_pool $poolname 1 1
+    wait_for_clean || return 1
+    poolid=$(ceph osd dump | grep "^pool.*[']${poolname}[']" | awk '{ print $2 }')
+    ceph osd set noscrub || return 1
+
+    dd if=/dev/urandom of=$TESTDATA bs=1032 count=1
+    for i in `seq 1 $objects`
+    do
+        rados -p $poolname put obj${i} $TESTDATA
+    done
+    rm -f $TESTDATA
+
+    declare -A sched_data
+    sched_data[extra]="-"
+    local pgid="${poolid}.0"
+    local now_is=`date -I"ns"`
+    extract_published_sch $pgid $now_is "2019-10-12T20:32:43.645168+0000" sched_data
+
+    # last scrub duration should be 0. The scheduling data should show
+    # a time in the future:
+    # e.g. 'periodic scrub scheduled @ 2021-10-12T20:32:43.645168+0000'
+
+    #local pgid="${poolid}.0"
+    ceph tell osd.* config set osd_scrub_chunk_max "3"
+
+    ceph pg scrub $pgid
+    #pg_scrub $pgid || return 1
+
+    extract_published_sch $pgid $now_is "2019-10-12T20:32:43.645168+0000" sched_data
+    sleep 0.5
+    extract_published_sch $pgid $now_is "2019-10-12T20:32:43.645168+0000" sched_data
+    sleep 0.5
+    extract_published_sch $pgid $now_is "2019-10-12T20:32:43.645168+0000" sched_data
+    sleep 0.5
+    extract_published_sch $pgid $now_is "2019-10-12T20:32:43.645168+0000" sched_data
+    sleep 8.5
+    extract_published_sch $pgid $now_is "2019-10-12T20:32:43.645168+0000" sched_data
+
+    # before the scrubbig starts
+
+    ceph pg $pgid query | jq '.info.stats.scrub_duration'
+    test "$(ceph pg $pgid query | jq '.info.stats.scrub_duration')" '>' "0" || return 1
+
+    teardown $dir || return 1
+}
+
 main osd-scrub-test "$@"
 
 # Local Variables:
 # compile-command: "cd build ; make -j4 && \
 #    ../qa/run-standalone.sh osd-scrub-test.sh"
 # End:
+#MDS=0 MGR=1 OSD=3 MON=1 ../src/vstart.sh -n --without-dashboard --memstore -X -o "osd_scrub_auto_repair=true" -o "osd_deep_scrub_randomize_ratio=0" -o 
+#"osd_scrub_interval_randomize_ratio=0" -o "osd_op_queue=wpq"  -o "osd_scrub_sleep=4.0" -o "memstore_device_bytes=68435456"

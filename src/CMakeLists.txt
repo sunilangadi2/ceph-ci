@@ -394,6 +394,7 @@ set(libcommon_files
   global/global_context.cc
   xxHash/xxhash.c
   common/error_code.cc
+  common/tracer.cc
   log/Log.cc
   mon/MonCap.cc
   mon/MonClient.cc
@@ -419,9 +420,7 @@ set(libcommon_files
   librbd/Features.cc
   librbd/io/IoOperations.cc
   ${mds_files})
-if(WITH_JAEGER)
-  list(APPEND libcommon_files common/tracer.cc)
-endif()
+
 set_source_files_properties(ceph_ver.c
   APPEND PROPERTY OBJECT_DEPENDS ${CMAKE_BINARY_DIR}/src/include/ceph_ver.h)
 add_library(common-objs OBJECT ${libcommon_files})
@@ -431,32 +430,11 @@ add_dependencies(common-objs legacy-option-headers)
 
 if(WITH_JAEGER)
   find_package(thrift 0.13.0 REQUIRED)
-  find_package(yaml-cpp 0.6.0 REQUIRED)
-  include(BuildJaeger)
-  list(APPEND jaeger_base
-  opentelemetry::libopentelemetry
-  jaegertracing::libjaegertracing)
-
-  build_jaeger()
-
-  include_directories(${CMAKE_BINARY_DIR}/external/include)
-  # for testing jaeger build
-  add_custom_target(jaeger_base DEPENDS ${jaeger_base})
-  add_library(jaeger-base INTERFACE)
+  include(BuildOpentelemetry)
+  build_opentelemetry()
+  set(jaeger_base opentelemetry::libopentelemetry thrift::libthrift)
   add_dependencies(common-objs ${jaeger_base})
-  target_link_libraries(jaeger-base INTERFACE
-    yaml-cpp::yaml-cpp
-    opentelemetry::libopentelemetry
-    thrift::libthrift
-    jaegertracing::libjaegertracing)
-
-  list(APPEND jaeger_libs
-    ${CMAKE_BINARY_DIR}/external/lib/libjaegertracing.so.0
-    ${CMAKE_BINARY_DIR}/external/lib/libjaegertracing.so.0.6.1
-    ${CMAKE_BINARY_DIR}/external/lib/libopentracing.so.1
-    ${CMAKE_BINARY_DIR}/external/lib/libopentracing.so.1.6.0)
-  install(FILES ${jaeger_libs}
-    DESTINATION ${CMAKE_INSTALL_LIBDIR})
+  target_link_libraries(common-objs ${jaeger_base})
 endif()
 
 CHECK_C_COMPILER_FLAG("-fvar-tracking-assignments" HAS_VTA)
@@ -520,7 +498,7 @@ if(WITH_DPDK)
 endif()
 
 if(WITH_JAEGER)
-  list(APPEND ceph_common_deps jaeger-base)
+  list(APPEND ceph_common_deps ${jaeger_base})
 endif()
 
 if(WIN32)
@@ -546,11 +524,11 @@ endif()
 
 add_library(common STATIC ${ceph_common_objs})
 target_link_libraries(common ${ceph_common_deps})
-add_dependencies(common legacy-option-headers)
+add_dependencies(common legacy-option-headers ${jaeger_base})
 
 add_library(ceph-common SHARED ${ceph_common_objs})
 target_link_libraries(ceph-common ${ceph_common_deps})
-add_dependencies(ceph-common legacy-option-headers)
+add_dependencies(ceph-common legacy-option-headers ${jaeger_base})
 # appease dpkg-shlibdeps
 set_target_properties(ceph-common PROPERTIES
   SOVERSION 2
@@ -678,9 +656,7 @@ set(ceph_osd_srcs
   osd/objclass.cc
   objclass/class_api.cc
   ceph_osd.cc)
-if(WITH_JAEGER)
-  list(APPEND ceph_osd_srcs common/tracer.cc)
-endif()
+
 add_executable(ceph-osd ${ceph_osd_srcs})
 add_dependencies(ceph-osd erasure_code_plugins)
 target_link_libraries(ceph-osd osd os global-static common

@@ -20,12 +20,14 @@ function(build_opentelemetry)
       ${opentelemetry_BINARY_DIR}/sdk/src/common/libopentelemetry_common.a
       ${opentelemetry_BINARY_DIR}/exporters/jaeger/libopentelemetry_exporter_jaeger_trace.a
       ${opentelemetry_BINARY_DIR}/ext/src/http/client/curl/libhttp_client_curl.a
+      ${CURL_LIBRARIES}
   )
 
   # TODO: add target based propogation
   include_directories(SYSTEM ${opentelemetry_BINARY_DIR}/include)
   set(opentelemetry_deps opentelemetry_trace opentelemetry_resources opentelemetry_common
-                         opentelemetry_exporter_jaeger_trace http_client_curl)
+                         opentelemetry_exporter_jaeger_trace http_client_curl
+			 ${CURL_LIBRARIES})
 
   if(CMAKE_MAKE_PROGRAM MATCHES "make")
     # try to inherit command line arguments passed by parent "make" job

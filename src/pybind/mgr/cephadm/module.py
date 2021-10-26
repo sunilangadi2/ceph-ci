@@ -729,6 +729,18 @@ class CephadmOrchestrator(orchestrator.Orchestrator, MgrModule,
         if host in self.offline_hosts:
             self.offline_hosts.remove(host)
 
+    def update_failed_daemon_health_check(self) -> None:
+        self.remove_health_warning('CEPHADM_FAILED_DAEMON')
+        failed_daemons = []
+        for dd in self.cache.get_daemons():
+            if dd.status is not None and dd.status == DaemonDescriptionStatus.error:
+                failed_daemons.append('daemon %s on %s is in %s state' % (
+                    dd.name(), dd.hostname, dd.status_desc
+                ))
+        if failed_daemons:
+            self.set_health_warning('CEPHADM_FAILED_DAEMON', f'{len(failed_daemons)} failed cephadm daemon(s)', len(
+                failed_daemons), failed_daemons)
+
     @staticmethod
     def can_run() -> Tuple[bool, str]:
         if asyncssh is not None:
@@ -1266,6 +1278,11 @@ class CephadmOrchestrator(orchestrator.Orchestrator, MgrModule,
         return image
 
     def _check_valid_addr(self, host: str, addr: str) -> str:
+        # make sure mgr is not resolving own ip
+        if addr in self.get_mgr_id():
+            raise OrchestratorError(
+                "Can not automatically resolve ip address of host where active mgr is running. Please explicitly provide the address.")
+
         # make sure hostname is resolvable before trying to make a connection
         try:
             ip_addr = utils.resolve_ip(addr)
@@ -1314,6 +1331,9 @@ Then run the following:
         ip_addr = self._check_valid_addr(spec.hostname, spec.addr)
         if spec.addr == spec.hostname and ip_addr:
             spec.addr = ip_addr
+
+        if spec.hostname in self.inventory and self.inventory.get_addr(spec.hostname) != spec.addr:
+            self.cache.refresh_all_host_info(spec.hostname)
 
         # prime crush map?
         if spec.location:
@@ -1516,7 +1536,8 @@ Then run the following:
             self.remove_health_warning('HOST_IN_MAINTENANCE')
         else:
             s = "host is" if len(in_maintenance) == 1 else "hosts are"
-            self.set_health_warning("HOST_IN_MAINTENANCE", f"{len(in_maintenance)} {s} in maintenance mode", 1, [f"{h} is in maintenance" for h in in_maintenance])
+            self.set_health_warning("HOST_IN_MAINTENANCE", f"{len(in_maintenance)} {s} in maintenance mode", 1, [
+                                    f"{h} is in maintenance" for h in in_maintenance])
 
     @handle_orch_error
     @host_exists()
@@ -2481,6 +2502,10 @@ Then run the following:
     @handle_orch_error
     def upgrade_status(self) -> orchestrator.UpgradeStatusSpec:
         return self.upgrade.upgrade_status()
+
+    @handle_orch_error
+    def upgrade_ls(self, image: Optional[str], tags: bool) -> Dict[Any, Any]:
+        return self.upgrade.upgrade_ls(image, tags)
 
     @handle_orch_error
     def upgrade_start(self, image: str, version: str) -> str:

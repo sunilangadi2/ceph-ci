@@ -21,6 +21,7 @@
 #include "common/utf8.h"
 #include "common/ceph_json.h"
 #include "common/static_ptr.h"
+#include "rgw_tracer.h"
 
 #include "rgw_rados.h"
 #include "rgw_zone.h"
@@ -51,7 +52,6 @@
 #include "rgw_notify_event_type.h"
 #include "rgw_sal.h"
 #include "rgw_sal_rados.h"
-#include "rgw_tracer.h"
 
 #include "services/svc_zone.h"
 #include "services/svc_quota.h"
@@ -1674,6 +1674,8 @@ static int iterate_user_manifest_parts(const DoutPrefixProvider *dpp,
 
   rgw::sal::Bucket::ListResults results;
   MD5 etag_sum;
+  // Allow use of MD5 digest in FIPS mode for non-cryptographic purposes
+  etag_sum.SetFlags(EVP_MD_CTX_FLAG_NON_FIPS_ALLOW);
   do {
     static constexpr auto MAX_LIST_OBJS = 100u;
     int r = bucket->list(dpp, params, MAX_LIST_OBJS, results, y);
@@ -1952,6 +1954,8 @@ int RGWGetObj::handle_slo_manifest(bufferlist& bl, optional_yield y)
   map<uint64_t, rgw_slo_part> slo_parts;
 
   MD5 etag_sum;
+  // Allow use of MD5 digest in FIPS mode for non-cryptographic purposes
+  etag_sum.SetFlags(EVP_MD_CTX_FLAG_NON_FIPS_ALLOW);
   total_len = 0;
 
   for (const auto& entry : slo_info.entries) {
@@ -3829,6 +3833,8 @@ void RGWPutObj::execute(optional_yield y)
   char calc_md5[CEPH_CRYPTO_MD5_DIGESTSIZE * 2 + 1];
   unsigned char m[CEPH_CRYPTO_MD5_DIGESTSIZE];
   MD5 hash;
+  // Allow use of MD5 digest in FIPS mode for non-cryptographic purposes
+  hash.SetFlags(EVP_MD_CTX_FLAG_NON_FIPS_ALLOW);
   bufferlist bl, aclbl, bs;
   int len;
   
@@ -3918,7 +3924,7 @@ void RGWPutObj::execute(optional_yield y)
   rgw_placement_rule *pdest_placement = &s->dest_placement;
 
   if (multipart) {
-    s->trace->SetTag(tracing::UPLOAD_ID, multipart_upload_id);
+    s->trace->SetAttribute(tracing::rgw::UPLOAD_ID, multipart_upload_id);
     std::unique_ptr<rgw::sal::MultipartUpload> upload;
     upload = store->get_multipart_upload(s->bucket.get(), s->object->get_name(),
 					 multipart_upload_id);
@@ -4302,6 +4308,8 @@ void RGWPostObj::execute(optional_yield y)
     char calc_md5[CEPH_CRYPTO_MD5_DIGESTSIZE * 2 + 1];
     unsigned char m[CEPH_CRYPTO_MD5_DIGESTSIZE];
     MD5 hash;
+    // Allow use of MD5 digest in FIPS mode for non-cryptographic purposes
+    hash.SetFlags(EVP_MD_CTX_FLAG_NON_FIPS_ALLOW);
     ceph::buffer::list bl, aclbl;
     int len = 0;
 
@@ -5771,6 +5779,8 @@ void RGWPutLC::execute(optional_yield y)
   ldpp_dout(this, 15) << "read len=" << data.length() << " data=" << (buf ? buf : "") << dendl;
 
   MD5 data_hash;
+  // Allow use of MD5 digest in FIPS mode for non-cryptographic purposes
+  data_hash.SetFlags(EVP_MD_CTX_FLAG_NON_FIPS_ALLOW);
   unsigned char data_hash_res[CEPH_CRYPTO_MD5_DIGESTSIZE];
   data_hash.Update(reinterpret_cast<const unsigned char*>(buf), data.length());
   data_hash.Final(data_hash_res);
@@ -6148,7 +6158,7 @@ void RGWInitMultipart::execute(optional_yield y)
   if (op_ret == 0) {
     upload_id = upload->get_upload_id();
   }
-  s->trace->SetTag(tracing::UPLOAD_ID, upload_id);
+  s->trace->SetAttribute(tracing::rgw::UPLOAD_ID, upload_id);
 
 }
 
@@ -6270,7 +6280,7 @@ void RGWCompleteMultipart::execute(optional_yield y)
 
   upload = store->get_multipart_upload(s->bucket.get(), s->object->get_name(), upload_id);
 
-  s->trace->SetTag(tracing::UPLOAD_ID, upload_id);
+  s->trace->SetAttribute(tracing::rgw::UPLOAD_ID, upload_id);
 
   RGWCompressionInfo cs_info;
   bool compressed = false;
@@ -6364,6 +6374,8 @@ bool RGWCompleteMultipart::check_previously_completed(const RGWMultiCompleteUplo
   string oetag = sattrs[RGW_ATTR_ETAG].to_str();
 
   MD5 hash;
+  // Allow use of MD5 digest in FIPS mode for non-cryptographic purposes
+  hash.SetFlags(EVP_MD_CTX_FLAG_NON_FIPS_ALLOW);
   for (const auto& [index, part] : parts->parts) {
     std::string partetag = rgw_string_unquote(part);
     char petag[CEPH_CRYPTO_MD5_DIGESTSIZE];
@@ -7392,6 +7404,8 @@ int RGWBulkUploadOp::handle_file(const std::string_view path,
   ssize_t len = 0;
   size_t ofs = 0;
   MD5 hash;
+  // Allow use of MD5 digest in FIPS mode for non-cryptographic purposes
+  hash.SetFlags(EVP_MD_CTX_FLAG_NON_FIPS_ALLOW);
   do {
     ceph::bufferlist data;
     len = body.get_at_most(s->cct->_conf->rgw_max_chunk_size, data);

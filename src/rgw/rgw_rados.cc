@@ -110,6 +110,7 @@ static RGWObjCategory main_category = RGWObjCategory::Main;
 #define RGW_USAGE_OBJ_PREFIX "usage."
 
 
+// returns true on success, false on failure
 static bool rgw_get_obj_data_pool(const RGWZoneGroup& zonegroup, const RGWZoneParams& zone_params,
                                   const rgw_placement_rule& head_placement_rule,
                                   const rgw_obj& obj, rgw_pool *pool)
@@ -1875,7 +1876,8 @@ int RGWRados::Bucket::List::list_objects_ordered(
 					   &truncated,
 					   &cls_filtered,
 					   &cur_marker,
-                                           y);
+                                           y,
+					   params.force_check_filter);
     if (r < 0) {
       return r;
     }
@@ -1927,8 +1929,8 @@ int RGWRados::Bucket::List::list_objects_ordered(
 	next_marker = index_key;
       }
 
-      if (params.filter &&
-	  ! params.filter->filter(obj.name, index_key.name)) {
+      if (params.access_list_filter &&
+	  ! params.access_list_filter->filter(obj.name, index_key.name)) {
         continue;
       }
 
@@ -2177,12 +2179,15 @@ int RGWRados::Bucket::List::list_objects_unordered(const DoutPrefixProvider *dpp
 	continue;
       }
 
-      if (params.filter && !params.filter->filter(obj.name, index_key.name))
+      if (params.access_list_filter &&
+	  !params.access_list_filter->filter(obj.name, index_key.name)) {
         continue;
+      }
 
       if (params.prefix.size() &&
-	  (0 != obj.name.compare(0, params.prefix.size(), params.prefix)))
+	  (0 != obj.name.compare(0, params.prefix.size(), params.prefix))) {
         continue;
+      }
 
       if (count >= max) {
         truncated = true;
@@ -2338,6 +2343,7 @@ int RGWRados::create_bucket(const RGWUserInfo& owner, rgw_bucket& bucket,
   return -ENOENT;
 }
 
+// returns true on success, false on failure
 bool RGWRados::get_obj_data_pool(const rgw_placement_rule& placement_rule, const rgw_obj& obj, rgw_pool *pool)
 {
   return rgw_get_obj_data_pool(svc.zone->get_zonegroup(), svc.zone->get_zone_params(), placement_rule, obj, pool);
@@ -5329,6 +5335,8 @@ static void generate_fake_tag(const DoutPrefixProvider *dpp, rgw::sal::Store* st
   unsigned char md5[CEPH_CRYPTO_MD5_DIGESTSIZE];
   char md5_str[CEPH_CRYPTO_MD5_DIGESTSIZE * 2 + 1];
   MD5 hash;
+  // Allow use of MD5 digest in FIPS mode for non-cryptographic purposes
+  hash.SetFlags(EVP_MD_CTX_FLAG_NON_FIPS_ALLOW);
   hash.Update((const unsigned char *)manifest_bl.c_str(), manifest_bl.length());
 
   map<string, bufferlist>::iterator iter = attrset.find(RGW_ATTR_ETAG);
@@ -8390,7 +8398,7 @@ int RGWRados::cls_bucket_list_ordered(const DoutPrefixProvider *dpp,
 				      bool* cls_filtered,
 				      rgw_obj_index_key *last_entry,
                                       optional_yield y,
-				      check_filter_t force_check_filter)
+				      RGWBucketListNameFilter force_check_filter)
 {
   /* expansion_factor allows the number of entries to read to grow
    * exponentially; this is used when earlier reads are producing too
@@ -8683,7 +8691,7 @@ int RGWRados::cls_bucket_list_unordered(const DoutPrefixProvider *dpp,
 					bool *is_truncated,
 					rgw_obj_index_key *last_entry,
                                         optional_yield y,
-					check_filter_t force_check_filter) {
+					RGWBucketListNameFilter force_check_filter) {
   ldpp_dout(dpp, 10) << __func__ << " " << bucket_info.bucket <<
     " start_after=\"" << start_after <<
     "\", prefix=\"" << prefix <<
@@ -8805,6 +8813,7 @@ int RGWRados::cls_bucket_list_unordered(const DoutPrefixProvider *dpp,
 	  ent_list.emplace_back(std::move(dirent));
 	  ++count;
 	} else {
+	  last_added_entry = dirent.key;
 	  *is_truncated = true;
 	  goto check_updates;
 	}
@@ -8999,6 +9008,7 @@ int RGWRados::check_disk_state(const DoutPrefixProvider *dpp,
        * non-bad ways this could happen (there probably are, but annoying
        * to handle!) */
     }
+
     // encode a suggested removal of that key
     list_state.ver.epoch = io_ctx.get_last_version();
     list_state.ver.pool = io_ctx.get_id();
@@ -9054,20 +9064,35 @@ int RGWRados::check_disk_state(const DoutPrefixProvider *dpp,
   object.meta.owner_display_name = owner.get_display_name();
 
   // encode suggested updates
-  list_state.ver.pool = io_ctx.get_id();
-  list_state.ver.epoch = astate->epoch;
+
   list_state.meta.size = object.meta.size;
   list_state.meta.accounted_size = object.meta.accounted_size;
   list_state.meta.mtime = object.meta.mtime;
   list_state.meta.category = main_category;
   list_state.meta.etag = etag;
   list_state.meta.content_type = content_type;
-  if (astate->obj_tag.length() > 0)
+
+  librados::IoCtx head_obj_ctx; // initialize to data pool so we can get pool id
+  const bool head_pool_found =
+    get_obj_head_ioctx(dpp, bucket_info, obj, &head_obj_ctx);
+  if (head_pool_found) {
+    list_state.ver.pool = head_obj_ctx.get_id();
+    list_state.ver.epoch = astate->epoch;
+  } else {
+    ldpp_dout(dpp, 0) << __PRETTY_FUNCTION__ <<
+      " WARNING: unable to find head object data pool for \"" <<
+      obj << "\", not updating version pool/epoch" << dendl;
+  }
+
+  if (astate->obj_tag.length() > 0) {
     list_state.tag = astate->obj_tag.c_str();
+  }
+
   list_state.meta.owner = owner.get_id().to_str();
   list_state.meta.owner_display_name = owner.get_display_name();
 
   list_state.exists = true;
+
   cls_rgw_encode_suggestion(CEPH_RGW_UPDATE | suggest_flag, list_state, suggested_updates);
   return 0;
 }

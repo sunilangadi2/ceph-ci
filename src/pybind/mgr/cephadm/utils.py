@@ -25,6 +25,9 @@ CEPH_TYPES = ['mgr', 'mon', 'crash', 'osd', 'mds', 'rgw', 'rbd-mirror', 'cephfs-
 GATEWAY_TYPES = ['iscsi', 'nfs']
 MONITORING_STACK_TYPES = ['node-exporter', 'prometheus', 'alertmanager', 'grafana']
 
+# daemon types we want to try to fix ourselves if we find they are in an error state
+FIX_ON_ERROR = ['nfs']
+
 CEPH_UPGRADE_ORDER = CEPH_TYPES + GATEWAY_TYPES + MONITORING_STACK_TYPES
 
 # these daemon types use the ceph container image

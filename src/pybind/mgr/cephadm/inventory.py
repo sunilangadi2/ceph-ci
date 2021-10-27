@@ -470,6 +470,8 @@ class HostCache():
         self.agent_ports = {}  # type: Dict[str, int]
         self.sending_agent_message = {}  # type: Dict[str, bool]
 
+        self.repair_backoff = {}  # type: Dict[str, Tuple[int, datetime.datetime]]
+
     def load(self):
         # type: () -> None
         for k, v in self.mgr.get_store_prefix(HOST_CACHE_PREFIX).items():
@@ -1098,6 +1100,38 @@ class HostCache():
         assert not daemon.startswith('ha-rgw.')
 
         return self.scheduled_daemon_actions.get(host, {}).get(daemon)
+
+    def can_repair(self, daemon_name: str) -> bool:
+        backoff = {
+            1: 90,  # 90 seconds
+            2: 180,  # 3 minutes
+            3: 300,  # 5 minutes
+            4: 600,  # 10 minutes
+            5: 1800,  # 30 minutes
+            6: 7200,  # 2 hours
+            7: 43200,  # 12 hours
+            8: 172800,  # 2 days
+        }
+        if daemon_name not in self.repair_backoff:
+            return True
+        elif self.repair_backoff[daemon_name][0] > max(backoff.keys()):
+            return False
+        else:
+            time_diff = datetime_now() - self.repair_backoff[daemon_name][1]
+            if time_diff.total_seconds() < backoff[self.repair_backoff[daemon_name][0]]:
+                return False
+            return True
+
+    def did_repair(self, daemon_name: str) -> None:
+        if daemon_name not in self.repair_backoff:
+            self.repair_backoff[daemon_name] = (1, datetime_now())
+        else:
+            self.repair_backoff[daemon_name] = (
+                self.repair_backoff[daemon_name][0] + 1, datetime_now())
+
+    def clear_repair(self, daemon_name: str) -> None:
+        if daemon_name in self.repair_backoff:
+            del self.repair_backoff[daemon_name]
 
 
 class EventStore():

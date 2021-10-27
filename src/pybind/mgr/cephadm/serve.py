@@ -17,7 +17,7 @@ from cephadm.services.cephadmservice import CephadmDaemonDeploySpec
 from cephadm.schedule import HostAssignment
 from cephadm.autotune import MemoryAutotuner
 from cephadm.utils import forall_hosts, cephadmNoImage, is_repo_digest, \
-    CephadmNoImage, CEPH_TYPES, ContainerInspectInfo
+    CephadmNoImage, CEPH_TYPES, ContainerInspectInfo, FIX_ON_ERROR
 from mgr_module import MonCommandFailed
 from mgr_util import format_bytes
 
@@ -935,6 +935,21 @@ class CephadmServe:
                     dd.daemon_type in CEPH_TYPES:
                 self.log.info('Reconfiguring %s (extra config changed)...' % dd.name())
                 action = 'reconfig'
+            elif dd.daemon_type in FIX_ON_ERROR:
+                if (
+                    dd.hostname in [h.hostname for h in self.mgr.cache.get_schedulable_hosts()]
+                    and dd.hostname not in [h.hostname for h in self.mgr.cache.get_unreachable_hosts()]
+                    and (not action or action not in ['redeploy', 'stop'])
+                ):
+                    # Do we also want to start the daemon if it's stopped? That will keep it more
+                    # "available" but also effectively means users aren't allowed to stop the daemons
+                    if dd.status and dd.status == DaemonDescriptionStatus.error:
+                        if self.mgr.cache.can_repair(dd.name()):
+                            action = 'redeploy'
+                            self.log.info(f'Attempting repair of {dd.name()} via redeploy')
+                            self.mgr.cache.did_repair(dd.name())
+                    else:
+                        self.mgr.cache.clear_repair(dd.name())
             if action:
                 if self.mgr.cache.get_scheduled_daemon_action(dd.hostname, dd.name()) == 'redeploy' \
                         and action == 'reconfig':

@@ -952,7 +952,12 @@ class CephadmServe:
                     # Do we also want to start the daemon if it's stopped? That will keep it more
                     # "available" but also effectively means users aren't allowed to stop the daemons
                     if dd.status and dd.status == DaemonDescriptionStatus.error:
-                        action = 'redeploy'
+                        if self.mgr.cache.can_repair(dd.name()):
+                            action = 'redeploy'
+                            self.log.info(f'Attempting repair of {dd.name()} via redeploy')
+                            self.mgr.cache.did_repair(dd.name())
+                    else:
+                        self.mgr.cache.clear_repair(dd.name())
             if action:
                 if self.mgr.cache.get_scheduled_daemon_action(dd.hostname, dd.name()) == 'redeploy' \
                         and action == 'reconfig':
